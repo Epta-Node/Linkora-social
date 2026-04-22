@@ -4,7 +4,7 @@ use soroban_sdk::{
     Vec,
 };
 
-// ── Storage Keys ────────────────────────────────────────────────────────────
+// ── Storage Keys ─────────────────────────────────────────────────────────────────────
 
 const POSTS: Symbol = symbol_short!("POSTS");
 const POST_CT: Symbol = symbol_short!("POST_CT");
@@ -12,7 +12,7 @@ const PROFILES: Symbol = symbol_short!("PROFILES");
 const FOLLOWS: Symbol = symbol_short!("FOLLOWS");
 const POOLS: Symbol = symbol_short!("POOLS");
 
-// ── Data Types ───────────────────────────────────────────────────────────────
+// ── Data Types ───────────────────────────────────────────────────────────────────────
 
 #[contracttype]
 #[derive(Clone)]
@@ -39,14 +39,14 @@ pub struct Pool {
     pub balance: i128,
 }
 
-// ── Contract ─────────────────────────────────────────────────────────────────
+// ── Contract ───────────────────────────────────────────────────────────────────────────
 
 #[contract]
 pub struct LinkoraContract;
 
 #[contractimpl]
 impl LinkoraContract {
-    // ── Profiles ─────────────────────────────────────────────────────────────
+    // ── Profiles ───────────────────────────────────────────────────────────────────────
 
     /// Register or update a profile. `creator_token` is the SEP-41 token the
     /// creator has already deployed; pass their own address if none yet.
@@ -77,7 +77,7 @@ impl LinkoraContract {
         profiles.get(user)
     }
 
-    // ── Social Graph ─────────────────────────────────────────────────────────
+    // ── Social Graph ───────────────────────────────────────────────────────────────────
 
     pub fn follow(env: Env, follower: Address, followee: Address) {
         follower.require_auth();
@@ -100,7 +100,7 @@ impl LinkoraContract {
             .unwrap_or(Vec::new(&env))
     }
 
-    // ── Posts ─────────────────────────────────────────────────────────────────
+    // ── Posts ─────────────────────────────────────────────────────────────────────────────
 
     pub fn create_post(env: Env, author: Address, content: String) -> u64 {
         author.require_auth();
@@ -137,11 +137,12 @@ impl LinkoraContract {
         posts.get(id)
     }
 
-    // ── Tipping ───────────────────────────────────────────────────────────────
+    // ── Tipping ─────────────────────────────────────────────────────────────────────────────
 
     /// Tip a post author. `token` is any SEP-41 token address.
     pub fn tip(env: Env, tipper: Address, post_id: u64, token: Address, amount: i128) {
         tipper.require_auth();
+        assert!(amount > 0, "tip amount must be positive");
         let mut posts: Map<u64, Post> = env
             .storage()
             .persistent()
@@ -160,7 +161,7 @@ impl LinkoraContract {
         env.storage().persistent().set(&POSTS, &posts);
     }
 
-    // ── Community Token Pool ──────────────────────────────────────────────────
+    // ── Community Token Pool ─────────────────────────────────────────────────────────────
 
     /// Deposit tokens into a named community pool.
     pub fn pool_deposit(
