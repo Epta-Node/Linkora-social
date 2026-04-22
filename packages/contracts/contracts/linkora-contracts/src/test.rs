@@ -70,7 +70,7 @@ fn test_post_and_tip() {
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "tip amount must be positive")]
 fn test_tip_zero_amount() {
     let env = Env::default();
     env.mock_all_auths();
@@ -84,12 +84,11 @@ fn test_tip_zero_amount() {
     let token = setup_token(&env, &tipper);
 
     let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
-    // must panic: zero is not a valid tip amount
     client.tip(&tipper, &post_id, &token, &0);
 }
 
 #[test]
-#[should_panic]
+#[should_panic(expected = "tip amount must be positive")]
 fn test_tip_negative_amount() {
     let env = Env::default();
     env.mock_all_auths();
@@ -103,7 +102,6 @@ fn test_tip_negative_amount() {
     let token = setup_token(&env, &tipper);
 
     let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
-    // must panic: negative amount would drain the author's balance
     client.tip(&tipper, &post_id, &token, &-100);
 }
 
