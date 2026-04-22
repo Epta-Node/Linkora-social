@@ -142,6 +142,7 @@ impl LinkoraContract {
     /// Tip a post author. `token` is any SEP-41 token address.
     pub fn tip(env: Env, tipper: Address, post_id: u64, token: Address, amount: i128) {
         tipper.require_auth();
+        assert!(amount > 0, "tip amount must be positive");
         let mut posts: Map<u64, Post> = env
             .storage()
             .persistent()

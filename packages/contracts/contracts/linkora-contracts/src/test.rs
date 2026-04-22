@@ -5,7 +5,7 @@ use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
-    Address, Env, String,
+    Address, Env, IntoVal, String,
 };
 
 fn setup_token(env: &Env, admin: &Address) -> Address {
@@ -67,6 +67,54 @@ fn test_post_and_tip() {
     let post = client.get_post(&post_id).unwrap();
     assert_eq!(post.tip_total, 500);
     assert_eq!(TokenClient::new(&env, &token).balance(&author), 500);
+}
+
+#[test]
+fn test_tip_zero_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+    let tipper = Address::generate(&env);
+    let token = setup_token(&env, &tipper);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
+
+    // In no_std Soroban environment, we test panic by invoking through Env::try_invoke_contract
+    // The contract should panic with "tip amount must be positive"
+    let result = env.try_invoke_contract::<(), soroban_sdk::Error>(
+        &contract_id,
+        &symbol_short!("tip"),
+        (&tipper, &post_id, &token, &0i128).into_val(&env),
+    );
+    assert!(result.is_err(), "tip with zero amount should fail");
+}
+
+#[test]
+fn test_tip_negative_amount_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+    let tipper = Address::generate(&env);
+    let token = setup_token(&env, &tipper);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
+
+    let result = env.try_invoke_contract::<(), soroban_sdk::Error>(
+        &contract_id,
+        &symbol_short!("tip"),
+        (&tipper, &post_id, &token, &-100i128).into_val(&env),
+    );
+    assert!(result.is_err(), "tip with negative amount should fail");
 }
 
 #[test]
