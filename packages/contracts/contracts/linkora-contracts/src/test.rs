@@ -47,6 +47,24 @@ fn test_follow() {
 }
 
 #[test]
+fn test_follow_is_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.follow(&alice, &bob);
+    client.follow(&alice, &bob);
+
+    let following = client.get_following(&alice);
+    assert_eq!(following.len(), 1);
+    assert_eq!(following.get(0).unwrap(), bob);
+}
+
+#[test]
 fn test_post_and_tip() {
     let env = Env::default();
     env.mock_all_auths();
