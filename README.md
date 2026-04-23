@@ -65,28 +65,20 @@ The primary contract is `LinkoraContract`.
 - `Post`: stores post id, author, content, total tips, and timestamp
 - `Pool`: stores a pool token address and tracked balance
 
-### Public Functions
+### Contract API Reference
 
-- `set_profile(user, username, creator_token)`
-  Registers or updates a creator profile.
-- `get_profile(user)`
-  Returns profile data for a user if it exists.
-- `follow(follower, followee)`
-  Records a follow relationship.
-- `get_following(user)`
-  Returns the accounts followed by a user.
-- `create_post(author, content)`
-  Creates a new on-chain post and returns its id.
-- `get_post(id)`
-  Returns a post by id if it exists.
-- `tip(tipper, post_id, token, amount)`
-  Transfers SEP-41 tokens to the post author and updates the post tip total.
-- `pool_deposit(depositor, pool_id, token, amount)`
-  Deposits tokens into a community pool tracked by `pool_id`.
-- `pool_withdraw(recipient, pool_id, amount)`
-  Withdraws tokens from a pool to an authorized recipient.
-- `get_pool(pool_id)`
-  Returns pool state if it exists.
+| Function | Purpose | Required signer | Inputs | Returns |
+|---|---|---|---|---|
+| `set_profile(user, username, creator_token)` | Register or update a creator profile. | `user` | `user: Address` — account being registered<br>`username: String` — display name<br>`creator_token: Address` — SEP-41 token the creator has deployed (pass own address if none) | `()` |
+| `get_profile(user)` | Fetch a profile by address. | None | `user: Address` | `Option<Profile>` |
+| `follow(follower, followee)` | Record a follow relationship. Duplicate follows are ignored. | `follower` | `follower: Address` — account initiating the follow<br>`followee: Address` — account being followed | `()` |
+| `get_following(user)` | Return all accounts followed by a user. | None | `user: Address` | `Vec<Address>` |
+| `create_post(author, content)` | Publish a new on-chain post. Post IDs are assigned sequentially starting at 1. | `author` | `author: Address` — post creator<br>`content: String` — post body | `u64` — new post ID |
+| `get_post(id)` | Fetch a post by ID. | None | `id: u64` | `Option<Post>` |
+| `tip(tipper, post_id, token, amount)` | Transfer SEP-41 tokens directly to a post's author and increment the post's `tip_total`. | `tipper` | `tipper: Address` — sender<br>`post_id: u64` — target post<br>`token: Address` — SEP-41 token contract<br>`amount: i128` — token units to transfer | `()` |
+| `pool_deposit(depositor, pool_id, token, amount)` | Deposit tokens into a named community pool. `amount` must be greater than zero. | `depositor` | `depositor: Address` — token sender<br>`pool_id: Symbol` — pool identifier<br>`token: Address` — SEP-41 token contract<br>`amount: i128` — token units to deposit (must be > 0) | `()` |
+| `pool_withdraw(recipient, pool_id, amount)` | Withdraw tokens from a community pool to the caller. `amount` must be greater than zero and must not exceed the pool balance. | `recipient` | `recipient: Address` — token receiver<br>`pool_id: Symbol` — pool identifier<br>`amount: i128` — token units to withdraw (must be > 0) | `()` |
+| `get_pool(pool_id)` | Fetch the current state of a pool. | None | `pool_id: Symbol` | `Option<Pool>` |
 
 ## Prerequisites
 
