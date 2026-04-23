@@ -124,3 +124,43 @@ fn test_pool_deposit_negative_amount() {
     // Negative deposit must be rejected before any state change
     client.pool_deposit(&user, &pool_id, &token, &-1);
 }
+
+#[test]
+#[should_panic(expected = "withdrawal amount must be positive")]
+fn test_pool_withdraw_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+    let pool_id = symbol_short!("community");
+
+    // Seed the pool first so the zero-amount guard is the only thing that fires
+    client.pool_deposit(&user, &pool_id, &token, &1_000);
+
+    // Zero withdrawal must be rejected before any state change
+    client.pool_withdraw(&user, &pool_id, &0);
+}
+
+#[test]
+#[should_panic(expected = "withdrawal amount must be positive")]
+fn test_pool_withdraw_negative_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+    let pool_id = symbol_short!("community");
+
+    // Seed the pool first so the negative-amount guard is the only thing that fires
+    client.pool_deposit(&user, &pool_id, &token, &1_000);
+
+    // Negative withdrawal must be rejected before any state change
+    client.pool_withdraw(&user, &pool_id, &-1);
+}
