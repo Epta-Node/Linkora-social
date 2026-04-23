@@ -171,6 +171,7 @@ impl LinkoraContract {
         amount: i128,
     ) {
         depositor.require_auth();
+        assert!(amount > 0, "deposit amount must be positive");
         let contract = env.current_contract_address();
         token::Client::new(&env, &token).transfer(&depositor, &contract, &amount);
 

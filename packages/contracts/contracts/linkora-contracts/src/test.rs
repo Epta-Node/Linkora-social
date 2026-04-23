@@ -90,3 +90,35 @@ fn test_pool_deposit_withdraw() {
     assert_eq!(pool.balance, 800);
     assert_eq!(TokenClient::new(&env, &token).balance(&user), 9_200);
 }
+
+#[test]
+#[should_panic(expected = "deposit amount must be positive")]
+fn test_pool_deposit_rejects_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+    let pool_id = symbol_short!("community");
+
+    client.pool_deposit(&user, &pool_id, &token, &0);
+}
+
+#[test]
+#[should_panic(expected = "deposit amount must be positive")]
+fn test_pool_deposit_rejects_negative_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+    let pool_id = symbol_short!("community");
+
+    client.pool_deposit(&user, &pool_id, &token, &-1);
+}
