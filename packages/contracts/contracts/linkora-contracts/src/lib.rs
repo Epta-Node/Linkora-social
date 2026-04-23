@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, Env, Map, String, Symbol,
-    Vec,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Map, String,
+    Symbol, Vec,
 };
 
 // ── Storage Keys ────────────────────────────────────────────────────────────
@@ -11,6 +11,7 @@ const POST_CT: Symbol = symbol_short!("POST_CT");
 const PROFILES: Symbol = symbol_short!("PROFILES");
 const FOLLOWS: Symbol = symbol_short!("FOLLOWS");
 const POOLS: Symbol = symbol_short!("POOLS");
+const ADMIN: Symbol = symbol_short!("ADMIN");
 
 // ── Data Types ───────────────────────────────────────────────────────────────
 
@@ -37,6 +38,14 @@ pub struct Profile {
 pub struct Pool {
     pub token: Address,
     pub balance: i128,
+}
+
+// ── Events ───────────────────────────────────────────────────────────────────
+
+#[contracttype]
+#[derive(Clone)]
+pub struct ContractUpgraded {
+    pub new_wasm_hash: BytesN<32>,
 }
 
 // ── Contract ─────────────────────────────────────────────────────────────────
@@ -209,6 +218,27 @@ impl LinkoraContract {
 
     pub fn get_pool(env: Env, pool_id: Symbol) -> Option<Pool> {
         env.storage().persistent().get(&(POOLS, pool_id))
+    }
+
+    // ── Upgradability ─────────────────────────────────────────────────────────
+
+    pub fn initialize(env: Env, admin: Address) {
+        if env.storage().persistent().has(&ADMIN) {
+            panic!("already initialized");
+        }
+        env.storage().persistent().set(&ADMIN, &admin);
+    }
+
+    pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {
+        let admin: Address = env.storage().persistent().get(&ADMIN).expect("not initialized");
+        admin.require_auth();
+
+        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+
+        env.events().publish(
+            (symbol_short!("upgraded"),),
+            ContractUpgraded { new_wasm_hash },
+        );
     }
 }
 
