@@ -1,10 +1,17 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Map, String,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, String,
     Symbol, Vec,
 };
 
 // ── Storage Keys ────────────────────────────────────────────────────────────
+//
+// Storage Layout Rationale:
+// Each record (post, profile, pool) is stored under a composite key like
+// (POSTS, id) or (PROFILES, user) rather than storing all records in a single
+// Map under one key. This avoids deserializing/serializing the entire collection
+// on every read/write, which significantly reduces storage fees and gas costs
+// as the dataset grows on Soroban.
 
 const POSTS: Symbol = symbol_short!("POSTS");
 const POST_CT: Symbol = symbol_short!("POST_CT");
@@ -59,31 +66,21 @@ impl LinkoraContract {
 
     /// Register or update a profile. `creator_token` is the SEP-41 token the
     /// creator has already deployed; pass their own address if none yet.
+    /// 
+    /// Storage: Each profile is stored under a composite key (PROFILES, user)
+    /// to avoid deserializing/serializing the entire profiles map on every operation.
     pub fn set_profile(env: Env, user: Address, username: String, creator_token: Address) {
         user.require_auth();
-        let mut profiles: Map<Address, Profile> = env
-            .storage()
-            .persistent()
-            .get(&PROFILES)
-            .unwrap_or(Map::new(&env));
-        profiles.set(
-            user.clone(),
-            Profile {
-                address: user,
-                username,
-                creator_token,
-            },
-        );
-        env.storage().persistent().set(&PROFILES, &profiles);
+        let profile = Profile {
+            address: user.clone(),
+            username,
+            creator_token,
+        };
+        env.storage().persistent().set(&(PROFILES, user), &profile);
     }
 
     pub fn get_profile(env: Env, user: Address) -> Option<Profile> {
-        let profiles: Map<Address, Profile> = env
-            .storage()
-            .persistent()
-            .get(&PROFILES)
-            .unwrap_or(Map::new(&env));
-        profiles.get(user)
+        env.storage().persistent().get(&(PROFILES, user))
     }
 
     // ── Social Graph ─────────────────────────────────────────────────────────
@@ -111,6 +108,11 @@ impl LinkoraContract {
 
     // ── Posts ─────────────────────────────────────────────────────────────────
 
+    /// Create a new post.
+    /// 
+    /// Storage: Each post is stored under a composite key (POSTS, id) to avoid
+    /// deserializing/serializing the entire posts map on every operation. This
+    /// significantly reduces storage fees as the dataset grows.
     pub fn create_post(env: Env, author: Address, content: String) -> u64 {
         author.require_auth();
         let id: u64 = env
@@ -126,24 +128,13 @@ impl LinkoraContract {
             tip_total: 0,
             timestamp: env.ledger().timestamp(),
         };
-        let mut posts: Map<u64, Post> = env
-            .storage()
-            .persistent()
-            .get(&POSTS)
-            .unwrap_or(Map::new(&env));
-        posts.set(id, post);
-        env.storage().persistent().set(&POSTS, &posts);
+        env.storage().persistent().set(&(POSTS, id), &post);
         env.storage().instance().set(&POST_CT, &id);
         id
     }
 
     pub fn get_post(env: Env, id: u64) -> Option<Post> {
-        let posts: Map<u64, Post> = env
-            .storage()
-            .persistent()
-            .get(&POSTS)
-            .unwrap_or(Map::new(&env));
-        posts.get(id)
+        env.storage().persistent().get(&(POSTS, id))
     }
 
     // ── Tipping ───────────────────────────────────────────────────────────────
@@ -151,12 +142,8 @@ impl LinkoraContract {
     /// Tip a post author. `token` is any SEP-41 token address.
     pub fn tip(env: Env, tipper: Address, post_id: u64, token: Address, amount: i128) {
         tipper.require_auth();
-        let mut posts: Map<u64, Post> = env
-            .storage()
-            .persistent()
-            .get(&POSTS)
-            .unwrap_or(Map::new(&env));
-        let mut post = posts.get(post_id).unwrap();
+        let key = (POSTS, post_id);
+        let mut post: Post = env.storage().persistent().get(&key).unwrap();
 
         token::Client::new(&env, &token).transfer(
             &tipper,
@@ -165,8 +152,7 @@ impl LinkoraContract {
         );
 
         post.tip_total += amount;
-        posts.set(post_id, post);
-        env.storage().persistent().set(&POSTS, &posts);
+        env.storage().persistent().set(&key, &post);
     }
 
     // ── Community Token Pool ──────────────────────────────────────────────────
