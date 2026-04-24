@@ -8,6 +8,7 @@
     "build:contracts": "pnpm --filter contracts build",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "test:integration": "pnpm --filter contracts test:integration",
     "format": "turbo run format"
   },
   "devDependencies": {

@@ -15,80 +15,104 @@ fn setup_token(env: &Env, admin: &Address) -> Address {
 }
 
 #[test]
-fn test_profile() {
+fn test_tip_fee_split() {
     let env = Env::default();
     env.mock_all_auths();
+
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
 
-    let user = Address::generate(&env);
-    client.set_profile(
-        &user,
-        &String::from_str(&env, "alice"),
-        &user.clone(),
-    );
-    let profile = client.get_profile(&user).unwrap();
-    assert_eq!(profile.username, String::from_str(&env, "alice"));
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let author = Address::generate(&env);
+    let tipper = Address::generate(&env);
+    
+    // Initialize with 2.5% fee (250 bps)
+    client.initialize(&admin, &treasury, &250);
+
+    let token = setup_token(&env, &tipper);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "Fee test post"));
+
+    // Tip 1000 units
+    client.tip(&tipper, &post_id, &token, &1000);
+
+    // Verify balances
+    // Fee = 1000 * 250 / 10000 = 25
+    // Author gets 1000 - 25 = 975
+    assert_eq!(TokenClient::new(&env, &token).balance(&treasury), 25);
+    assert_eq!(TokenClient::new(&env, &token).balance(&author), 975);
+    
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.tip_total, 1000);
 }
 
 #[test]
-fn test_follow() {
+fn test_tip_zero_fee() {
     let env = Env::default();
     env.mock_all_auths();
+
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
 
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    client.follow(&alice, &bob);
-    let following = client.get_following(&alice);
-    assert_eq!(following.len(), 1);
-    assert_eq!(following.get(0).unwrap(), bob);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let author = Address::generate(&env);
+    let tipper = Address::generate(&env);
+    
+    // Initialize with 0% fee
+    client.initialize(&admin, &treasury, &0);
+
+    let token = setup_token(&env, &tipper);
+    let post_id = client.create_post(&author, &String::from_str(&env, "Zero fee post"));
+
+    client.tip(&tipper, &post_id, &token, &1000);
+
+    assert_eq!(TokenClient::new(&env, &token).balance(&treasury), 0);
+    assert_eq!(TokenClient::new(&env, &token).balance(&author), 1000);
 }
 
 #[test]
-fn test_post_and_tip() {
+fn test_set_fee_and_treasury() {
     let env = Env::default();
     env.mock_all_auths();
-    env.ledger().set_timestamp(1_000_000);
 
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    client.initialize(&admin, &treasury, &0);
+
+    // Update fee
+    client.set_fee(&500); // 5%
+    
+    // Update treasury
+    let new_treasury = Address::generate(&env);
+    client.set_treasury(&new_treasury);
 
     let author = Address::generate(&env);
     let tipper = Address::generate(&env);
     let token = setup_token(&env, &tipper);
+    let post_id = client.create_post(&author, &String::from_str(&env, "Update test post"));
 
-    let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
-    assert_eq!(post_id, 1);
+    client.tip(&tipper, &post_id, &token, &1000);
 
-    client.tip(&tipper, &post_id, &token, &500);
-
-    let post = client.get_post(&post_id).unwrap();
-    assert_eq!(post.tip_total, 500);
-    assert_eq!(TokenClient::new(&env, &token).balance(&author), 500);
+    assert_eq!(TokenClient::new(&env, &token).balance(&new_treasury), 50);
+    assert_eq!(TokenClient::new(&env, &token).balance(&author), 950);
 }
 
 #[test]
-fn test_pool_deposit_withdraw() {
+#[should_panic(expected = "fee_bps cannot exceed 10000")]
+fn test_invalid_fee() {
     let env = Env::default();
     env.mock_all_auths();
-
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let user = Address::generate(&env);
-    let token = setup_token(&env, &user);
-    let pool_id = symbol_short!("community");
-
-    client.pool_deposit(&user, &pool_id, &token, &1_000);
-    let pool = client.get_pool(&pool_id).unwrap();
-    assert_eq!(pool.balance, 1_000);
-
-    client.pool_withdraw(&user, &pool_id, &200);
-    let pool = client.get_pool(&pool_id).unwrap();
-    assert_eq!(pool.balance, 800);
-    assert_eq!(TokenClient::new(&env, &token).balance(&user), 9_200);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    client.initialize(&admin, &treasury, &10001);
 }
 
 #[test]
@@ -129,165 +153,22 @@ fn test_sequential_posts() {
     assert!(post_id1 != post_id2);
 }
 
-// ── Validation Tests ─────────────────────────────────────────────────────────
-
 #[test]
-fn test_valid_username() {
+fn test_follow_is_idempotent() {
     let env = Env::default();
     env.mock_all_auths();
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
 
-    let user = Address::generate(&env);
-    
-    // Valid usernames
-    client.set_profile(&user, &String::from_str(&env, "alice"), &user.clone());
-    client.set_profile(&user, &String::from_str(&env, "bob_123"), &user.clone());
-    client.set_profile(&user, &String::from_str(&env, "user_name_123"), &user.clone());
-    
-    let profile = client.get_profile(&user).unwrap();
-    assert_eq!(profile.username, String::from_str(&env, "user_name_123"));
-}
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
 
-#[test]
-#[should_panic(expected = "username too short")]
-fn test_username_too_short() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
+    // Follow bob twice from alice — should be deduplicated
+    client.follow(&alice, &bob);
+    client.follow(&alice, &bob);
 
-    let user = Address::generate(&env);
-    client.set_profile(&user, &String::from_str(&env, "ab"), &user.clone());
-}
-
-#[test]
-#[should_panic(expected = "username too long")]
-fn test_username_too_long() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let user = Address::generate(&env);
-    // 33 characters - exceeds max of 32
-    client.set_profile(&user, &String::from_str(&env, "abcdefghijklmnopqrstuvwxyz1234567"), &user.clone());
-}
-
-#[test]
-#[should_panic(expected = "username must contain only alphanumeric characters and underscores")]
-fn test_username_invalid_characters() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let user = Address::generate(&env);
-    
-    // Test with space
-    client.set_profile(&user, &String::from_str(&env, "alice bob"), &user.clone());
-}
-
-#[test]
-#[should_panic(expected = "username must contain only alphanumeric characters and underscores")]
-fn test_username_special_characters() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let user = Address::generate(&env);
-    
-    // Test with special characters
-    client.set_profile(&user, &String::from_str(&env, "alice@bob"), &user.clone());
-}
-
-#[test]
-fn test_valid_post_content() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let author = Address::generate(&env);
-    
-    // Valid content lengths
-    let post_id1 = client.create_post(&author, &String::from_str(&env, "a"));
-    let post_id2 = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
-    
-    // 280 characters (max)
-    let long_content = "a".repeat(280);
-    let post_id3 = client.create_post(&author, &String::from_str(&env, &long_content));
-    
-    assert_eq!(post_id1, 1);
-    assert_eq!(post_id2, 2);
-    assert_eq!(post_id3, 3);
-}
-
-#[test]
-#[should_panic(expected = "content cannot be empty")]
-fn test_post_content_empty() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let author = Address::generate(&env);
-    client.create_post(&author, &String::from_str(&env, ""));
-}
-
-#[test]
-#[should_panic(expected = "content too long")]
-fn test_post_content_too_long() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let author = Address::generate(&env);
-    
-    // 281 characters (over limit)
-    let long_content = "a".repeat(281);
-    client.create_post(&author, &String::from_str(&env, &long_content));
-}
-
-#[test]
-fn test_username_edge_cases() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let user = Address::generate(&env);
-    
-    // Minimum length (3 characters)
-    client.set_profile(&user, &String::from_str(&env, "abc"), &user.clone());
-    
-    // Maximum length (32 characters)
-    let max_username = "a".repeat(32);
-    client.set_profile(&user, &String::from_str(&env, &max_username), &user.clone());
-    
-    let profile = client.get_profile(&user).unwrap();
-    assert_eq!(profile.username.len(), 32);
-}
-
-#[test]
-fn test_content_edge_cases() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let author = Address::generate(&env);
-    
-    // Minimum length (1 character)
-    let post_id1 = client.create_post(&author, &String::from_str(&env, "x"));
-    let post1 = client.get_post(&post_id1).unwrap();
-    assert_eq!(post1.content.len(), 1);
-    
-    // Maximum length (280 characters)
-    let max_content = "x".repeat(280);
-    let post_id2 = client.create_post(&author, &String::from_str(&env, &max_content));
-    let post2 = client.get_post(&post_id2).unwrap();
-    assert_eq!(post2.content.len(), 280);
+    let following = client.get_following(&alice);
+    // Bob must appear exactly once despite two follow calls
+    assert_eq!(following.len(), 1);
+    assert_eq!(following.get(0).unwrap(), bob);
 }

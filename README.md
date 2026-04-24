@@ -173,6 +173,16 @@ The contract test suite currently covers:
 
 Tests are located in `packages/contracts/contracts/linkora-contracts/src/test.rs`.
 
+Sandbox-backed integration tests with real transaction signing are available under `tests/integration`.
+
+Run them from repository root:
+
+```bash
+pnpm test:integration
+```
+
+See `tests/README.md` for setup details and CI guidance.
+
 ## Contributor Guide
 
 Contributions are welcome, especially in these areas:
