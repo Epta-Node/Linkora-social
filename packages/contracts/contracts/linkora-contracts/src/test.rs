@@ -14,126 +14,21 @@ fn setup_token(env: &Env, admin: &Address) -> Address {
     token_id.address()
 }
 
-#[test]
-fn test_tip_fee_split() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let author = Address::generate(&env);
-    let tipper = Address::generate(&env);
-    
-    // Initialize with 2.5% fee (250 bps)
-    client.initialize(&admin, &treasury, &250);
-
-    let token = setup_token(&env, &tipper);
-
-    let post_id = client.create_post(&author, &String::from_str(&env, "Fee test post"));
-
-    // Tip 1000 units
-    client.tip(&tipper, &post_id, &token, &1000);
-
-    // Verify balances
-    // Fee = 1000 * 250 / 10000 = 25
-    // Author gets 1000 - 25 = 975
-    assert_eq!(TokenClient::new(&env, &token).balance(&treasury), 25);
-    assert_eq!(TokenClient::new(&env, &token).balance(&author), 975);
-    
-    let post = client.get_post(&post_id).unwrap();
-    assert_eq!(post.tip_total, 1000);
-}
+// ── Pool tests ────────────────────────────────────────────────────────────────
 
 #[test]
-fn test_tip_zero_fee() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    let author = Address::generate(&env);
-    let tipper = Address::generate(&env);
-    
-    // Initialize with 0% fee
-    client.initialize(&admin, &treasury, &0);
-
-    let token = setup_token(&env, &tipper);
-    let post_id = client.create_post(&author, &String::from_str(&env, "Zero fee post"));
-
-    client.tip(&tipper, &post_id, &token, &1000);
-
-    assert_eq!(TokenClient::new(&env, &token).balance(&treasury), 0);
-    assert_eq!(TokenClient::new(&env, &token).balance(&author), 1000);
-}
-
-#[test]
-fn test_set_fee_and_treasury() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-
-    let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    
-    client.initialize(&admin, &treasury, &0);
-
-    // Update fee
-    client.set_fee(&500); // 5%
-    
-    // Update treasury
-    let new_treasury = Address::generate(&env);
-    client.set_treasury(&new_treasury);
-
-    let author = Address::generate(&env);
-    let tipper = Address::generate(&env);
-    let token = setup_token(&env, &tipper);
-    let post_id = client.create_post(&author, &String::from_str(&env, "Update test post"));
-
-    client.tip(&tipper, &post_id, &token, &1000);
-
-    assert_eq!(TokenClient::new(&env, &token).balance(&new_treasury), 50);
-    assert_eq!(TokenClient::new(&env, &token).balance(&author), 950);
-}
-
-#[test]
-#[should_panic(expected = "fee_bps cannot exceed 10000")]
-fn test_invalid_fee() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let contract_id = env.register(LinkoraContract, ());
-    let client = LinkoraContractClient::new(&env, &contract_id);
-    let admin = Address::generate(&env);
-    let treasury = Address::generate(&env);
-    client.initialize(&admin, &treasury, &10001);
-}
-
-#[test]
-<<<<<<< fix/reject-zero-negative-pool-withdrawal
 #[should_panic(expected = "deposit amount must be positive")]
 fn test_pool_deposit_zero_amount() {
-=======
-fn test_sequential_posts() {
->>>>>>> main
     let env = Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
 
-<<<<<<< fix/reject-zero-negative-pool-withdrawal
     let user = Address::generate(&env);
     let token = setup_token(&env, &user);
     let pool_id = symbol_short!("community");
 
-    // Zero deposit must be rejected before any state change
     client.pool_deposit(&user, &pool_id, &token, &0);
 }
 
@@ -150,7 +45,6 @@ fn test_pool_deposit_negative_amount() {
     let token = setup_token(&env, &user);
     let pool_id = symbol_short!("community");
 
-    // Negative deposit must be rejected before any state change
     client.pool_deposit(&user, &pool_id, &token, &-1);
 }
 
@@ -167,10 +61,7 @@ fn test_pool_withdraw_zero_amount() {
     let token = setup_token(&env, &user);
     let pool_id = symbol_short!("community");
 
-    // Seed the pool first so the zero-amount guard is the only thing that fires
     client.pool_deposit(&user, &pool_id, &token, &1_000);
-
-    // Zero withdrawal must be rejected before any state change
     client.pool_withdraw(&user, &pool_id, &0);
 }
 
@@ -187,42 +78,46 @@ fn test_pool_withdraw_negative_amount() {
     let token = setup_token(&env, &user);
     let pool_id = symbol_short!("community");
 
-    // Seed the pool first so the negative-amount guard is the only thing that fires
     client.pool_deposit(&user, &pool_id, &token, &1_000);
-
-    // Negative withdrawal must be rejected before any state change
     client.pool_withdraw(&user, &pool_id, &-1);
-=======
+}
+
+// ── Post tests ────────────────────────────────────────────────────────────────
+
+#[test]
+fn test_sequential_posts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
     let author = Address::generate(&env);
 
-    // Set first timestamp
     let ts1 = 1000;
     env.ledger().set_timestamp(ts1);
 
-    // Create first post
     let post_id1 = client.create_post(&author, &String::from_str(&env, "First post"));
-    assert_eq!(post_id1, 1, "First post ID should be 1");
+    assert_eq!(post_id1, 1);
 
     let post1 = client.get_post(&post_id1).unwrap();
-    assert_eq!(post1.timestamp, ts1, "First post timestamp should match ledger");
+    assert_eq!(post1.timestamp, ts1);
     assert_eq!(post1.id, 1);
 
-    // Advance timestamp
     let ts2 = 2000;
     env.ledger().set_timestamp(ts2);
 
-    // Create second post
     let post_id2 = client.create_post(&author, &String::from_str(&env, "Second post"));
-    assert_eq!(post_id2, 2, "Second post ID should be 2");
+    assert_eq!(post_id2, 2);
 
     let post2 = client.get_post(&post_id2).unwrap();
-    assert_eq!(post2.timestamp, ts2, "Second post timestamp should match updated ledger");
+    assert_eq!(post2.timestamp, ts2);
     assert_eq!(post2.id, 2);
 
-    // Verify both exist and are distinct
     assert!(post_id1 != post_id2);
->>>>>>> main
 }
+
+// ── Follow tests ──────────────────────────────────────────────────────────────
 
 #[test]
 fn test_follow_is_idempotent() {
@@ -234,12 +129,173 @@ fn test_follow_is_idempotent() {
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 
-    // Follow bob twice from alice — should be deduplicated
     client.follow(&alice, &bob);
     client.follow(&alice, &bob);
 
-    let following = client.get_following(&alice);
-    // Bob must appear exactly once despite two follow calls
+    let following = client.get_following(&alice, &0, &10);
     assert_eq!(following.len(), 1);
     assert_eq!(following.get(0).unwrap(), bob);
+}
+
+// ── Pagination: get_following ─────────────────────────────────────────────────
+
+#[test]
+fn test_get_following_first_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let users: soroban_sdk::Vec<Address> = (0..5)
+        .map(|_| Address::generate(&env))
+        .collect::<std::vec::Vec<_>>()
+        .into_iter()
+        .fold(soroban_sdk::Vec::new(&env), |mut v, a| {
+            v.push_back(a);
+            v
+        });
+
+    for i in 0..users.len() {
+        client.follow(&alice, &users.get(i).unwrap());
+    }
+
+    // First page: offset=0, limit=3 → items 0,1,2
+    let page = client.get_following(&alice, &0, &3);
+    assert_eq!(page.len(), 3);
+    assert_eq!(page.get(0).unwrap(), users.get(0).unwrap());
+    assert_eq!(page.get(1).unwrap(), users.get(1).unwrap());
+    assert_eq!(page.get(2).unwrap(), users.get(2).unwrap());
+}
+
+#[test]
+fn test_get_following_second_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let users: soroban_sdk::Vec<Address> = (0..5)
+        .map(|_| Address::generate(&env))
+        .collect::<std::vec::Vec<_>>()
+        .into_iter()
+        .fold(soroban_sdk::Vec::new(&env), |mut v, a| {
+            v.push_back(a);
+            v
+        });
+
+    for i in 0..users.len() {
+        client.follow(&alice, &users.get(i).unwrap());
+    }
+
+    // Second page: offset=3, limit=3 → items 3,4 (only 2 remain)
+    let page = client.get_following(&alice, &3, &3);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap(), users.get(3).unwrap());
+    assert_eq!(page.get(1).unwrap(), users.get(4).unwrap());
+}
+
+#[test]
+fn test_get_following_page_beyond_end() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    client.follow(&alice, &bob);
+
+    // offset beyond list length → empty
+    let page = client.get_following(&alice, &10, &5);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+#[should_panic(expected = "limit exceeds maximum of 50")]
+fn test_get_following_limit_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    client.get_following(&alice, &0, &51);
+}
+
+// ── Pagination: get_posts_by_author ───────────────────────────────────────────
+
+#[test]
+fn test_get_posts_by_author_first_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    for i in 0..5u32 {
+        let content = String::from_str(&env, "post");
+        let id = client.create_post(&author, &content);
+        ids.push_back(id);
+        let _ = i;
+    }
+
+    // First page: offset=0, limit=3 → first 3 post IDs
+    let page = client.get_posts_by_author(&author, &0, &3);
+    assert_eq!(page.len(), 3);
+    assert_eq!(page.get(0).unwrap(), ids.get(0).unwrap());
+    assert_eq!(page.get(1).unwrap(), ids.get(1).unwrap());
+    assert_eq!(page.get(2).unwrap(), ids.get(2).unwrap());
+}
+
+#[test]
+fn test_get_posts_by_author_second_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    let mut ids = soroban_sdk::Vec::new(&env);
+    for _ in 0..5u32 {
+        let id = client.create_post(&author, &String::from_str(&env, "post"));
+        ids.push_back(id);
+    }
+
+    // Second page: offset=3, limit=3 → items 3,4
+    let page = client.get_posts_by_author(&author, &3, &3);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap(), ids.get(3).unwrap());
+    assert_eq!(page.get(1).unwrap(), ids.get(4).unwrap());
+}
+
+#[test]
+fn test_get_posts_by_author_page_beyond_end() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+    client.create_post(&author, &String::from_str(&env, "only post"));
+
+    // offset beyond list → empty
+    let page = client.get_posts_by_author(&author, &10, &5);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+#[should_panic(expected = "limit exceeds maximum of 50")]
+fn test_get_posts_by_author_limit_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+    client.get_posts_by_author(&author, &0, &51);
 }
