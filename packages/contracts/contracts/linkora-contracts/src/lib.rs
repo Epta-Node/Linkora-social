@@ -18,6 +18,7 @@ const POST_CT: Symbol = symbol_short!("POST_CT");
 const PROFILES: Symbol = symbol_short!("PROFILES");
 const FOLLOWS: Symbol = symbol_short!("FOLLOWS");
 const FOLLOWERS: Symbol = symbol_short!("FOLLOWRS"); // Reverse index for followers
+const AUTHOR_POSTS: Symbol = symbol_short!("AUTHPOSTS"); // Per-author post ID index
 const POOLS: Symbol = symbol_short!("POOLS");
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const INITIALIZED: Symbol = symbol_short!("INIT");
@@ -28,6 +29,7 @@ const MIN_USERNAME_LEN: u32 = 3;
 const MAX_USERNAME_LEN: u32 = 32;
 const MIN_CONTENT_LEN: u32 = 1;
 const MAX_CONTENT_LEN: u32 = 280;
+const MAX_PAGE_LIMIT: u32 = 50;
 
 // ── Data Types ───────────────────────────────────────────────────────────────
 
@@ -99,6 +101,23 @@ pub struct ContractUpgraded {
 pub struct PostDeleted {
     pub post_id: u64,
     pub author: Address,
+}
+
+// ── Pagination Helper ────────────────────────────────────────────────────────
+
+/// Returns a slice of `list` starting at `offset` with at most `limit` items.
+/// If `offset` is beyond the end of the list, returns an empty Vec.
+fn paginate<T: Clone>(env: &Env, list: &Vec<T>, offset: u32, limit: u32) -> Vec<T> {
+    let len = list.len();
+    if offset >= len {
+        return Vec::new(env);
+    }
+    let end = (offset + limit).min(len);
+    let mut page = Vec::new(env);
+    for i in offset..end {
+        page.push_back(list.get(i).unwrap());
+    }
+    page
 }
 
 // ── Contract ─────────────────────────────────────────────────────────────────
@@ -185,7 +204,7 @@ impl LinkoraContract {
     /// Follow a user. Maintains both forward (following) and reverse (followers) indexes.
     pub fn follow(env: Env, follower: Address, followee: Address) {
         follower.require_auth();
-        
+
         // Update following list
         let following_key = (FOLLOWS, follower.clone());
         let mut following_list: Vec<Address> = env
@@ -193,10 +212,20 @@ impl LinkoraContract {
             .persistent()
             .get(&following_key)
             .unwrap_or(Vec::new(&env));
-        if !list.contains(&followee) {
-            list.push_back(followee.clone());
+        if !following_list.contains(&followee) {
+            following_list.push_back(followee.clone());
+
+            // Update reverse index (followers) only when a new relationship is added
+            let followers_key = (FOLLOWERS, followee.clone());
+            let mut followers_list: Vec<Address> = env
+                .storage()
+                .persistent()
+                .get(&followers_key)
+                .unwrap_or(Vec::new(&env));
+            followers_list.push_back(follower.clone());
+            env.storage().persistent().set(&followers_key, &followers_list);
         }
-        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().set(&following_key, &following_list);
 
         env.events().publish(
             (symbol_short!("Linkora"), symbol_short!("follow"), symbol_short!("v1")),
@@ -238,20 +267,28 @@ impl LinkoraContract {
         // If relationship doesn't exist, it's a no-op (no panic)
     }
 
-    /// Get the list of users that a given user is following.
-    pub fn get_following(env: Env, user: Address) -> Vec<Address> {
-        env.storage()
+    /// Get a paginated slice of users that a given user is following.
+    /// `offset` is the zero-based start index; `limit` is the page size (max 50).
+    pub fn get_following(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
+        assert!(limit <= MAX_PAGE_LIMIT, "limit exceeds maximum of 50");
+        let list: Vec<Address> = env
+            .storage()
             .persistent()
             .get(&(FOLLOWS, user))
-            .unwrap_or(Vec::new(&env))
+            .unwrap_or(Vec::new(&env));
+        paginate(&env, &list, offset, limit)
     }
 
-    /// Get the list of users following a given user (reverse index).
-    pub fn get_followers(env: Env, user: Address) -> Vec<Address> {
-        env.storage()
+    /// Get a paginated slice of users following a given user (reverse index).
+    /// `offset` is the zero-based start index; `limit` is the page size (max 50).
+    pub fn get_followers(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
+        assert!(limit <= MAX_PAGE_LIMIT, "limit exceeds maximum of 50");
+        let list: Vec<Address> = env
+            .storage()
             .persistent()
             .get(&(FOLLOWERS, user))
-            .unwrap_or(Vec::new(&env))
+            .unwrap_or(Vec::new(&env));
+        paginate(&env, &list, offset, limit)
     }
 
     // ── Posts ─────────────────────────────────────────────────────────────────
@@ -283,6 +320,16 @@ impl LinkoraContract {
         env.storage().persistent().set(&(POSTS, id), &post);
         env.storage().instance().set(&POST_CT, &id);
 
+        // Maintain per-author post ID index
+        let author_key = (AUTHOR_POSTS, author.clone());
+        let mut author_posts: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&author_key)
+            .unwrap_or(Vec::new(&env));
+        author_posts.push_back(id);
+        env.storage().persistent().set(&author_key, &author_posts);
+
         env.events().publish(
             (symbol_short!("Linkora"), symbol_short!("post"), symbol_short!("v1")),
             PostCreatedEvent { id, author },
@@ -308,7 +355,19 @@ impl LinkoraContract {
         assert!(post.author == author, "only author can delete post");
         
         env.storage().persistent().remove(&key);
-        
+
+        // Remove from per-author post ID index
+        let author_key = (AUTHOR_POSTS, author.clone());
+        let mut author_posts: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&author_key)
+            .unwrap_or(Vec::new(&env));
+        if let Some(idx) = author_posts.iter().position(|pid| pid == post_id) {
+            author_posts.remove(idx as u32);
+            env.storage().persistent().set(&author_key, &author_posts);
+        }
+
         env.events().publish(
             (symbol_short!("post_del"),),
             PostDeleted {
@@ -316,6 +375,18 @@ impl LinkoraContract {
                 author,
             },
         );
+    }
+
+    /// Get a paginated slice of post IDs created by a given author.
+    /// `offset` is the zero-based start index; `limit` is the page size (max 50).
+    pub fn get_posts_by_author(env: Env, author: Address, offset: u32, limit: u32) -> Vec<u64> {
+        assert!(limit <= MAX_PAGE_LIMIT, "limit exceeds maximum of 50");
+        let list: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&(AUTHOR_POSTS, author))
+            .unwrap_or(Vec::new(&env));
+        paginate(&env, &list, offset, limit)
     }
 
     // ── Tipping ───────────────────────────────────────────────────────────────
