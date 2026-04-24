@@ -180,58 +180,56 @@
               "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
-                "symbol": "POSTS"
+                "vec": [
+                  {
+                    "symbol": "POSTS"
+                  },
+                  {
+                    "u64": "1"
+                  }
+                ]
               },
               "durability": "persistent",
               "val": {
                 "map": [
                   {
                     "key": {
-                      "u64": "1"
+                      "symbol": "author"
                     },
                     "val": {
-                      "map": [
-                        {
-                          "key": {
-                            "symbol": "author"
-                          },
-                          "val": {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "content"
-                          },
-                          "val": {
-                            "string": "Hello Linkora!"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "id"
-                          },
-                          "val": {
-                            "u64": "1"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "timestamp"
-                          },
-                          "val": {
-                            "u64": "1000000"
-                          }
-                        },
-                        {
-                          "key": {
-                            "symbol": "tip_total"
-                          },
-                          "val": {
-                            "i128": "500"
-                          }
-                        }
-                      ]
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "content"
+                    },
+                    "val": {
+                      "string": "Hello Linkora!"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "id"
+                    },
+                    "val": {
+                      "u64": "1"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "timestamp"
+                    },
+                    "val": {
+                      "u64": "1000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "tip_total"
+                    },
+                    "val": {
+                      "i128": "500"
                     }
                   }
                 ]
