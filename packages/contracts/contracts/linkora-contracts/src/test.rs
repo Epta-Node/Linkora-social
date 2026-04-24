@@ -70,6 +70,46 @@ fn test_post_and_tip() {
 }
 
 #[test]
+#[should_panic(expected = "tip amount must be positive")]
+fn test_tip_zero_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+    let tipper = Address::generate(&env);
+    let token = setup_token(&env, &tipper);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
+
+    // Zero tip must be rejected before any token transfer or state change
+    client.tip(&tipper, &post_id, &token, &0);
+}
+
+#[test]
+#[should_panic(expected = "tip amount must be positive")]
+fn test_tip_negative_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+    let tipper = Address::generate(&env);
+    let token = setup_token(&env, &tipper);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "Hello Linkora!"));
+
+    // Negative tip must be rejected before any token transfer or state change
+    client.tip(&tipper, &post_id, &token, &-1);
+}
+
+#[test]
 fn test_pool_deposit_withdraw() {
     let env = Env::default();
     env.mock_all_auths();
