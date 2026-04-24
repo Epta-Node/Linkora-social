@@ -5,6 +5,7 @@
   "scripts": {
     "build": "stellar contract build",
     "test": "cargo test",
+    "test:integration": "../../tests/integration/run_e2e.sh",
     "dev": "cargo watch -x test",
     "format": "cargo fmt"
   }
