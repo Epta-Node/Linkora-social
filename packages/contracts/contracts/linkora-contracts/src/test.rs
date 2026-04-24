@@ -116,19 +116,14 @@ fn test_invalid_fee() {
 }
 
 #[test]
-<<<<<<< fix/reject-zero-negative-pool-withdrawal
 #[should_panic(expected = "deposit amount must be positive")]
 fn test_pool_deposit_zero_amount() {
-=======
-fn test_sequential_posts() {
->>>>>>> main
     let env = Env::default();
     env.mock_all_auths();
 
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
 
-<<<<<<< fix/reject-zero-negative-pool-withdrawal
     let user = Address::generate(&env);
     let token = setup_token(&env, &user);
     let pool_id = symbol_short!("community");
@@ -192,7 +187,16 @@ fn test_pool_withdraw_negative_amount() {
 
     // Negative withdrawal must be rejected before any state change
     client.pool_withdraw(&user, &pool_id, &-1);
-=======
+}
+
+#[test]
+fn test_sequential_posts() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
     let author = Address::generate(&env);
 
     // Set first timestamp
@@ -221,7 +225,6 @@ fn test_pool_withdraw_negative_amount() {
 
     // Verify both exist and are distinct
     assert!(post_id1 != post_id2);
->>>>>>> main
 }
 
 #[test]
@@ -242,4 +245,344 @@ fn test_follow_is_idempotent() {
     // Bob must appear exactly once despite two follow calls
     assert_eq!(following.len(), 1);
     assert_eq!(following.get(0).unwrap(), bob);
+}
+
+// ── Pool Admin Authorization Tests ───────────────────────────────────────────
+
+#[test]
+fn test_create_pool_with_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = setup_token(&env, &admin);
+    let pool_id = symbol_short!("treasury");
+
+    // Create admins vector with admin
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin.clone());
+
+    client.create_pool(&pool_id, &token, &admins);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.token, token);
+    assert_eq!(pool.balance, 0);
+    assert_eq!(pool.admins.len(), 1);
+    assert_eq!(pool.admins.get(0).unwrap(), admin);
+}
+
+#[test]
+fn test_create_pool_with_multiple_admins() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let admin3 = Address::generate(&env);
+    let token = setup_token(&env, &admin1);
+    let pool_id = symbol_short!("multisig");
+
+    // Create admins vector with multiple admins
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin1.clone());
+    admins.push_back(admin2.clone());
+    admins.push_back(admin3.clone());
+
+    client.create_pool(&pool_id, &token, &admins);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.admins.len(), 3);
+    assert_eq!(pool.admins.get(0).unwrap(), admin1);
+    assert_eq!(pool.admins.get(1).unwrap(), admin2);
+    assert_eq!(pool.admins.get(2).unwrap(), admin3);
+}
+
+#[test]
+#[should_panic(expected = "at least one admin is required")]
+fn test_create_pool_without_admins() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = setup_token(&env, &admin);
+    let pool_id = symbol_short!("empty");
+
+    let admins = Vec::new(&env);
+
+    client.create_pool(&pool_id, &token, &admins);
+}
+
+#[test]
+#[should_panic(expected = "pool already exists")]
+fn test_create_duplicate_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = setup_token(&env, &admin);
+    let pool_id = symbol_short!("dup");
+
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin.clone());
+
+    // First creation succeeds
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Second creation should panic
+    client.create_pool(&pool_id, &token, &admins);
+}
+
+#[test]
+fn test_authorized_withdrawal() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let token = setup_token(&env, &depositor);
+    let pool_id = symbol_short!("auth_test");
+
+    // Create pool with admin
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Deposit funds
+    client.pool_deposit(&depositor, &pool_id, &token, &5_000);
+
+    // Admin should be able to withdraw
+    client.pool_withdraw(&admin, &pool_id, &1_000);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.balance, 4_000);
+
+    // Check that funds were transferred
+    let admin_balance = TokenClient::new(&env, &token).balance(&admin);
+    assert_eq!(admin_balance, 1_000);
+}
+
+#[test]
+#[should_panic(expected = "caller is not authorized to withdraw from this pool")]
+fn test_unauthorized_withdrawal_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let unauthorized = Address::generate(&env);
+    let token = setup_token(&env, &depositor);
+    let pool_id = symbol_short!("unauth");
+
+    // Create pool with admin
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Deposit funds
+    client.pool_deposit(&depositor, &pool_id, &token, &5_000);
+
+    // Unauthorized user tries to withdraw — should panic
+    client.pool_withdraw(&unauthorized, &pool_id, &1_000);
+}
+
+#[test]
+fn test_multiple_admins_can_withdraw() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let token = setup_token(&env, &depositor);
+    let pool_id = symbol_short!("multi");
+
+    // Create pool with multiple admins
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin1.clone());
+    admins.push_back(admin2.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Deposit funds
+    client.pool_deposit(&depositor, &pool_id, &token, &5_000);
+
+    // First admin withdraws
+    client.pool_withdraw(&admin1, &pool_id, &2_000);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.balance, 3_000);
+
+    // Second admin withdraws
+    client.pool_withdraw(&admin2, &pool_id, &1_500);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.balance, 1_500);
+}
+
+#[test]
+fn test_pool_deposit_creates_pool_with_depositor_as_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let depositor = Address::generate(&env);
+    let token = setup_token(&env, &depositor);
+    let pool_id = symbol_short!("deposit");
+
+    // Pool doesn't exist yet, so deposit creates it
+    client.pool_deposit(&depositor, &pool_id, &token, &3_000);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.balance, 3_000);
+    assert_eq!(pool.admins.len(), 1);
+    assert_eq!(pool.admins.get(0).unwrap(), depositor);
+
+    // Depositor (auto-admin) can now withdraw
+    client.pool_withdraw(&depositor, &pool_id, &1_000);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.balance, 2_000);
+}
+
+#[test]
+#[should_panic(expected = "caller is not authorized to withdraw from this pool")]
+fn test_update_pool_admins() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    let token = setup_token(&env, &admin1);
+    let pool_id = symbol_short!("update");
+
+    // Create pool with admin1
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin1.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // admin1 updates admin list to include admin2 and new_admin, but removes admin1
+    let mut new_admins = Vec::new(&env);
+    new_admins.push_back(admin2.clone());
+    new_admins.push_back(new_admin.clone());
+
+    client.update_pool_admins(&pool_id, &admin1, &new_admins);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.admins.len(), 2);
+    assert_eq!(pool.admins.get(0).unwrap(), admin2);
+    assert_eq!(pool.admins.get(1).unwrap(), new_admin);
+
+    // Deposit some funds into the pool
+    client.pool_deposit(&admin1, &pool_id, &token, &1_000);
+
+    // Try to withdraw with old admin (should panic)
+    client.pool_withdraw(&admin1, &pool_id, &500);
+}
+
+#[test]
+fn test_new_admin_can_withdraw_after_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin1 = Address::generate(&env);
+    let admin2 = Address::generate(&env);
+    let token = setup_token(&env, &admin1);
+    let pool_id = symbol_short!("new_adm");
+
+    // Create pool with admin1
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin1.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Deposit funds
+    client.pool_deposit(&admin1, &pool_id, &token, &2_000);
+
+    // Update admin to admin2
+    let mut new_admins = Vec::new(&env);
+    new_admins.push_back(admin2.clone());
+    client.update_pool_admins(&pool_id, &admin1, &new_admins);
+
+    // New admin should be able to withdraw
+    client.pool_withdraw(&admin2, &pool_id, &500);
+
+    let pool = client.get_pool(&pool_id).expect("pool should exist");
+    assert_eq!(pool.balance, 1_500);
+}
+
+#[test]
+#[should_panic(expected = "only admins can update the admin list")]
+fn test_non_admin_cannot_update_admins() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let token = setup_token(&env, &admin);
+    let pool_id = symbol_short!("no_auth");
+
+    // Create pool with admin
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Non-admin tries to update admin list — should panic
+    let mut new_admins = Vec::new(&env);
+    new_admins.push_back(non_admin.clone());
+
+    client.update_pool_admins(&pool_id, &non_admin, &new_admins);
+}
+
+#[test]
+#[should_panic(expected = "at least one admin is required")]
+fn test_update_pool_admins_to_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let token = setup_token(&env, &admin);
+    let pool_id = symbol_short!("emp_adm");
+
+    // Create pool with admin
+    let mut admins = Vec::new(&env);
+    admins.push_back(admin.clone());
+    client.create_pool(&pool_id, &token, &admins);
+
+    // Admin tries to set empty admin list — should panic
+    let empty_admins = Vec::new(&env);
+    client.update_pool_admins(&pool_id, &admin, &empty_admins);
 }

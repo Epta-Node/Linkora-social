@@ -1,6 +1,6 @@
 #![no_std]
 use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, String,
+    contract, contractimpl, contracttype, symbol_short, token, Address, BytesN, Env, Map, String,
     Symbol, Vec,
 };
 
@@ -21,6 +21,8 @@ const FOLLOWERS: Symbol = symbol_short!("FOLLOWRS"); // Reverse index for follow
 const POOLS: Symbol = symbol_short!("POOLS");
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const INITIALIZED: Symbol = symbol_short!("INIT");
+const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
+const TREASURY: Symbol = symbol_short!("TREAS");
 
 // ── Validation Constants ─────────────────────────────────────────────────────
 
@@ -54,6 +56,7 @@ pub struct Profile {
 pub struct Pool {
     pub token: Address,
     pub balance: i128,
+    pub admins: Vec<Address>,
 }
 
 // ── Events ───────────────────────────────────────────────────────────────────
@@ -193,10 +196,10 @@ impl LinkoraContract {
             .persistent()
             .get(&following_key)
             .unwrap_or(Vec::new(&env));
-        if !list.contains(&followee) {
-            list.push_back(followee.clone());
+        if !following_list.contains(&followee) {
+            following_list.push_back(followee.clone());
         }
-        env.storage().persistent().set(&key, &list);
+        env.storage().persistent().set(&following_key, &following_list);
 
         env.events().publish(
             (symbol_short!("Linkora"), symbol_short!("follow"), symbol_short!("v1")),
@@ -350,8 +353,7 @@ impl LinkoraContract {
         token_client.transfer(&tipper, &post.author, &author_amount);
 
         post.tip_total += amount;
-        posts.set(post_id, post);
-        env.storage().persistent().set(&POSTS, &posts);
+        env.storage().persistent().set(&key, &post);
 
         env.events().publish(
             (symbol_short!("Linkora"), symbol_short!("tip"), symbol_short!("v1")),
@@ -366,7 +368,34 @@ impl LinkoraContract {
 
     // ── Community Token Pool ──────────────────────────────────────────────────
 
+    /// Create a new community pool with specified admins.
+    /// Only the specified admins can withdraw from this pool.
+    pub fn create_pool(
+        env: Env,
+        pool_id: Symbol,
+        token: Address,
+        admins: Vec<Address>,
+    ) {
+        assert!(admins.len() > 0, "at least one admin is required");
+        
+        let key = (POOLS, pool_id.clone());
+        
+        // Ensure pool doesn't already exist
+        assert!(
+            env.storage().persistent().get::<_, Pool>(&key).is_none(),
+            "pool already exists"
+        );
+
+        let pool = Pool {
+            token,
+            balance: 0,
+            admins,
+        };
+        env.storage().persistent().set(&key, &pool);
+    }
+
     /// Deposit tokens into a named community pool.
+    /// If the pool doesn't exist, it will be created with the depositor as the admin.
     pub fn pool_deposit(
         env: Env,
         depositor: Address,
@@ -384,12 +413,21 @@ impl LinkoraContract {
             .storage()
             .persistent()
             .get(&key)
-            .unwrap_or(Pool { token: token.clone(), balance: 0 });
+            .unwrap_or_else(|| {
+                // Create pool with depositor as the only admin if it doesn't exist
+                let mut admins = Vec::new(&env);
+                admins.push_back(depositor.clone());
+                Pool {
+                    token: token.clone(),
+                    balance: 0,
+                    admins,
+                }
+            });
         pool.balance += amount;
         env.storage().persistent().set(&key, &pool);
     }
 
-    /// Withdraw from a community pool (caller must be authorised — add governance as needed).
+    /// Withdraw from a community pool. Caller must be in the pool's admin set.
     pub fn pool_withdraw(
         env: Env,
         recipient: Address,
@@ -399,7 +437,14 @@ impl LinkoraContract {
         assert!(amount > 0, "withdrawal amount must be positive");
         recipient.require_auth();
         let key = (POOLS, pool_id);
-        let mut pool: Pool = env.storage().persistent().get(&key).unwrap();
+        let mut pool: Pool = env.storage().persistent().get(&key).expect("pool does not exist");
+        
+        // Verify caller is in the admin set
+        assert!(
+            pool.admins.contains(&recipient),
+            "caller is not authorized to withdraw from this pool"
+        );
+        
         assert!(pool.balance >= amount, "insufficient pool balance");
         pool.balance -= amount;
         env.storage().persistent().set(&key, &pool);
@@ -411,20 +456,60 @@ impl LinkoraContract {
         );
     }
 
+    /// Update the list of admins for a pool.
+    /// Only current admins can update the admin list.
+    pub fn update_pool_admins(
+        env: Env,
+        pool_id: Symbol,
+        caller: Address,
+        new_admins: Vec<Address>,
+    ) {
+        assert!(new_admins.len() > 0, "at least one admin is required");
+        caller.require_auth();
+        
+        let key = (POOLS, pool_id);
+        let mut pool: Pool = env.storage().persistent().get(&key).expect("pool does not exist");
+        
+        // Verify caller is in the current admin set
+        assert!(
+            pool.admins.contains(&caller),
+            "only admins can update the admin list"
+        );
+        
+        pool.admins = new_admins;
+        env.storage().persistent().set(&key, &pool);
+    }
+
     pub fn get_pool(env: Env, pool_id: Symbol) -> Option<Pool> {
         env.storage().persistent().get(&(POOLS, pool_id))
     }
 
     // ── Upgradability ─────────────────────────────────────────────────────────
 
-    /// One-time initialization. Stores the admin address and sets the
-    /// INITIALIZED flag in instance storage. Panics if called again.
-    pub fn initialize(env: Env, admin: Address) {
+    /// One-time initialization. Stores the admin address, treasury, and fee percentage.
+    /// Panics if called again.
+    pub fn initialize(env: Env, admin: Address, treasury: Address, fee_bps: u32) {
         if env.storage().instance().get::<Symbol, bool>(&INITIALIZED).unwrap_or(false) {
             panic!("already initialized");
         }
+        assert!(fee_bps <= 10000, "fee_bps cannot exceed 10000");
         env.storage().instance().set(&INITIALIZED, &true);
         env.storage().instance().set(&ADMIN, &admin);
+        env.storage().instance().set(&TREASURY, &treasury);
+        env.storage().instance().set(&FEE_BPS, &fee_bps);
+    }
+
+    /// Set the fee in basis points (bps). Only admin can call this.
+    pub fn set_fee(env: Env, fee_bps: u32) {
+        Self::require_admin(&env);
+        assert!(fee_bps <= 10000, "fee_bps cannot exceed 10000");
+        env.storage().instance().set(&FEE_BPS, &fee_bps);
+    }
+
+    /// Set the treasury address. Only admin can call this.
+    pub fn set_treasury(env: Env, treasury: Address) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&TREASURY, &treasury);
     }
 
     pub fn upgrade(env: Env, new_wasm_hash: BytesN<32>) {

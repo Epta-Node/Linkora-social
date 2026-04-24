@@ -171,6 +171,18 @@
                 "map": [
                   {
                     "key": {
+                      "symbol": "admins"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "balance"
                     },
                     "val": {
