@@ -194,6 +194,24 @@ When contributing:
 - add or update tests for behavior changes
 - document any new contract method or breaking interface change
 
+## Troubleshooting
+
+### Common Setup Issues
+
+- **`pnpm` command not found**: Install pnpm globally using `npm install -g pnpm`. Linkora uses pnpm workspaces for managing multiple packages.
+- **`stellar` command not found**: Install the Stellar CLI with `cargo install --locked stellar-cli`. Ensure `~/.cargo/bin` is in your system PATH.
+- **`cargo test` failing**: Make sure you are running it from inside `packages/contracts`. If you are at the repository root, use `pnpm test` instead.
+- **Outdated dependencies**: Always run `pnpm install` from the root directory after pulling new changes to ensure your `node_modules` and Turborepo cache are synchronized.
+- **Rust build errors**: Ensure the Wasm target is installed: `rustup target add wasm32-unknown-unknown`.
+
+### Command Reference
+
+| Task | Root Directory | `packages/contracts` |
+|---|---|---|
+| **Install dependencies** | `pnpm install` | - |
+| **Build Contracts** | `pnpm build:contracts` | `pnpm build` |
+| **Run Tests** | `pnpm test` | `cargo test` |
+
 ## Current Limitations
 
 This repository is a prototype and should not be treated as production-ready infrastructure yet.
