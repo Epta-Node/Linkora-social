@@ -272,6 +272,61 @@ fn test_get_post_count_after_create_and_delete() {
     client.delete_post(&author, &id1);
     assert_eq!(client.get_post_count(), 2);
 }
+
+#[test]
+fn test_delete_post_success() {
+    use soroban_sdk::{testutils::Events, IntoVal};
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    let author = Address::generate(&env);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "To be deleted"));
+    assert!(client.get_post(&post_id).is_some());
+
+    client.delete_post(&author, &post_id);
+    let events = env.events().all();
+    assert!(client.get_post(&post_id).is_none());
+    assert_eq!(
+        events,
+        soroban_sdk::vec![
+            &env,
+            (
+                contract_id.clone(),
+                (symbol_short!("Linkora"), symbol_short!("post_del"), symbol_short!("v1")).into_val(&env),
+                PostDeleted { post_id, author: author.clone() }.into_val(&env)
+            )
+        ]
+    );
+}
+
+#[test]
+#[should_panic(expected = "only author can delete post")]
+fn test_delete_post_unauthorized_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    let author = Address::generate(&env);
+    let other_user = Address::generate(&env);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "Cannot delete this"));
+    
+    client.delete_post(&other_user, &post_id);
+}
+
+#[test]
+#[should_panic(expected = "post does not exist")]
+fn test_delete_post_non_existent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    let author = Address::generate(&env);
+
+    client.delete_post(&author, &999);
+}
 // ── Pool tests ────────────────────────────────────────────────────────────────
 
 #[test]
