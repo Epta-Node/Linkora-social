@@ -27,7 +27,7 @@ jobs:
           workspaces: packages/contracts
 
       - name: Install stellar-cli
-        run: cargo install --locked stellar-cli
+        run: cargo install --locked stellar-cli --version 22.8.1
 
       - name: Verify Docker is available
         run: docker info

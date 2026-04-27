@@ -57,6 +57,16 @@ Emitted when a post author is tipped.
   - `amount`: `i128` (Gross amount)
   - `fee`: `i128` (Amount sent to protocol treasury)
 
+### Like
+Emitted when a user likes a post.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `like`
+- **Topic 2**: `v1`
+- **Data Payload**: `LikePostEvent`
+  - `user`: `Address`
+  - `post_id`: `u64`
+
 ### ContractUpgraded
 Emitted when the contract WASM is upgraded.
 

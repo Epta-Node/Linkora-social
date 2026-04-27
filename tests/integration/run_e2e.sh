@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REQUIRED_STELLAR_VERSION="22.8.1"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CONTRACT_DIR="$ROOT_DIR/packages/contracts/contracts/linkora-contracts"
 CFG_DIR="$(mktemp -d)"
@@ -8,6 +10,22 @@ CONTAINER_NAME="linkora-e2e-sandbox"
 NETWORK="local"
 NETWORK_PASSPHRASE="Standalone Network ; February 2017"
 RPC_URL="http://localhost:8000/rpc"
+
+FAILURES=0
+
+assert_contains() {
+  local name="$1"
+  local expected="$2"
+  local actual="$3"
+  if echo "$actual" | grep -q "$expected"; then
+    echo "  PASS: $name"
+  else
+    echo "  FAIL: $name"
+    echo "        expected to find : $expected"
+    echo "        actual output    : $actual"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
 
 cleanup() {
   set +e
@@ -26,6 +44,13 @@ require_cmd() {
 require_cmd stellar
 require_cmd cargo
 require_cmd docker
+
+STELLAR_VERSION="$(stellar --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'| head -1)"
+if [[ "$STELLAR_VERSION" != "$REQUIRED_STELLAR_VERSION" ]]; then
+  echo "error: stellar-cli version mismatch (found $STELLAR_VERSION, required $REQUIRED_STELLAR_VERSION)" >&2
+  echo "  Install the correct version with: cargo install --locked stellar-cli --version $REQUIRED_STELLAR_VERSION" >&2
+  exit 1
+fi
 
 echo "[1/8] Starting local Stellar sandbox container..."
 stellar --config-dir "$CFG_DIR" container start local --name "$CONTAINER_NAME"
@@ -119,7 +144,7 @@ FOLLOWING="$(stellar --config-dir "$CFG_DIR" contract invoke \
   --send no \
   -- get_following --user "$BOB_ADDR")"
 
-echo "$FOLLOWING" | grep -q "$ALICE_ADDR"
+assert_contains "bob follows alice" "$ALICE_ADDR" "$FOLLOWING"
 
 POST_STATE="$(stellar --config-dir "$CFG_DIR" contract invoke \
   --network "$NETWORK" \
@@ -128,9 +153,8 @@ POST_STATE="$(stellar --config-dir "$CFG_DIR" contract invoke \
   --send no \
   -- get_post --id "$POST_ID")"
 
-echo "$POST_STATE" | grep -q "1000"
-
-echo "$POST_STATE" | grep -q "hello-from-e2e"
+assert_contains "post tip amount is 1000" "1000" "$POST_STATE"
+assert_contains "post content is hello-from-e2e" "hello-from-e2e" "$POST_STATE"
 
 POOL_STATE="$(stellar --config-dir "$CFG_DIR" contract invoke \
   --network "$NETWORK" \
@@ -139,9 +163,16 @@ POOL_STATE="$(stellar --config-dir "$CFG_DIR" contract invoke \
   --send no \
   -- get_pool --pool-id community)"
 
-echo "$POOL_STATE" | grep -q "350"
+assert_contains "pool balance is 350 after deposit 600 and withdraw 250" "350" "$POOL_STATE"
+
+echo ""
+if [[ $FAILURES -gt 0 ]]; then
+  echo "FAIL: $FAILURES assertion(s) failed."
+  exit 1
+fi
 
 echo "[8/8] Integration flow passed."
+echo "PASS: all assertions succeeded."
 echo "contract_id=$CONTRACT_ID"
 echo "token_id=$TOKEN_ID"
 echo "alice=$ALICE_ADDR"
