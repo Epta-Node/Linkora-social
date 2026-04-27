@@ -1,0 +1,1651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Linkora Social - Layout Shell</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Outfit:wght@600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-deep: #0D0D12;
+      --bg-slate: #1A1A23;
+      --bg-card: #1F1F2A;
+      --bg-elevated: #252530;
+      --accent-coral: #FF6B5B;
+      --accent-coral-light: #FF8A7D;
+      --accent-teal: #4ECDC4;
+      --text-primary: #F5F5F7;
+      --text-secondary: #A1A1AA;
+      --text-muted: #8E8E93;
+      --success: #34D399;
+      --error: #F87171;
+      --warning: #FBBF24;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-glow: rgba(255, 107, 91, 0.4);
+      --glass-bg: rgba(26, 26, 35, 0.85);
+      --skeleton-base: #1A1A23;
+      --skeleton-shine: #252530;
+      --sidebar-width: 240px;
+      --header-height: 64px;
+      --bottom-nav-height: 56px;
+      --content-max-width: 640px;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    h1, h2, h3, h4 {
+      font-family: 'Outfit', sans-serif;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Skeleton Animation */
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .skeleton {
+      background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 50%, var(--skeleton-base) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 8px;
+    }
+
+    /* Layout */
+    .app-layout {
+      display: flex;
+      min-height: 100vh;
+    }
+
+    /* Sidebar - Desktop */
+    .sidebar {
+      width: var(--sidebar-width);
+      background: var(--bg-slate);
+      border-right: 1px solid var(--border-subtle);
+      padding: 24px 16px;
+      position: fixed;
+      top: var(--header-height);
+      left: 0;
+      bottom: 0;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+    }
+
+    .nav-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-radius: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      width: 100%;
+      font-size: 15px;
+    }
+
+    .nav-item:hover {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      transform: scale(1.02);
+    }
+
+    .nav-item.active {
+      background: rgba(255, 107, 91, 0.12);
+      color: var(--accent-coral);
+      border-left: 3px solid var(--accent-coral);
+      margin-left: -3px;
+    }
+
+    .nav-item:focus-visible {
+      outline: 2px solid var(--accent-coral);
+      outline-offset: 2px;
+    }
+
+    .nav-icon {
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+
+    /* Header */
+    .header {
+      height: var(--header-height);
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 200;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      color: var(--text-primary);
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+    }
+
+    .network-badge {
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .network-badge.testnet {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60A5FA;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .network-badge.mainnet {
+      background: rgba(52, 211, 153, 0.2);
+      color: var(--success);
+      border: 1px solid rgba(52, 211, 153, 0.3);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .wallet-btn {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 20px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+    }
+
+    .wallet-btn.connect {
+      background: transparent;
+      border: 2px solid var(--accent-coral);
+      color: var(--accent-coral);
+    }
+
+    .wallet-btn.connect:hover {
+      background: rgba(255, 107, 91, 0.1);
+      box-shadow: 0 0 20px var(--border-glow);
+    }
+
+    .wallet-btn.connected {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 8px 14px;
+    }
+
+    .wallet-btn.connected:hover {
+      background: var(--bg-elevated);
+    }
+
+    .wallet-avatar {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-coral), var(--accent-teal));
+    }
+
+    .wallet-address {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+    }
+
+    .wallet-chevron {
+      width: 16px;
+      height: 16px;
+      color: var(--text-muted);
+    }
+
+    /* Main Content */
+    .main-content {
+      flex: 1;
+      margin-left: var(--sidebar-width);
+      margin-top: var(--header-height);
+      padding: 24px;
+      min-height: calc(100vh - var(--header-height));
+    }
+
+    .content-container {
+      max-width: var(--content-max-width);
+      margin: 0 auto;
+    }
+
+    .page-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      color: var(--text-primary);
+    }
+
+    /* Post Card */
+    .post-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: all 0.2s ease;
+    }
+
+    .post-card:hover {
+      border-color: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    }
+
+    .post-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .post-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      flex-shrink: 0;
+    }
+
+    .post-meta {
+      flex: 1;
+    }
+
+    .post-author {
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+
+    .post-time {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .post-content {
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      line-height: 1.6;
+    }
+
+    .post-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .post-action {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 14px;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .post-action:hover {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+    }
+
+    .post-action svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    .tip-btn {
+      background: var(--accent-coral);
+      color: white;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 14px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .tip-btn:hover {
+      background: var(--accent-coral-light);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(255, 107, 91, 0.3);
+    }
+
+    .tip-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .tip-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Skeleton Loader */
+    .skeleton-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    .skeleton-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .skeleton-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+    }
+
+    .skeleton-lines {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .skeleton-line {
+      height: 14px;
+      border-radius: 4px;
+    }
+
+    .skeleton-line.short {
+      width: 120px;
+    }
+
+    .skeleton-content {
+      height: 60px;
+      margin-bottom: 16px;
+    }
+
+    .skeleton-actions {
+      display: flex;
+      gap: 16px;
+    }
+
+    .skeleton-action {
+      width: 80px;
+      height: 32px;
+    }
+
+    /* Modal Overlay */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 300;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* Tip Modal */
+    .tip-modal {
+      background: var(--bg-slate);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      width: 100%;
+      max-width: 420px;
+      padding: 28px;
+      transform: scale(0.9) translateY(20px);
+      transition: all 0.3s ease;
+    }
+
+    .modal-overlay.active .tip-modal {
+      transform: scale(1) translateY(0);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .modal-close {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--bg-elevated);
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .modal-close:hover {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .token-selector {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 16px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .token-selector:hover {
+      border-color: var(--accent-coral);
+    }
+
+    .token-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent-teal), #2dd4bf);
+    }
+
+    .token-info {
+      flex: 1;
+    }
+
+    .token-name {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .token-symbol {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .token-balance {
+      text-align: right;
+    }
+
+    .token-balance-amount {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .token-balance-usd {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .amount-input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      overflow: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .amount-input-wrapper:focus-within {
+      border-color: var(--accent-coral);
+      box-shadow: 0 0 0 3px rgba(255, 107, 91, 0.15);
+    }
+
+    .amount-input {
+      flex: 1;
+      padding: 14px 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      font-size: 18px;
+      font-weight: 600;
+      outline: none;
+    }
+
+    .amount-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    .amount-unit {
+      padding-right: 16px;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .amount-max {
+      position: absolute;
+      right: 60px;
+      padding: 4px 10px;
+      background: rgba(255, 107, 91, 0.15);
+      color: var(--accent-coral);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .amount-max:hover {
+      background: rgba(255, 107, 91, 0.25);
+    }
+
+    /* Fee Breakdown */
+    .fee-breakdown {
+      background: var(--bg-card);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 24px;
+    }
+
+    .fee-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 0;
+    }
+
+    .fee-row:not(:last-child) {
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .fee-label {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .fee-value {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .fee-row.net .fee-label,
+    .fee-row.net .fee-value {
+      color: var(--accent-teal);
+    }
+
+    /* Modal Actions */
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+
+    .btn-primary {
+      background: var(--accent-coral);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-coral-light);
+      box-shadow: 0 8px 24px rgba(255, 107, 91, 0.3);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Transaction States */
+    .tx-state {
+      text-align: center;
+      padding: 24px;
+    }
+
+    .tx-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+    }
+
+    .tx-icon.awaiting {
+      background: rgba(255, 107, 91, 0.15);
+      color: var(--accent-coral);
+    }
+
+    .tx-icon.submitting {
+      background: rgba(78, 205, 196, 0.15);
+      color: var(--accent-teal);
+    }
+
+    .tx-icon.success {
+      background: rgba(52, 211, 153, 0.15);
+      color: var(--success);
+    }
+
+    .tx-icon.error {
+      background: rgba(248, 113, 113, 0.15);
+      color: var(--error);
+    }
+
+    .tx-icon svg {
+      width: 32px;
+      height: 32px;
+    }
+
+    .tx-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .tx-message {
+      color: var(--text-secondary);
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .tx-hash {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      background: var(--bg-elevated);
+      border-radius: 8px;
+      color: var(--accent-teal);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .tx-hash:hover {
+      background: var(--bg-card);
+    }
+
+    /* Spinner */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .spinner {
+      animation: spin 1s linear infinite;
+    }
+
+    /* Toast Notification */
+    .toast-container {
+      position: fixed;
+      top: 80px;
+      right: 24px;
+      z-index: 400;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 20px;
+      background: var(--bg-slate);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      min-width: 320px;
+      animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
+    .toast.success {
+      border-color: rgba(52, 211, 153, 0.3);
+    }
+
+    .toast.error {
+      border-color: rgba(248, 113, 113, 0.3);
+    }
+
+    .toast-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .toast-icon.success {
+      background: rgba(52, 211, 153, 0.15);
+      color: var(--success);
+    }
+
+    .toast-icon.error {
+      background: rgba(248, 113, 113, 0.15);
+      color: var(--error);
+    }
+
+    .toast-content {
+      flex: 1;
+    }
+
+    .toast-title {
+      font-weight: 600;
+      margin-bottom: 2px;
+    }
+
+    .toast-message {
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .toast-close {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--bg-elevated);
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+
+    .toast-close:hover {
+      background: var(--bg-card);
+      color: var(--text-primary);
+    }
+
+    /* Bottom Tab Bar - Mobile */
+    .bottom-nav {
+      display: none;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: var(--bottom-nav-height);
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      border-top: 1px solid var(--border-subtle);
+      z-index: 200;
+      padding: 8px 24px;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+    }
+
+    .bottom-nav-list {
+      display: flex;
+      justify-content: space-between;
+      list-style: none;
+    }
+
+    .bottom-nav-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 16px;
+      border-radius: 12px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      background: none;
+      border: none;
+      transition: all 0.2s ease;
+    }
+
+    .bottom-nav-item:hover {
+      color: var(--text-secondary);
+    }
+
+    .bottom-nav-item.active {
+      color: var(--accent-coral);
+    }
+
+    .bottom-nav-item svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    /* Bottom Sheet - Mobile */
+    .bottom-sheet-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(4px);
+      z-index: 300;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s ease;
+    }
+
+    .bottom-sheet-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .bottom-sheet {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: var(--bg-slate);
+      border-radius: 24px 24px 0 0;
+      padding: 16px;
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+      z-index: 301;
+      transform: translateY(100%);
+      transition: transform 0.3s ease;
+    }
+
+    .bottom-sheet-overlay.active .bottom-sheet {
+      transform: translateY(0);
+    }
+
+    .bottom-sheet-handle {
+      width: 40px;
+      height: 4px;
+      background: var(--bg-elevated);
+      border-radius: 2px;
+      margin: 0 auto 16px;
+    }
+
+    .bottom-sheet .tip-modal {
+      transform: none;
+      max-width: none;
+      padding: 0;
+      background: transparent;
+      border: none;
+    }
+
+    /* Demo Controls */
+    .demo-controls {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      background: var(--bg-slate);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px;
+      z-index: 500;
+      max-width: 280px;
+    }
+
+    .demo-controls h3 {
+      font-size: 14px;
+      margin-bottom: 16px;
+      color: var(--text-secondary);
+    }
+
+    .demo-group {
+      margin-bottom: 16px;
+    }
+
+    .demo-group-title {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .demo-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .demo-btn {
+      padding: 8px 12px;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .demo-btn:hover {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border-color: var(--accent-coral);
+    }
+
+    /* Responsive - Mobile */
+    @media (max-width: 768px) {
+      .sidebar {
+        display: none;
+      }
+
+      .main-content {
+        margin-left: 0;
+        padding: 16px;
+        padding-bottom: calc(var(--bottom-nav-height) + 32px);
+      }
+
+      .bottom-nav {
+        display: block;
+      }
+
+      .demo-controls {
+        display: none;
+      }
+
+      .content-container {
+        max-width: 100%;
+      }
+
+      .page-title {
+        font-size: 24px;
+      }
+
+      .toast-container {
+        top: auto;
+        bottom: calc(var(--bottom-nav-height) + 16px);
+        left: 16px;
+        right: 16px;
+      }
+
+      .toast {
+        min-width: auto;
+      }
+
+      .header-left {
+        gap: 8px;
+      }
+
+      .logo span {
+        display: none;
+      }
+
+      .network-badge {
+        display: none;
+      }
+
+      .wallet-btn.connected .wallet-address {
+        display: none;
+      }
+
+      .wallet-btn.connected .wallet-chevron {
+        display: none;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .post-actions {
+        flex-wrap: wrap;
+      }
+
+      .tip-btn {
+        width: 100%;
+        justify-content: center;
+        margin-top: 12px;
+        margin-left: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">
+          <svg class="logo-icon" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="18" fill="url(#logoGrad)"/>
+            <path d="M12 18L18 12L24 18L18 24L12 18Z" fill="white"/>
+            <circle cx="18" cy="18" r="4" fill="url(#logoGrad2)"/>
+            <defs>
+              <linearGradient id="logoGrad" x1="0" y1="0" x2="36" y2="36">
+                <stop stop-color="#FF6B5B"/>
+                <stop offset="1" stop-color="#4ECDC4"/>
+              </linearGradient>
+              <linearGradient id="logoGrad2" x1="0" y1="0" x2="36" y2="36">
+                <stop stop-color="#4ECDC4"/>
+                <stop offset="1" stop-color="#FF6B5B"/>
+              </linearGradient>
+            </defs>
+          </svg>
+          <span>Linkora</span>
+        </div>
+        <div class="network-badge testnet">Testnet</div>
+      </div>
+      <div class="header-right">
+        <button class="wallet-btn connected" id="walletBtn">
+          <div class="wallet-avatar"></div>
+          <span class="wallet-address">GAXY7...3K2</span>
+          <svg class="wallet-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <nav>
+        <ul class="nav-list">
+          <li>
+            <button class="nav-item active">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+              Feed
+            </button>
+          </li>
+          <li>
+            <button class="nav-item">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+              </svg>
+              Explore
+            </button>
+          </li>
+          <li>
+            <button class="nav-item">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                <line x1="12" y1="22.08" x2="12" y2="12"/>
+              </svg>
+              Pools
+            </button>
+          </li>
+          <li>
+            <button class="nav-item">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+              My Profile
+            </button>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="content-container">
+        <h1 class="page-title">Feed</h1>
+
+        <!-- Post Cards -->
+        <div id="postFeed">
+          <!-- Post Card 1 -->
+          <article class="post-card">
+            <div class="post-header">
+              <div class="post-avatar" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);"></div>
+              <div class="post-meta">
+                <div class="post-author">Sarah Chen</div>
+                <div class="post-time">2 hours ago</div>
+              </div>
+            </div>
+            <p class="post-content">Just launched my new collection! Would love your support. Every tip helps me create more content for the community. Check it out on the Stellar network!</p>
+            <div class="post-actions">
+              <button class="post-action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+                42
+              </button>
+              <button class="post-action">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+                12
+              </button>
+              <button class="tip-btn" onclick="openTipModal('desktop')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+                </svg>
+                Tip
+              </button>
+            </div>
+          </article>
+
+          <!-- Skeleton Card -->
+          <div class="skeleton-card" id="skeletonCard">
+            <div class="skeleton-header">
+              <div class="skeleton-avatar skeleton"></div>
+              <div class="skeleton-lines">
+                <div class="skeleton-line skeleton short"></div>
+                <div class="skeleton-line skeleton" style="width: 80px;"></div>
+              </div>
+            </div>
+            <div class="skeleton-content skeleton"></div>
+            <div class="skeleton-actions">
+              <div class="skeleton-action skeleton"></div>
+              <div class="skeleton-action skeleton"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Bottom Tab Bar - Mobile -->
+    <nav class="bottom-nav">
+      <ul class="bottom-nav-list">
+        <li>
+          <button class="bottom-nav-item active">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            </svg>
+            Feed
+          </button>
+        </li>
+        <li>
+          <button class="bottom-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/>
+            </svg>
+            Explore
+          </button>
+        </li>
+        <li>
+          <button class="bottom-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+            </svg>
+            Pools
+          </button>
+        </li>
+        <li>
+          <button class="bottom-nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+              <circle cx="12" cy="7" r="4"/>
+            </svg>
+            Profile
+          </button>
+        </li>
+      </ul>
+    </nav>
+  </div>
+
+  <!-- Tip Modal - Desktop -->
+  <div class="modal-overlay" id="tipModal">
+    <div class="tip-modal">
+      <div class="modal-header">
+        <h2 class="modal-title">Send Tip</h2>
+        <button class="modal-close" onclick="closeTipModal()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Idle State -->
+      <div id="tipIdleState">
+        <div class="form-group">
+          <label class="form-label">Token</label>
+          <div class="token-selector">
+            <div class="token-icon"></div>
+            <div class="token-info">
+              <div class="token-name">Stellar</div>
+              <div class="token-symbol">XLM</div>
+            </div>
+            <div class="token-balance">
+              <div class="token-balance-amount">1,250.00</div>
+              <div class="token-balance-usd">~$342.50</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Amount</label>
+          <div class="amount-input-wrapper">
+            <input type="text" class="amount-input" placeholder="0.00" id="tipAmount" value="10">
+            <span class="amount-max" onclick="document.getElementById('tipAmount').value='1250'">MAX</span>
+            <span class="amount-unit">XLM</span>
+          </div>
+        </div>
+
+        <div class="fee-breakdown">
+          <div class="fee-row">
+            <span class="fee-label">Gross Amount</span>
+            <span class="fee-value">10.00 XLM</span>
+          </div>
+          <div class="fee-row">
+            <span class="fee-label">Fee (0.1%)</span>
+            <span class="fee-value">-0.01 XLM</span>
+          </div>
+          <div class="fee-row net">
+            <span class="fee-label">Net to Author</span>
+            <span class="fee-value">9.99 XLM</span>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="closeTipModal()">Cancel</button>
+          <button class="btn btn-primary" onclick="showTxState('awaiting')">Confirm</button>
+        </div>
+      </div>
+
+      <!-- Awaiting Signature State -->
+      <div id="tipAwaitingState" style="display: none;">
+        <div class="tx-state">
+          <div class="tx-icon awaiting">
+            <svg class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+              <path d="M12 2a10 10 0 0 1 10 10"/>
+            </svg>
+          </div>
+          <h3 class="tx-title">Check Freighter</h3>
+          <p class="tx-message">Please open your Freighter wallet to sign the transaction</p>
+        </div>
+      </div>
+
+      <!-- Submitting State -->
+      <div id="tipSubmittingState" style="display: none;">
+        <div class="tx-state">
+          <div class="tx-icon submitting">
+            <svg class="spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+              <path d="M12 2a10 10 0 0 1 10 10"/>
+            </svg>
+          </div>
+          <h3 class="tx-title">Submitting...</h3>
+          <p class="tx-message">Processing your tip on the Stellar network</p>
+        </div>
+      </div>
+
+      <!-- Success State -->
+      <div id="tipSuccessState" style="display: none;">
+        <div class="tx-state">
+          <div class="tx-icon success">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </div>
+          <h3 class="tx-title">Tip Sent!</h3>
+          <p class="tx-message">Your tip has been confirmed on the network</p>
+          <a href="https://stellar.expert/tx/abc123def456" target="_blank" class="tx-hash">
+            <span>View on Stellar Expert</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+          <div class="modal-actions" style="margin-top: 20px;">
+            <button class="btn btn-primary" onclick="closeTipModal()">Done</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error State -->
+      <div id="tipErrorState" style="display: none;">
+        <div class="tx-state">
+          <div class="tx-icon error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </div>
+          <h3 class="tx-title">Transaction Failed</h3>
+          <p class="tx-message">Insufficient balance or user rejected the transaction</p>
+          <div class="modal-actions" style="margin-top: 20px;">
+            <button class="btn btn-secondary" onclick="closeTipModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="showTxState('awaiting')">Try Again</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Sheet - Mobile -->
+  <div class="bottom-sheet-overlay" id="bottomSheet">
+    <div class="bottom-sheet">
+      <div class="bottom-sheet-handle"></div>
+      <div class="tip-modal">
+        <div class="modal-header">
+          <h2 class="modal-title">Send Tip</h2>
+          <button class="modal-close" onclick="closeBottomSheet()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        <div id="sheetIdleState">
+          <div class="form-group">
+            <label class="form-label">Token</label>
+            <div class="token-selector">
+              <div class="token-icon"></div>
+              <div class="token-info">
+                <div class="token-name">Stellar</div>
+                <div class="token-symbol">XLM</div>
+              </div>
+              <div class="token-balance">
+                <div class="token-balance-amount">1,250.00</div>
+                <div class="token-balance-usd">~$342.50</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Amount</label>
+            <div class="amount-input-wrapper">
+              <input type="text" class="amount-input" placeholder="0.00" id="sheetAmount" value="10">
+              <span class="amount-max" onclick="document.getElementById('sheetAmount').value='1250'">MAX</span>
+              <span class="amount-unit">XLM</span>
+            </div>
+          </div>
+
+          <div class="fee-breakdown">
+            <div class="fee-row">
+              <span class="fee-label">Gross Amount</span>
+              <span class="fee-value">10.00 XLM</span>
+            </div>
+            <div class="fee-row">
+              <span class="fee-label">Fee (0.1%)</span>
+              <span class="fee-value">-0.01 XLM</span>
+            </div>
+            <div class="fee-row net">
+              <span class="fee-label">Net to Author</span>
+              <span class="fee-value">9.99 XLM</span>
+            </div>
+          </div>
+
+          <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeBottomSheet()">Cancel</button>
+            <button class="btn btn-primary" onclick="showSheetState('awaiting')">Confirm</button>
+          </div>
+        </div>
+
+        <div id="sheetSuccessState" style="display: none;">
+          <div class="tx-state">
+            <div class="tx-icon success">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <h3 class="tx-title">Tip Sent!</h3>
+            <p class="tx-message">Your tip has been confirmed</p>
+            <div class="modal-actions" style="margin-top: 20px;">
+              <button class="btn btn-primary" onclick="closeBottomSheet()">Done</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Demo Controls -->
+  <div class="demo-controls">
+    <h3>Demo Controls</h3>
+    <div class="demo-group">
+      <div class="demo-group-title">Tip Modal</div>
+      <div class="demo-btns">
+        <button class="demo-btn" onclick="openTipModal('desktop')">Open Modal</button>
+        <button class="demo-btn" onclick="openTipModal('mobile')">Open Sheet</button>
+      </div>
+    </div>
+    <div class="demo-group">
+      <div class="demo-group-title">Transaction</div>
+      <div class="demo-btns">
+        <button class="demo-btn" onclick="showToast('success', 'Followed @sarahchen', 'You are now following this creator')">Success Toast</button>
+        <button class="demo-btn" onclick="showToast('error', 'Transaction Failed', 'Please try again later')">Error Toast</button>
+      </div>
+    </div>
+    <div class="demo-group">
+      <div class="demo-group-title">Loading</div>
+      <div class="demo-btns">
+        <button class="demo-btn" onclick="toggleSkeleton()">Toggle Skeleton</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tip Modal Functions
+    function openTipModal(mode) {
+      if (mode === 'mobile') {
+        document.getElementById('bottomSheet').classList.add('active');
+        showSheetState('idle');
+      } else {
+        document.getElementById('tipModal').classList.add('active');
+        showTxState('idle');
+      }
+    }
+
+    function closeTipModal() {
+      document.getElementById('tipModal').classList.remove('active');
+    }
+
+    function closeBottomSheet() {
+      document.getElementById('bottomSheet').classList.remove('active');
+    }
+
+    function showTxState(state) {
+      document.getElementById('tipIdleState').style.display = 'none';
+      document.getElementById('tipAwaitingState').style.display = 'none';
+      document.getElementById('tipSubmittingState').style.display = 'none';
+      document.getElementById('tipSuccessState').style.display = 'none';
+      document.getElementById('tipErrorState').style.display = 'none';
+
+      if (state === 'idle') {
+        document.getElementById('tipIdleState').style.display = 'block';
+      } else if (state === 'awaiting') {
+        document.getElementById('tipAwaitingState').style.display = 'block';
+        setTimeout(() => showTxState('submitting'), 2000);
+      } else if (state === 'submitting') {
+        document.getElementById('tipSubmittingState').style.display = 'block';
+        setTimeout(() => showTxState('success'), 2000);
+      } else if (state === 'success') {
+        document.getElementById('tipSuccessState').style.display = 'block';
+      } else if (state === 'error') {
+        document.getElementById('tipErrorState').style.display = 'block';
+      }
+    }
+
+    function showSheetState(state) {
+      document.getElementById('sheetIdleState').style.display = 'none';
+      document.getElementById('sheetSuccessState').style.display = 'none';
+
+      if (state === 'idle') {
+        document.getElementById('sheetIdleState').style.display = 'block';
+      } else if (state === 'awaiting') {
+        setTimeout(() => showSheetState('success'), 2000);
+      } else if (state === 'success') {
+        document.getElementById('sheetSuccessState').style.display = 'block';
+      }
+    }
+
+    // Toast Function
+    function showToast(type, title, message) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `
+        <div class="toast-icon ${type}">
+          ${type === 'success' 
+            ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>'
+            : '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
+          }
+        </div>
+        <div class="toast-content">
+          <div class="toast-title">${title}</div>
+          <div class="toast-message">${message}</div>
+        </div>
+        <button class="toast-close" onclick="this.parentElement.remove()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
+    }
+
+    // Skeleton Toggle
+    function toggleSkeleton() {
+      const skeleton = document.getElementById('skeletonCard');
+      const realCard = document.querySelector('.post-card');
+      skeleton.style.display = skeleton.style.display === 'none' ? 'block' : 'none';
+      realCard.style.display = realCard.style.display === 'none' ? 'block' : 'none';
+    }
+
+    // Close modals on overlay click
+    document.getElementById('tipModal').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('tipModal')) {
+        closeTipModal();
+      }
+    });
+
+    document.getElementById('bottomSheet').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('bottomSheet')) {
+        closeBottomSheet();
+      }
+    });
+
+    // Navigation interaction
+    document.querySelectorAll('.nav-item, .bottom-nav-item').forEach(item => {
+      item.addEventListener('click', function() {
+        this.closest('ul').querySelectorAll('.nav-item, .bottom-nav-item').forEach(i => i.classList.remove('active'));
+        this.classList.add('active');
+      });
+    });
+  </script>
+</body>
+</html>
