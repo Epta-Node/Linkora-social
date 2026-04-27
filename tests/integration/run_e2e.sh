@@ -70,6 +70,12 @@ stellar --config-dir "$CFG_DIR" contract invoke \
   --network "$NETWORK" \
   --source-account linkora_alice \
   --id "$CONTRACT_ID" \
+  -- initialize --admin "$ALICE_ADDR" --treasury "$ALICE_ADDR" --fee-bps 0 >/dev/null
+
+stellar --config-dir "$CFG_DIR" contract invoke \
+  --network "$NETWORK" \
+  --source-account linkora_alice \
+  --id "$CONTRACT_ID" \
   -- set_profile --user "$ALICE_ADDR" --username alice --creator-token "$TOKEN_ID" >/dev/null
 
 stellar --config-dir "$CFG_DIR" contract invoke \
@@ -101,6 +107,12 @@ stellar --config-dir "$CFG_DIR" contract invoke \
 
 stellar --config-dir "$CFG_DIR" contract invoke \
   --network "$NETWORK" \
+  --source-account linkora_alice \
+  --id "$CONTRACT_ID" \
+  -- create_pool --admin "$ALICE_ADDR" --pool-id community --token "$TOKEN_ID" --admins "[\"$ALICE_ADDR\"]" --threshold 1 >/dev/null
+
+stellar --config-dir "$CFG_DIR" contract invoke \
+  --network "$NETWORK" \
   --source-account linkora_bob \
   --id "$CONTRACT_ID" \
   -- pool_deposit --depositor "$BOB_ADDR" --pool-id community --token "$TOKEN_ID" --amount 600 >/dev/null
@@ -109,7 +121,7 @@ stellar --config-dir "$CFG_DIR" contract invoke \
   --network "$NETWORK" \
   --source-account linkora_alice \
   --id "$CONTRACT_ID" \
-  -- pool_withdraw --recipient "$ALICE_ADDR" --pool-id community --amount 250 >/dev/null
+  -- pool_withdraw --signers "[\"$ALICE_ADDR\"]" --pool-id community --amount 250 --recipient "$ALICE_ADDR" >/dev/null
 
 echo "[7/8] Verifying end-to-end state..."
 FOLLOWING="$(stellar --config-dir "$CFG_DIR" contract invoke \
