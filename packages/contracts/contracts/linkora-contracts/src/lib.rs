@@ -493,7 +493,12 @@ impl LinkoraContract {
         env.storage().persistent().set(&key, &post);
         Self::bump(&env, &key);
 
-        TipEvent { tipper, post_id, amount }.publish(&env);
+        TipEvent {
+            tipper,
+            post_id,
+            amount,
+        }
+        .publish(&env);
     }
 
     // ── Community Pool ────────────────────────────────────────────────────────
@@ -544,16 +549,18 @@ impl LinkoraContract {
             .expect("pool not found");
         assert!(pool.token == token, "wrong token");
 
-        token::Client::new(&env, &token).transfer(
-            &depositor,
-            &env.current_contract_address(),
-            &amount,
-        );
+        let contract_address = env.current_contract_address();
+        token::Client::new(&env, &token).transfer(&depositor, &contract_address, &amount);
         pool.balance += amount;
         env.storage().persistent().set(&key, &pool);
         Self::bump(&env, &key);
 
-        PoolDepositEvent { depositor, pool_id, amount }.publish(&env);
+        PoolDepositEvent {
+            depositor,
+            pool_id,
+            amount,
+        }
+        .publish(&env);
     }
 
     /// Withdraw from a pool. Requires `threshold` valid admin signatures.
@@ -580,18 +587,20 @@ impl LinkoraContract {
             );
             signer.require_auth();
         }
-        assert!(pool.balance >= amount, "low balance");
+        assert!(pool.balance >= amount, "insufficient pool balance");
 
         pool.balance -= amount;
         env.storage().persistent().set(&key, &pool);
         Self::bump(&env, &key);
-        token::Client::new(&env, &pool.token).transfer(
-            &env.current_contract_address(),
-            &recipient,
-            &amount,
-        );
+        let contract_address = env.current_contract_address();
+        token::Client::new(&env, &pool.token).transfer(&contract_address, &recipient, &amount);
 
-        PoolWithdrawEvent { recipient, pool_id, amount }.publish(&env);
+        PoolWithdrawEvent {
+            recipient,
+            pool_id,
+            amount,
+        }
+        .publish(&env);
     }
 
     pub fn get_pool(env: Env, pool_id: Symbol) -> Option<Pool> {

@@ -274,3 +274,115 @@ fn test_delete_post_non_existent() {
     let author = Address::generate(&env);
     client.delete_post(&author, &999);
 }
+
+#[test]
+#[should_panic(expected = "must be positive")]
+fn test_pool_deposit_zero_amount_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+    StellarAssetClient::new(&env, &token).mint(&depositor, &1000);
+
+    let pool_id = symbol_short!("pooldzro");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+
+    client.pool_deposit(&depositor, &pool_id, &token, &0);
+}
+
+#[test]
+#[should_panic(expected = "must be positive")]
+fn test_pool_deposit_negative_amount_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+    StellarAssetClient::new(&env, &token).mint(&depositor, &1000);
+
+    let pool_id = symbol_short!("pooldneg");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+
+    client.pool_deposit(&depositor, &pool_id, &token, &-1);
+}
+
+#[test]
+fn test_pool_deposit_valid_positive_amount_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+    StellarAssetClient::new(&env, &token).mint(&depositor, &1000);
+
+    let pool_id = symbol_short!("pooldpos");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+
+    client.pool_deposit(&depositor, &pool_id, &token, &100);
+    assert_eq!(client.get_pool(&pool_id).unwrap().balance, 100);
+}
+
+#[test]
+#[should_panic(expected = "insufficient pool balance")]
+fn test_pool_withdraw_insufficient_balance_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let depositor = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+    StellarAssetClient::new(&env, &token).mint(&depositor, &1000);
+
+    let pool_id = symbol_short!("poolwlow");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+    client.pool_deposit(&depositor, &pool_id, &token, &500);
+
+    client.pool_withdraw(&vec![&env, pool_admin.clone()], &pool_id, &501, &recipient);
+}
+
+#[test]
+#[should_panic(expected = "pool not found")]
+fn test_pool_withdraw_missing_pool_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let signer = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let missing_pool_id = symbol_short!("nopool");
+
+    client.pool_withdraw(&vec![&env, signer], &missing_pool_id, &1, &recipient);
+}
