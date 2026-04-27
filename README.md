@@ -1,5 +1,7 @@
 # Linkora-socials
 
+[![CI](https://github.com/ijayabby/Linkora-social/actions/workflows/ci.yml/badge.svg)](https://github.com/ijayabby/Linkora-social/actions/workflows/ci.yml)
+
 Linkora-socials is an early-stage open source SocialFi project built on Stellar with Soroban smart contracts. The current repository is focused on the protocol foundation: a Rust contract workspace that models creator profiles, follow relationships, social posts, token tipping, and community pools.
 
 This project is intended to serve as a starting point for contributors exploring social and creator-economy primitives on Stellar.
