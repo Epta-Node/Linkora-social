@@ -5,6 +5,11 @@
     "dev": { "persistent": true, "cache": false },
     "lint": {},
     "test": {},
-    "format": {}
+    "test:integration": {
+      "cache": false
+    },
+    "format": {
+      "outputs": []
+    }
   }
 }

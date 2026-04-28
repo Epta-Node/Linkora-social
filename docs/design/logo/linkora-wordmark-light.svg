@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 48" fill="none" role="img" aria-label="Linkora">
+  <!-- Chain-link icon: two overlapping rounded squares suggesting interconnection -->
+  <rect x="4" y="10" width="22" height="22" rx="5" stroke="#7C3AED" stroke-width="3.5" fill="none"/>
+  <rect x="18" y="16" width="22" height="22" rx="5" stroke="#06B6D4" stroke-width="3.5" fill="none"/>
+  <!-- Wordmark -->
+  <text
+    x="52"
+    y="34"
+    font-family="Inter, ui-sans-serif, system-ui, sans-serif"
+    font-size="24"
+    font-weight="700"
+    letter-spacing="-0.02em"
+    fill="#111827"
+  >Linkora</text>
+</svg>

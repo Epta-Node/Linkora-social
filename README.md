@@ -1,5 +1,7 @@
 # Linkora-socials
 
+[![CI](https://github.com/ijayabby/Linkora-social/actions/workflows/ci.yml/badge.svg)](https://github.com/ijayabby/Linkora-social/actions/workflows/ci.yml)
+
 Linkora-socials is an early-stage open source SocialFi project built on Stellar with Soroban smart contracts. The current repository is focused on the protocol foundation: a Rust contract workspace that models creator profiles, follow relationships, social posts, token tipping, and community pools.
 
 This project is intended to serve as a starting point for contributors exploring social and creator-economy primitives on Stellar.
@@ -62,23 +64,71 @@ The primary contract is `LinkoraContract`.
 ### Data Models
 
 - `Profile`: stores a user address, username, and creator token address
-- `Post`: stores post id, author, content, total tips, and timestamp
+- `Post`: stores post id, author, content, total tips, timestamp, and like count
 - `Pool`: stores a pool token address and tracked balance
 
 ### Contract API Reference
 
 | Function | Purpose | Required signer | Inputs | Returns |
 |---|---|---|---|---|
-| `set_profile(user, username, creator_token)` | Register or update a creator profile. | `user` | `user: Address` — account being registered<br>`username: String` — display name<br>`creator_token: Address` — SEP-41 token the creator has deployed (pass own address if none) | `()` |
+| `initialize(admin, treasury, fee_bps)` | One-time contract setup. Panics if called more than once. | `admin` | `admin: Address` — contract administrator<br>`treasury: Address` — fee recipient<br>`fee_bps: u32` — protocol fee in basis points (0–10 000) | `()` |
+| `set_profile(user, username, creator_token)` | Register or update a creator profile. | `user` | `user: Address` — account being registered<br>`username: String` — display name (3–32 alphanumeric or `_` characters)<br>`creator_token: Address` — SEP-41 token the creator has deployed (pass own address if none) | `()` |
 | `get_profile(user)` | Fetch a profile by address. | None | `user: Address` | `Option<Profile>` |
-| `follow(follower, followee)` | Record a follow relationship. Duplicate follows are ignored. | `follower` | `follower: Address` — account initiating the follow<br>`followee: Address` — account being followed | `()` |
+| `get_profile_count()` | Return the total number of registered profiles. | None | None | `u64` |
+| `follow(follower, followee)` | Record a follow relationship. Duplicate follows are ignored. Panics if `followee` has blocked `follower`. | `follower` | `follower: Address` — account initiating the follow<br>`followee: Address` — account being followed | `()` |
+| `unfollow(follower, followee)` | Remove a follow relationship. No-op if the relationship does not exist. | `follower` | `follower: Address` — account removing the follow<br>`followee: Address` — account being unfollowed | `()` |
 | `get_following(user)` | Return all accounts followed by a user. | None | `user: Address` | `Vec<Address>` |
-| `create_post(author, content)` | Publish a new on-chain post. Post IDs are assigned sequentially starting at 1. | `author` | `author: Address` — post creator<br>`content: String` — post body | `u64` — new post ID |
+| `get_followers(user)` | Return all accounts that follow a user. | None | `user: Address` | `Vec<Address>` |
+| `block_user(blocker, blocked)` | Add an account to the caller's block list, preventing them from following. | `blocker` | `blocker: Address` — account initiating the block<br>`blocked: Address` — account being blocked | `()` |
+| `unblock_user(blocker, blocked)` | Remove an account from the caller's block list. | `blocker` | `blocker: Address` — account removing the block<br>`blocked: Address` — account being unblocked | `()` |
+| `is_blocked(blocker, blocked)` | Check whether `blocker` has blocked `blocked`. | None | `blocker: Address`<br>`blocked: Address` | `bool` |
+| `create_post(author, content)` | Publish a new on-chain post. Post IDs are assigned sequentially starting at 1. | `author` | `author: Address` — post creator<br>`content: String` — post body (1–280 characters) | `u64` — new post ID |
+| `get_post_count()` | Return the total number of posts created so far. Returns `0` when no posts exist. | None | None | `u64` |
 | `get_post(id)` | Fetch a post by ID. | None | `id: u64` | `Option<Post>` |
-| `tip(tipper, post_id, token, amount)` | Transfer SEP-41 tokens directly to a post's author and increment the post's `tip_total`. | `tipper` | `tipper: Address` — sender<br>`post_id: u64` — target post<br>`token: Address` — SEP-41 token contract<br>`amount: i128` — token units to transfer | `()` |
-| `pool_deposit(depositor, pool_id, token, amount)` | Deposit tokens into a named community pool. `amount` must be greater than zero. | `depositor` | `depositor: Address` — token sender<br>`pool_id: Symbol` — pool identifier<br>`token: Address` — SEP-41 token contract<br>`amount: i128` — token units to deposit (must be > 0) | `()` |
-| `pool_withdraw(recipient, pool_id, amount)` | Withdraw tokens from a community pool to the caller. `amount` must be greater than zero and must not exceed the pool balance. | `recipient` | `recipient: Address` — token receiver<br>`pool_id: Symbol` — pool identifier<br>`amount: i128` — token units to withdraw (must be > 0) | `()` |
+| `delete_post(author, post_id)` | Delete a post. Only the original author may delete their own post. | `author` | `author: Address` — post owner<br>`post_id: u64` — ID of the post to delete | `()` |
+| `like_post(user, post_id)` | Like a post. Duplicate likes from the same user are ignored. | `user` | `user: Address` — account liking the post<br>`post_id: u64` — target post | `()` |
+| `get_like_count(post_id)` | Return the number of likes on a post. | None | `post_id: u64` | `u64` |
+| `has_liked(user, post_id)` | Check whether a user has liked a specific post. | None | `user: Address`<br>`post_id: u64` | `bool` |
+| `tip(tipper, post_id, token, amount)` | Transfer SEP-41 tokens to a post's author, applying the protocol fee, and increment the post's `tip_total`. | `tipper` | `tipper: Address` — sender<br>`post_id: u64` — target post<br>`token: Address` — SEP-41 token contract<br>`amount: i128` — token units to transfer (must be > 0) | `()` |
+| `create_pool(admin, pool_id, token, initial_admins, threshold)` | Create a named community pool with an M-of-N admin set. Requires contract admin auth. | contract `admin` | `admin: Address` — caller (must be contract admin)<br>`pool_id: Symbol` — unique pool identifier<br>`token: Address` — SEP-41 token for the pool<br>`initial_admins: Vec<Address>` — admin set<br>`threshold: u32` — minimum signatures required to withdraw (must be > 0 and ≤ `initial_admins.len()`) | `()` |
+| `pool_deposit(depositor, pool_id, token, amount)` | Deposit tokens into a named community pool. `amount` must be greater than zero. | `depositor` | `depositor: Address` — token sender<br>`pool_id: Symbol` — pool identifier<br>`token: Address` — SEP-41 token contract (must match pool token)<br>`amount: i128` — token units to deposit (must be > 0) | `()` |
+| `pool_withdraw(signers, pool_id, amount, recipient)` | Withdraw tokens from a community pool. Requires at least `threshold` valid admin signatures from the pool's admin set. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the withdrawal<br>`pool_id: Symbol` — pool identifier<br>`amount: i128` — token units to withdraw (must be > 0 and ≤ pool balance)<br>`recipient: Address` — token receiver | `()` |
 | `get_pool(pool_id)` | Fetch the current state of a pool. | None | `pool_id: Symbol` | `Option<Pool>` |
+| `set_fee(fee_bps)` | Update the protocol fee. Only callable by the contract admin. | contract `admin` | `fee_bps: u32` — new fee in basis points (0–10 000) | `()` |
+| `set_treasury(treasury)` | Update the treasury address that receives protocol fees. Only callable by the contract admin. | contract `admin` | `treasury: Address` — new fee recipient | `()` |
+| `get_fee_bps()` | Return the current protocol fee in basis points. | None | None | `u32` |
+| `get_treasury()` | Return the current treasury address. | None | None | `Option<Address>` |
+| `upgrade(new_wasm_hash)` | Upgrade the contract WASM. Only callable by the contract admin. | contract `admin` | `new_wasm_hash: BytesN<32>` — hash of the new WASM blob | `()` |
+
+## Storage Layout
+
+Linkora-socials uses Soroban's state storage to manage its data. Below is a summary of the storage keys and namespaces used by the contract.
+
+### Storage Namespaces
+
+- **Instance Storage**: Used for contract-wide configuration and small, frequently updated counters (e.g., admin address, post counter).
+- **Persistent Storage**: Used for all user-generated data like profiles, posts, and social relationships. This data is subject to TTL extensions to remain on-chain.
+
+### Key Mapping
+
+| Key | Format | Namespace | Purpose |
+|---|---|---|---|
+| `PROFILES` | `(Symbol("PROFILES"), Address)` | Persistent | Stores user `Profile` data. |
+| `PROF_CT` | `Symbol("PROF_CT")` | Instance | Tracks the total number of registered profiles. |
+| `FOLLOWS` | `(Symbol("FOLLOWS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts that the given address follows. |
+| `FOLLOWRS` | `(Symbol("FOLLOWRS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts following the given address. |
+| `BLOCKS` | `(Symbol("BLOCKS"), Address)` | Persistent | Stores a `Map<Address, ()>` of accounts blocked by the given address. |
+| `POSTS` | `(Symbol("POSTS"), u64)` | Persistent | Stores individual `Post` objects by their incremental ID. |
+| `POST_CT` | `Symbol("POST_CT")` | Instance | Tracks the total number of posts created (used for ID generation). |
+| `POOLS` | `(Symbol("POOLS"), Symbol)` | Persistent | Stores `Pool` data for named community pools. |
+| `LIKES` | `(Symbol("LIKES"), u64, Address)` | Persistent | Records whether a specific user has liked a specific post. |
+| `ADMIN` | `Symbol("ADMIN")` | Instance | Stores the contract administrator's address. |
+| `TREASURY` | `Symbol("TREASURY")` | Instance | Stores the treasury address that receives protocol fees. |
+| `FEE_BPS` | `Symbol("FEE_BPS")` | Instance | Stores the protocol fee in basis points (0–10 000). |
+| `INIT` | `Symbol("INIT")` | Instance | Boolean flag indicating if the contract has been initialized. |
+
+> [!NOTE]
+> This storage layout is designed for the prototype phase and has not been optimized for large-scale data or minimal footprint.
 
 ## Prerequisites
 
@@ -193,13 +243,34 @@ When contributing:
 - add or update tests for behavior changes
 - document any new contract method or breaking interface change
 
+## Security
+
+Please review `SECURITY.md` for vulnerability disclosure guidance and scope.
+
+## Troubleshooting
+
+### Common Setup Issues
+
+- **`pnpm` command not found**: Install pnpm globally using `npm install -g pnpm`. Linkora uses pnpm workspaces for managing multiple packages.
+- **`stellar` command not found**: Install the Stellar CLI with `cargo install --locked stellar-cli`. Ensure `~/.cargo/bin` is in your system PATH.
+- **`cargo test` failing**: Make sure you are running it from inside `packages/contracts`. If you are at the repository root, use `pnpm test` instead.
+- **Outdated dependencies**: Always run `pnpm install` from the root directory after pulling new changes to ensure your `node_modules` and Turborepo cache are synchronized.
+- **Rust build errors**: Ensure the Wasm target is installed: `rustup target add wasm32-unknown-unknown`.
+
+### Command Reference
+
+| Task | Root Directory | `packages/contracts` |
+|---|---|---|
+| **Install dependencies** | `pnpm install` | - |
+| **Build Contracts** | `pnpm build:contracts` | `pnpm build` |
+| **Run Tests** | `pnpm test` | `cargo test` |
+
 ## Current Limitations
 
 This repository is a prototype and should not be treated as production-ready infrastructure yet.
 
-- Pool withdrawal authorization is minimal and should be replaced with stronger governance or role-based control.
+- Pool withdrawal uses M-of-N admin authorization; more advanced governance may be needed for production.
 - Contract storage layout has not been optimized for scale.
-- There are no emitted events yet for indexers or analytics pipelines.
 - No deployment scripts, frontend client, or backend service are included yet.
 - Security review and audit work remain outstanding.
 

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 340" role="img" aria-label="404 — Post not found">
+  <rect width="600" height="340" rx="16" fill="#F9FAFB"/>
+
+  <!-- Broken document icon -->
+  <g transform="translate(246 32)">
+    <!-- Document -->
+    <rect x="0" y="0" width="72" height="90" rx="8" fill="#FEE2E2" stroke="#EF4444" stroke-width="2"/>
+    <!-- Torn line (jagged) -->
+    <polyline points="0,48 12,40 24,52 36,40 48,52 60,40 72,48" fill="none" stroke="#EF4444" stroke-width="2.5" stroke-linejoin="round"/>
+    <!-- Lines on top half -->
+    <rect x="10" y="14" width="52" height="6" rx="3" fill="#EF4444" opacity="0.3"/>
+    <rect x="10" y="26" width="40" height="6" rx="3" fill="#EF4444" opacity="0.3"/>
+    <!-- Question mark on bottom half -->
+    <text x="36" y="78" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="20" font-weight="700" fill="#EF4444" opacity="0.5">?</text>
+  </g>
+
+  <!-- 404 badge -->
+  <rect x="254" y="134" width="92" height="32" rx="8" fill="#FEE2E2"/>
+  <text x="300" y="155" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="18" font-weight="700" fill="#EF4444">404</text>
+
+  <text x="300" y="196" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="20" font-weight="700" fill="#111827">Post not found</text>
+  <text x="300" y="220" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="14" fill="#6B7280">This post may have been deleted by its author,</text>
+  <text x="300" y="238" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="14" fill="#6B7280">or the post ID does not exist on-chain.</text>
+
+  <!-- Actions -->
+  <rect x="178" y="262" width="244" height="44" rx="10" fill="#7C3AED"/>
+  <text x="300" y="289" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="15" font-weight="600" fill="#FFFFFF">Go to Home Feed</text>
+</svg>
