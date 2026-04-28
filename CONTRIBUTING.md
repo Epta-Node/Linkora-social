@@ -140,3 +140,108 @@ The `CI / Unit Tests` job runs `cargo test` inside `packages/contracts`. Your PR
 - The code does not compile (including `wasm32v1-none` target).
 
 The integration test suite (`integration.yml`) runs on a nightly schedule and on manual dispatch; it is not a required check for PRs but failures there should still be investigated promptly.
+
+
+## 🚀 First Contribution Walkthrough
+
+Welcome! This guide will help you make your first contribution step-by-step — from setup to opening your first Pull Request.
+
+---
+
+### 1. 🍴 Fork and Clone the Repository
+
+Click the **Fork** button on GitHub, then clone your fork locally:
+
+```bash
+git clone https://github.com/<your-username>/<repo-name>.git
+cd <repo-name>
+```
+
+---
+
+### 2. 📦 Install Dependencies
+
+Install all required dependencies:
+
+```bash
+pnpm install
+```
+
+> Make sure you have Node.js and pnpm installed on your system.
+
+---
+
+### 3. 🧪 Run the Project / Tests
+
+Verify everything is working correctly:
+
+```bash
+pnpm test
+```
+
+---
+
+### 4. 🔍 Pick a Good First Issue
+
+Go to the Issues tab and look for labels like:
+
+* `good first issue`
+* `documentation`
+* `enhancement`
+
+Choose an issue that matches your skill level.
+
+---
+
+### 5. 🌿 Create a New Branch
+
+Always create a new branch before making changes:
+
+```bash
+git checkout -b feature/your-feature-name
+```
+
+---
+
+### 6. ✏️ Make Changes and Commit
+
+Make your changes, then stage and commit:
+
+```bash
+git add .
+git commit -m "Add: short description of your changes"
+```
+
+---
+
+### 7. 🚀 Push and Open a Pull Request
+
+Push your branch to GitHub:
+
+```bash
+git push origin feature/your-feature-name
+```
+
+Then go to your fork on GitHub and click **"Compare & pull request"**.
+
+---
+
+### 8. ✅ Wait for Review
+
+* Maintainers will review your PR
+* Make changes if requested
+* Once approved, your PR will be merged 🎉
+
+---
+
+### 💡 Tips for Contributors
+
+* Keep your changes small and focused
+* Write clear commit messages
+* Follow the project’s coding style
+* Test your changes before submitting
+* Be respectful in discussions
+
+---
+
+Happy contributing! 🚀
