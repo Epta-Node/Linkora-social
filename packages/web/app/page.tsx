@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CreatePost } from "./components/CreatePost";
 
 export default function Page() {
   return (
@@ -48,6 +49,19 @@ export default function Page() {
             }}
           >
             Explore
+          </a>
+          <a
+            href="/pools"
+            style={{
+              padding: "0.75rem 1.5rem",
+              background: "var(--color-bg)",
+              border: "1px solid var(--color-border)",
+              borderRadius: "8px",
+              fontWeight: 600,
+              textDecoration: "none",
+            }}
+          >
+            Pools
           </a>
         </div>
       </section>
