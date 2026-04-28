@@ -191,6 +191,55 @@ fn test_like_post() {
 }
 
 #[test]
+fn test_like_post_emits_event_on_first_like() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let author = Address::generate(&env);
+    let user = Address::generate(&env);
+    let post_id = client.create_post(&author, &String::from_str(&env, "Event test"));
+
+    client.like_post(&user, &post_id);
+
+    assert!(
+        !env.events().all().events().is_empty(),
+        "LikePostEvent should be emitted"
+    );
+}
+
+#[test]
+fn test_like_post_no_event_on_duplicate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let author = Address::generate(&env);
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let post_id = client.create_post(&author, &String::from_str(&env, "Duplicate event test"));
+
+    client.like_post(&user1, &post_id);
+    let like_count_after_first = client.get_like_count(&post_id);
+
+    client.like_post(&user1, &post_id);
+    let like_count_after_duplicate = client.get_like_count(&post_id);
+
+    assert_eq!(
+        like_count_after_duplicate, like_count_after_first,
+        "duplicate like should not increment count"
+    );
+
+    client.like_post(&user2, &post_id);
+    let like_count_after_new_user = client.get_like_count(&post_id);
+
+    assert_eq!(
+        like_count_after_new_user, like_count_after_first + 1,
+        "like from new user should increment"
+    );
+}
+
+#[test]
 fn test_pool_authorization() {
     let env = Env::default();
     env.mock_all_auths();
