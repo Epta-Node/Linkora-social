@@ -81,7 +81,44 @@ pnpm test:integration
 ```
 
 For more details on sandbox setup, see the [Integration Tests README](tests/README.md).
+## First Contribution Walkthrough
 
+### 1. Fork and Clone
+Fork the repository on GitHub, then clone your fork locally.
+
+```bash
+git clone git@github.com:YOUR-USERNAME/Linkora-social.git
+cd Linkora-social
+```
+
+### 2. Install Dependencies
+Install project dependencies and required tooling.
+
+```bash
+pnpm install
+cargo install --locked stellar-cli
+```
+
+### 3. Verify Setup
+Run tests to confirm your setup works.
+
+```bash
+pnpm --filter contracts test
+pnpm test:integration
+```
+
+### 4. Pick a Good First Issue
+Look for issues labeled `good first issue` or `documentation`, then comment on the issue before starting.
+
+### 5. Create a Branch and Make Changes
+Create a branch from `main`, make changes, and rerun tests.
+
+```bash
+git checkout -b docs/your-change
+```
+
+### 6. Open a Pull Request
+Push your branch and open a pull request against `main`.
 ## Adding a New Contract Function
 
 When adding a new feature or function to the Linkora contracts, follow these guidelines:
