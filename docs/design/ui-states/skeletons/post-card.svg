@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 160" role="img" aria-label="Post card loading skeleton">
+  <defs>
+    <linearGradient id="shimmer-post" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#E5E7EB"/>
+      <stop offset="50%"  stop-color="#F3F4F6"/>
+      <stop offset="100%" stop-color="#E5E7EB"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="-600 0" to="600 0" dur="1.4s" repeatCount="indefinite"/>
+    </linearGradient>
+    <clipPath id="clip-post">
+      <rect width="600" height="160" rx="12"/>
+    </clipPath>
+  </defs>
+
+  <!-- Card background -->
+  <rect width="600" height="160" rx="12" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1"/>
+
+  <!-- Avatar circle -->
+  <circle cx="32" cy="36" r="20" fill="url(#shimmer-post)" clip-path="url(#clip-post)"/>
+
+  <!-- Username line -->
+  <rect x="60" y="24" width="120" height="12" rx="6" fill="url(#shimmer-post)"/>
+  <!-- Handle line -->
+  <rect x="60" y="42" width="80" height="10" rx="5" fill="url(#shimmer-post)"/>
+
+  <!-- Timestamp (top-right) -->
+  <rect x="540" y="28" width="44" height="10" rx="5" fill="url(#shimmer-post)"/>
+
+  <!-- Content lines -->
+  <rect x="16" y="76" width="568" height="12" rx="6" fill="url(#shimmer-post)"/>
+  <rect x="16" y="96" width="500" height="12" rx="6" fill="url(#shimmer-post)"/>
+  <rect x="16" y="116" width="340" height="12" rx="6" fill="url(#shimmer-post)"/>
+
+  <!-- Action row: like / tip / share -->
+  <rect x="16"  y="140" width="60" height="10" rx="5" fill="url(#shimmer-post)"/>
+  <rect x="96"  y="140" width="60" height="10" rx="5" fill="url(#shimmer-post)"/>
+  <rect x="176" y="140" width="60" height="10" rx="5" fill="url(#shimmer-post)"/>
+</svg>

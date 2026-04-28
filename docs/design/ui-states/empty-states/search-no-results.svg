@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 300" role="img" aria-label="Search — no results found">
+  <rect width="600" height="300" rx="16" fill="#F9FAFB"/>
+
+  <!-- Magnifier icon -->
+  <g transform="translate(248 32)">
+    <!-- Glass -->
+    <circle cx="48" cy="48" r="36" fill="#F3F4F6" stroke="#D1D5DB" stroke-width="3"/>
+    <!-- Cross inside glass (no results) -->
+    <line x1="34" y1="34" x2="62" y2="62" stroke="#9CA3AF" stroke-width="3" stroke-linecap="round"/>
+    <line x1="62" y1="34" x2="34" y2="62" stroke="#9CA3AF" stroke-width="3" stroke-linecap="round"/>
+    <!-- Handle -->
+    <line x1="76" y1="76" x2="100" y2="100" stroke="#D1D5DB" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <text x="300" y="172" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="18" font-weight="700" fill="#111827">No results found</text>
+  <text x="300" y="196" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="14" fill="#6B7280">No profiles or posts match your search.</text>
+  <text x="300" y="214" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="14" fill="#6B7280">Try a different username or keyword.</text>
+
+  <!-- Clear search pill -->
+  <rect x="218" y="236" width="164" height="40" rx="20" fill="none" stroke="#7C3AED" stroke-width="1.5"/>
+  <text x="300" y="261" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="14" font-weight="600" fill="#7C3AED">Clear Search</text>
+
+  <text x="300" y="286" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="12" fill="#9CA3AF">Searches query on-chain profile data</text>
+</svg>

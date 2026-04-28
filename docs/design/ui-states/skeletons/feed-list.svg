@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 560" role="img" aria-label="Feed list loading skeleton — three post cards stacked">
+  <defs>
+    <linearGradient id="shimmer-feed" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#E5E7EB"/>
+      <stop offset="50%"  stop-color="#F3F4F6"/>
+      <stop offset="100%" stop-color="#E5E7EB"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="-600 0" to="600 0" dur="1.4s" repeatCount="indefinite"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ── Post 1 ── -->
+  <rect y="0"   width="600" height="160" rx="12" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1"/>
+  <circle cx="32" cy="36" r="20" fill="url(#shimmer-feed)"/>
+  <rect x="60" y="24" width="120" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="60" y="42" width="80"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="540" y="28" width="44" height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="76"  width="568" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="96"  width="500" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="116" width="340" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="140" width="60"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="96"  y="140" width="60"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="176" y="140" width="60"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+
+  <!-- ── Post 2 ── -->
+  <rect y="176" width="600" height="160" rx="12" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1"/>
+  <circle cx="32" cy="212" r="20" fill="url(#shimmer-feed)"/>
+  <rect x="60"  y="200" width="100" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="60"  y="218" width="70"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="540" y="204" width="44"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="252" width="568" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="272" width="460" height="12" rx="6" fill="url(#shimmer-feed)"/>
+  <rect x="16"  y="316" width="60"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+  <rect x="96"  y="316" width="60"  height="10" rx="5" fill="url(#shimmer-feed)"/>
+
+  <!-- ── Post 3 (fades) ── -->
+  <rect y="352" width="600" height="160" rx="12" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1" opacity="0.6"/>
+  <circle cx="32" cy="388" r="20" fill="url(#shimmer-feed)" opacity="0.6"/>
+  <rect x="60"  y="376" width="140" height="12" rx="6" fill="url(#shimmer-feed)" opacity="0.6"/>
+  <rect x="60"  y="394" width="90"  height="10" rx="5" fill="url(#shimmer-feed)" opacity="0.6"/>
+  <rect x="16"  y="428" width="568" height="12" rx="6" fill="url(#shimmer-feed)" opacity="0.6"/>
+  <rect x="16"  y="448" width="380" height="12" rx="6" fill="url(#shimmer-feed)" opacity="0.6"/>
+  <rect x="16"  y="492" width="60"  height="10" rx="5" fill="url(#shimmer-feed)" opacity="0.6"/>
+</svg>

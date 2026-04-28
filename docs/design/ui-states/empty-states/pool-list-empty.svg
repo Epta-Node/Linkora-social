@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 320" role="img" aria-label="Pool list — no pools exist">
+  <rect width="600" height="320" rx="16" fill="#F9FAFB"/>
+
+  <!-- Icon: bucket / pool with drop -->
+  <g transform="translate(248 36)">
+    <!-- Bucket -->
+    <path d="M16 28 L8 96 Q8 104 16 104 L88 104 Q96 104 96 96 L88 28 Z" fill="#CFFAFE" stroke="#06B6D4" stroke-width="2.5" stroke-linejoin="round"/>
+    <!-- Bucket top rim -->
+    <rect x="4" y="20" width="96" height="12" rx="6" fill="#06B6D4" opacity="0.4"/>
+    <!-- Drop inside -->
+    <path d="M52 44 Q52 44 38 66 Q38 80 52 80 Q66 80 66 66 Q66 44 52 44 Z" fill="#06B6D4" opacity="0.7"/>
+    <!-- Sparkle -->
+    <circle cx="86" cy="16" r="6" fill="#F59E0B"/>
+    <line x1="86" y1="6"  x2="86" y2="26" stroke="#F59E0B" stroke-width="1.5" stroke-linecap="round"/>
+    <line x1="76" y1="16" x2="96" y2="16" stroke="#F59E0B" stroke-width="1.5" stroke-linecap="round"/>
+  </g>
+
+  <text x="300" y="188" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="18" font-weight="700" fill="#111827">No community pools</text>
+  <text x="300" y="212" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="14" fill="#6B7280">Create a pool to start collecting on-chain community funds.</text>
+
+  <rect x="178" y="236" width="244" height="44" rx="10" fill="#06B6D4"/>
+  <text x="300" y="263" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="15" font-weight="600" fill="#FFFFFF">Create a Pool</text>
+
+  <text x="300" y="300" text-anchor="middle" font-family="Inter,system-ui,sans-serif" font-size="12" fill="#9CA3AF">Pools are stored on-chain. Gas fee required to create.</text>
+</svg>
