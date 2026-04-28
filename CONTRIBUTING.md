@@ -29,7 +29,7 @@ cargo install --locked stellar-cli
 Clone the repository and install the JavaScript workspace dependencies:
 
 ```bash
-git clone git@github.com:SamixYasuke/Linkora-social.git
+git clone git@github.com:Epta-Node/Linkora-social.git
 cd Linkora-social
 pnpm install
 ```
@@ -120,3 +120,23 @@ Before submitting or requesting a review, verify the following (as found in our 
 - [ ] Changes are focused — one concern per PR
 - [ ] If a contract function was added or changed, the README API table is updated
 - [ ] No unresolved merge conflicts
+
+## Branch Protection Policy
+
+The `main` branch is protected. The following rules are enforced:
+
+- **CI must pass**: All pull requests must pass the `CI / Unit Tests` workflow before they can be merged. This gate exists because unreviewed merges have previously introduced duplicate imports and broken function bodies into `main`.
+- **Review required**: At least one approving review from a repository collaborator is required before merge.
+- **No direct pushes**: Direct pushes to `main` are restricted to repository administrators. All changes must go through a pull request.
+- **No force-pushes**: Force-pushing to `main` is disabled to preserve commit history.
+
+These rules are enforced at the repository level and cannot be bypassed by contributors. If CI fails on your PR, investigate and fix the root cause rather than asking for a merge exemption.
+
+### What counts as a CI failure?
+
+The `CI / Unit Tests` job runs `cargo test` inside `packages/contracts`. Your PR will be blocked if:
+
+- Any unit test panics or returns an unexpected result.
+- The code does not compile (including `wasm32v1-none` target).
+
+The integration test suite (`integration.yml`) runs on a nightly schedule and on manual dispatch; it is not a required check for PRs but failures there should still be investigated promptly.

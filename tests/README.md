@@ -18,12 +18,12 @@ The E2E script validates these flows on a running sandbox:
 
 - Docker
 - Rust toolchain
-- `stellar` CLI in `PATH`
+- `stellar` CLI **v22.8.1** in `PATH`
 
-Install CLI if needed:
+Install the required version:
 
 ```bash
-cargo install --locked stellar-cli
+cargo install --locked stellar-cli --version 22.8.1
 ```
 
 ## Run Locally

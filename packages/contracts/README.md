@@ -1,22 +1,44 @@
-# Soroban Project
+# Linkora Contracts
 
 ## Project Structure
-
-This repository uses the recommended structure for a Soroban project:
 
 ```text
 .
 ├── contracts
-│   └── hello_world
-│       ├── src
-│       │   ├── lib.rs
-│       │   └── test.rs
-│       └── Cargo.toml
+│   └── linkora-contracts
+│       ├── src
+│       │   ├── lib.rs
+│       │   └── test.rs
+│       ├── Cargo.toml
+│       └── EVENTS.md
 ├── Cargo.toml
 └── README.md
 ```
 
-- New Soroban contracts can be put in `contracts`, each in their own directory. There is already a `hello_world` contract in there to get you started.
-- If you initialized this project with any other example contracts via `--with-example`, those contracts will be in the `contracts` directory as well.
-- Contracts should have their own `Cargo.toml` files that rely on the top-level `Cargo.toml` workspace for their dependencies.
-- Frontend libraries can be added to the top-level directory as well. If you initialized this project with a frontend template via `--frontend-template` you will have those files already included.
+The `linkora-contracts` package is the core Soroban smart contract for the Linkora social protocol, located at `contracts/linkora-contracts`.
+
+## Building
+
+```bash
+stellar contract build
+```
+
+Or via the Makefile inside the contract directory:
+
+```bash
+make build
+```
+
+## Running Tests
+
+```bash
+cargo test
+```
+
+## Events
+
+See [`contracts/linkora-contracts/EVENTS.md`](./contracts/linkora-contracts/EVENTS.md) for the canonical event schema used by indexers and clients.
+
+## Integration Tests
+
+End-to-end integration tests live in [`tests/integration/`](../../tests/integration/).

@@ -1,0 +1,17 @@
+# CODEOWNERS — reviewers listed here are automatically requested on PRs that
+# touch the corresponding paths.
+#
+# Syntax: <pattern> <@owner> [<@owner2> ...]
+# Patterns are evaluated top-to-bottom; the last matching rule wins.
+
+# Default: every file requires review from a repository admin.
+*                               @Epta-Node/maintainers
+
+# Smart contracts and their tests
+packages/contracts/             @Epta-Node/maintainers
+
+# CI/CD and repository configuration
+.github/                        @Epta-Node/maintainers
+
+# Integration test scripts
+tests/                          @Epta-Node/maintainers

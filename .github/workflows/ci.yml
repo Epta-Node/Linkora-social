@@ -40,5 +40,11 @@ jobs:
         with:
           workspaces: packages/contracts
 
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
       - name: Run unit tests
         run: cargo test

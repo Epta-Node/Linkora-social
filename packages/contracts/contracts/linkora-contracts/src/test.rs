@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Ledger},
+    testutils::{Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, BytesN, Env, String,
 };
@@ -14,7 +14,7 @@ fn setup_token(env: &Env, admin: &Address) -> Address {
     token_id.address()
 }
 
-fn setup_contract(env: &Env) -> (LinkoraContractClient, Address, Address) {
+fn setup_contract(env: &Env) -> (LinkoraContractClient<'_>, Address, Address) {
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
@@ -100,6 +100,29 @@ fn test_post_count() {
     client.create_post(&author, &String::from_str(&env, "Post 2"));
 
     assert_eq!(client.get_post_count(), 2);
+}
+
+#[test]
+fn test_post_count_not_decremented_on_delete() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let author = Address::generate(&env);
+    let post_id1 = client.create_post(&author, &String::from_str(&env, "Post 1"));
+    let post_id2 = client.create_post(&author, &String::from_str(&env, "Post 2"));
+
+    assert_eq!(client.get_post_count(), 2);
+
+    // Delete first post
+    client.delete_post(&author, &post_id1);
+
+    // Counter should still be 2 (total ever created)
+    assert_eq!(client.get_post_count(), 2);
+
+    // But the post should be gone
+    assert!(client.get_post(&post_id1).is_none());
+    assert!(client.get_post(&post_id2).is_some());
 }
 
 #[test]
