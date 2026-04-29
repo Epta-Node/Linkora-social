@@ -154,7 +154,7 @@ FOLLOWING="$(stellar --config-dir "$CFG_DIR" contract invoke \
   --source-account linkora_bob \
   --id "$CONTRACT_ID" \
   --send no \
-  -- get_following --user "$BOB_ADDR")"
+  -- get_following --user "$BOB_ADDR" --offset 0 --limit 10)"
 
 assert_contains "bob follows alice" "$ALICE_ADDR" "$FOLLOWING"
 

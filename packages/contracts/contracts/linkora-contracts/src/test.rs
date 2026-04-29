@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events, Ledger},
+    testutils::{storage::Persistent as _, Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, BytesN, Env, String,
 };
@@ -34,6 +34,75 @@ fn test_set_and_get_profile() {
     client.set_profile(&user, &String::from_str(&env, "alice"), &token);
     let profile = client.get_profile(&user).unwrap();
     assert_eq!(profile.username, String::from_str(&env, "alice"));
+}
+
+#[test]
+fn test_username_reverse_index_registration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    let resolved = client.get_address_by_username(&String::from_str(&env, "alice"));
+    assert_eq!(resolved, Some(user));
+}
+
+#[test]
+fn test_username_reverse_index_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    client.set_profile(&user, &String::from_str(&env, "alice2"), &token);
+
+    // Old username should be gone
+    assert!(client
+        .get_address_by_username(&String::from_str(&env, "alice"))
+        .is_none());
+    // New username should resolve
+    assert_eq!(
+        client.get_address_by_username(&String::from_str(&env, "alice2")),
+        Some(user)
+    );
+}
+
+#[test]
+#[should_panic(expected = "username taken")]
+fn test_username_duplicate_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.set_profile(&user1, &String::from_str(&env, "alice"), &token);
+    // Different address tries to claim the same username
+    client.set_profile(&user2, &String::from_str(&env, "alice"), &token);
+}
+
+#[test]
+fn test_username_same_user_can_reregister_same_name() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    // Same user re-registering with the same username should not panic
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    assert_eq!(
+        client.get_address_by_username(&String::from_str(&env, "alice")),
+        Some(user)
+    );
 }
 
 #[test]
@@ -222,12 +291,12 @@ fn test_follow_and_unfollow() {
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     client.follow(&alice, &bob);
-    assert_eq!(client.get_following(&alice).len(), 1);
-    assert_eq!(client.get_followers(&bob).len(), 1);
+    assert_eq!(client.get_following(&alice, &0, &10).len(), 1);
+    assert_eq!(client.get_followers(&bob, &0, &10).len(), 1);
 
     client.unfollow(&alice, &bob);
-    assert_eq!(client.get_following(&alice).len(), 0);
-    assert_eq!(client.get_followers(&bob).len(), 0);
+    assert_eq!(client.get_following(&alice, &0, &10).len(), 0);
+    assert_eq!(client.get_followers(&bob, &0, &10).len(), 0);
 }
 
 #[test]
@@ -583,468 +652,294 @@ fn test_upgrade_before_initialize_panics() {
     client.upgrade(&mock_hash);
 }
 
-// ── delete_profile tests ──────────────────────────────────────────────────────
+// ── Fee boundary tests (issue #196) ─────────────────────────────────────────────
 
 #[test]
-fn test_delete_profile_success() {
+fn test_initialize_fee_boundary_max_valid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let user = Address::generate(&env);
-    let token = Address::generate(&env);
-
-    // Create profile
-    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
-    assert_eq!(client.get_profile_count(), 1);
-    assert!(client.get_profile(&user).is_some());
-
-    // Delete profile
-    client.delete_profile(&user);
-
-    // Verify profile is deleted
-    assert!(client.get_profile(&user).is_none());
-    assert_eq!(client.get_profile_count(), 0);
-}
-
-#[test]
-#[should_panic(expected = "profile does not exist")]
-fn test_delete_profile_non_existent() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let user = Address::generate(&env);
-    client.delete_profile(&user);
-}
-
-#[test]
-fn test_delete_profile_auth_enforcement() {
-    let env = Env::default();
-    // Don't mock all auths - we want to test auth
+    
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
+    
     let admin = Address::generate(&env);
     let treasury = Address::generate(&env);
+    
+    // Initialize with fee_bps = 10_000 (100%) should succeed
+    client.initialize(&admin, &treasury, &10_000);
+    assert_eq!(client.get_fee_bps(), 10_000);
+}
 
+#[test]
+#[should_panic(expected = "invalid fee")]
+fn test_initialize_fee_boundary_max_invalid() {
+    let env = Env::default();
     env.mock_all_auths();
-    client.initialize(&admin, &treasury, &0);
+    
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with fee_bps = 10_001 (>100%) should panic
+    client.initialize(&admin, &treasury, &10_001);
+}
 
+#[test]
+fn test_set_fee_zero_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    
+    // Set fee to 0 should succeed
+    client.set_fee(&0);
+    assert_eq!(client.get_fee_bps(), 0);
+}
+
+#[test]
+#[should_panic]
+fn test_set_fee_non_admin_panics() {
+    let env = Env::default();
+    // Don't mock all auths so we can test auth failure
+    let (client, _admin, _) = setup_contract(&env);
+    
+    // Non-admin trying to set fee should panic due to auth failure
+    client.set_fee(&100);
+}
+
+// ── Username validation tests (issue #195) ───────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "username too short")]
+fn test_username_too_short() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
     let user = Address::generate(&env);
     let token = Address::generate(&env);
-    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
-
-    // Clear mock auths and try to delete - should require user auth
-    // In a real scenario without mock_all_auths, this would fail
-    // But with mock_all_auths it succeeds, so we just verify the function works
-    env.mock_all_auths();
-    client.delete_profile(&user);
-    assert!(client.get_profile(&user).is_none());
+    
+    // 2-character username should panic
+    client.set_profile(&user, &String::from_str(&env, "ab"), &token);
 }
 
 #[test]
-fn test_delete_profile_cleans_up_followers() {
+fn test_username_min_length_valid() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
-
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    let charlie = Address::generate(&env);
+    
+    let user = Address::generate(&env);
     let token = Address::generate(&env);
-
-    // Create profiles
-    client.set_profile(&alice, &String::from_str(&env, "alice"), &token);
-    client.set_profile(&bob, &String::from_str(&env, "bob"), &token);
-    client.set_profile(&charlie, &String::from_str(&env, "charlie"), &token);
-
-    // Bob and Charlie follow Alice
-    client.follow(&bob, &alice);
-    client.follow(&charlie, &alice);
-
-    // Verify follows
-    assert_eq!(client.get_followers(&alice).len(), 2);
-    assert_eq!(client.get_following(&bob).len(), 1);
-    assert_eq!(client.get_following(&charlie).len(), 1);
-
-    // Alice deletes her profile
-    client.delete_profile(&alice);
-
-    // Verify Alice's followers lists are cleaned up
-    assert_eq!(client.get_followers(&alice).len(), 0);
-
-    // Verify Bob and Charlie's following lists no longer contain Alice
-    assert_eq!(client.get_following(&bob).len(), 0);
-    assert_eq!(client.get_following(&charlie).len(), 0);
+    
+    // 3-character username should succeed
+    client.set_profile(&user, &String::from_str(&env, "abc"), &token);
+    let profile = client.get_profile(&user).unwrap();
+    assert_eq!(profile.username, String::from_str(&env, "abc"));
 }
 
 #[test]
-fn test_delete_profile_cleans_up_following() {
+fn test_username_max_length_valid() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 32-character username should succeed
+    let username_str = "abcdefghijklmnopqrstuvwxyz123456";
+    let username = String::from_str(&env, username_str);
+    assert_eq!(username.len(), 32);
+    client.set_profile(&user, &username, &token);
+    let profile = client.get_profile(&user).unwrap();
+    assert_eq!(profile.username, username);
+}
 
+#[test]
+#[should_panic(expected = "username too long")]
+fn test_username_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 33-character username should panic
+    let username_str = "abcdefghijklmnopqrstuvwxyz1234567";
+    let username = String::from_str(&env, username_str);
+    assert_eq!(username.len(), 33);
+    client.set_profile(&user, &username, &token);
+}
+
+#[test]
+#[should_panic(expected = "invalid username character")]
+fn test_username_with_space() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // Username with space should panic
+    client.set_profile(&user, &String::from_str(&env, "user name"), &token);
+}
+
+#[test]
+#[should_panic(expected = "invalid username character")]
+fn test_username_with_special_char() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // Username with special character should panic
+    client.set_profile(&user, &String::from_str(&env, "user@name"), &token);
+}
+
+// ── Unfollow event emission tests (issue #129) ───────────────────────────────────
+
+#[test]
+fn test_unfollow_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let charlie = Address::generate(&env);
-    let token = Address::generate(&env);
-
-    // Create profiles
-    client.set_profile(&alice, &String::from_str(&env, "alice"), &token);
-    client.set_profile(&bob, &String::from_str(&env, "bob"), &token);
-    client.set_profile(&charlie, &String::from_str(&env, "charlie"), &token);
-
-    // Alice follows Bob and Charlie
+    
+    // First establish a follow relationship
     client.follow(&alice, &bob);
-    client.follow(&alice, &charlie);
-
-    // Verify follows
-    assert_eq!(client.get_following(&alice).len(), 2);
-    assert_eq!(client.get_followers(&bob).len(), 1);
-    assert_eq!(client.get_followers(&charlie).len(), 1);
-
-    // Alice deletes her profile
-    client.delete_profile(&alice);
-
-    // Verify Alice's following list is cleaned up
-    assert_eq!(client.get_following(&alice).len(), 0);
-
-    // Verify Bob and Charlie's followers lists no longer contain Alice
-    assert_eq!(client.get_followers(&bob).len(), 0);
-    assert_eq!(client.get_followers(&charlie).len(), 0);
+    
+    // Unfollow should emit UnfollowEvent
+    client.unfollow(&alice, &bob);
+    
+    // Verify at least one event was emitted by unfollow
+    let all_events = env.events().all();
+    let events = all_events.events();
+    assert!(!events.is_empty());
 }
 
 #[test]
-fn test_delete_profile_bidirectional_cleanup() {
+fn test_unfollow_noop_no_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    
+    // Unfollow when no relationship exists should not panic
+    client.unfollow(&alice, &bob);
+    
+    // Verify both indexes are still empty
+    assert_eq!(client.get_following(&alice).len(), 0);
+    assert_eq!(client.get_followers(&bob).len(), 0);
+}
+
+// ── Post content length validation tests (issue #194) ────────────────────────────
+
+#[test]
+#[should_panic(expected = "empty content")]
+fn test_post_content_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // Empty content should panic
+    client.create_post(&author, &String::from_str(&env, ""));
+}
+
+#[test]
+fn test_post_content_min_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 1-character content should succeed
+    let post_id = client.create_post(&author, &String::from_str(&env, "a"));
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.content, String::from_str(&env, "a"));
+}
+
+#[test]
+fn test_post_content_max_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 280-character content should succeed
+    let content_str = "a".repeat(280);
+    let content = String::from_str(&env, &content_str);
+    assert_eq!(content.len(), 280);
+    let post_id = client.create_post(&author, &content);
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.content, content);
+}
+
+#[test]
+#[should_panic(expected = "content too long")]
+fn test_post_content_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 281-character content should panic
+    let content_str = "a".repeat(281);
+    let content = String::from_str(&env, &content_str);
+    assert_eq!(content.len(), 281);
+    client.create_post(&author, &content);
+}
+
+// ── get_followers / get_following TTL tests ───────────────────────────────────
+
+#[test]
+fn test_get_followers_bumps_followers_key() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let token = Address::generate(&env);
 
-    // Create profiles
-    client.set_profile(&alice, &String::from_str(&env, "alice"), &token);
-    client.set_profile(&bob, &String::from_str(&env, "bob"), &token);
-
-    // Alice and Bob follow each other
-    client.follow(&alice, &bob);
+    // bob follows alice so alice has a non-empty followers list
     client.follow(&bob, &alice);
+    client.get_followers(&alice);
 
-    // Verify mutual follows
-    assert_eq!(client.get_following(&alice).len(), 1);
-    assert_eq!(client.get_followers(&alice).len(), 1);
-    assert_eq!(client.get_following(&bob).len(), 1);
-    assert_eq!(client.get_followers(&bob).len(), 1);
+    let contract_id = client.address.clone();
 
-    // Alice deletes her profile
-    client.delete_profile(&alice);
-
-    // Verify complete cleanup
-    assert_eq!(client.get_following(&alice).len(), 0);
-    assert_eq!(client.get_followers(&alice).len(), 0);
-    assert_eq!(client.get_following(&bob).len(), 0);
-    assert_eq!(client.get_followers(&bob).len(), 0);
-// ── Pool Governance Proposal tests ────────────────────────────────────────────
-
-#[test]
-fn test_propose_withdrawal_success() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
-        &2,
+    // (FOLLOWERS, alice) must have a bumped TTL
+    let followers_ttl = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&(FOLLOWERS, alice.clone()))
+    });
+    assert!(
+        followers_ttl >= LEDGER_THRESHOLD,
+        "followers TTL {followers_ttl} below LEDGER_THRESHOLD"
     );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
 
-    // Propose withdrawal
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
-    assert_eq!(proposal_id, 1);
-
-    // Verify proposal
-    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
-    assert_eq!(proposal.amount, 100);
-    assert_eq!(proposal.recipient, recipient);
-    assert_eq!(proposal.signers.len(), 1); // Proposer auto-signs
-}
-
-#[test]
-#[should_panic(expected = "not a pool admin")]
-fn test_propose_withdrawal_non_admin() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin = Address::generate(&env);
-    let non_admin = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(&admin, &pool_id, &token, &vec![&env, pool_admin.clone()], &1);
-
-    // Non-admin tries to propose
-    client.propose_withdrawal(&non_admin, &pool_id, &100, &recipient);
-}
-
-#[test]
-fn test_sign_proposal_success() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
-        &2,
+    // (FOLLOWS, alice) must NOT exist — get_followers must not touch it
+    let follows_exists = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .has(&(FOLLOWS, alice.clone()))
+    });
+    assert!(
+        !follows_exists,
+        "get_followers must not create or bump the (FOLLOWS, alice) key"
     );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
-
-    // Second admin signs
-    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
-
-    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
-    assert_eq!(proposal.signers.len(), 2);
-}
-
-#[test]
-fn test_sign_proposal_duplicate_is_noop() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(&admin, &pool_id, &token, &vec![&env, pool_admin.clone()], &1);
-    client.pool_deposit(&pool_admin, &pool_id, &token, &500);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin, &pool_id, &100, &recipient);
-
-    // Try to sign again (proposer already signed)
-    client.sign_proposal(&pool_admin, &pool_id, &proposal_id);
-
-    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
-    assert_eq!(proposal.signers.len(), 1); // Still 1
-}
-
-#[test]
-#[should_panic(expected = "not a pool admin")]
-fn test_sign_proposal_non_admin() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin = Address::generate(&env);
-    let non_admin = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(&admin, &pool_id, &token, &vec![&env, pool_admin.clone()], &1);
-    client.pool_deposit(&pool_admin, &pool_id, &token, &500);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin, &pool_id, &100, &recipient);
-
-    // Non-admin tries to sign
-    client.sign_proposal(&non_admin, &pool_id, &proposal_id);
-}
-
-#[test]
-fn test_execute_proposal_success() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
-        &2,
-    );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
-    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
-
-    // Execute proposal
-    client.execute_proposal(&pool_id, &proposal_id);
-
-    // Verify execution
-    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
-    assert_eq!(proposal.status, ProposalStatus::Executed);
-
-    let pool = client.get_pool(&pool_id).unwrap();
-    assert_eq!(pool.balance, 400); // 500 - 100
-
-    assert_eq!(TokenClient::new(&env, &token).balance(&recipient), 100);
-}
-
-#[test]
-#[should_panic(expected = "threshold not met")]
-fn test_execute_proposal_insufficient_signatures() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
-        &2,
-    );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
-
-    // Try to execute with only 1 signature (need 2)
-    client.execute_proposal(&pool_id, &proposal_id);
-}
-
-#[test]
-#[should_panic(expected = "insufficient balance")]
-fn test_execute_proposal_insufficient_balance() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
-        &2,
-    );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &100);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &200, &recipient);
-    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
-
-    // Try to execute with insufficient balance
-    client.execute_proposal(&pool_id, &proposal_id);
-}
-
-#[test]
-#[should_panic(expected = "proposal not pending")]
-fn test_execute_proposal_already_executed() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
-        &2,
-    );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
-
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
-    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
-    client.execute_proposal(&pool_id, &proposal_id);
-
-    // Try to execute again
-    client.execute_proposal(&pool_id, &proposal_id);
-}
-
-#[test]
-fn test_proposal_async_signing() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
-
-    let pool_admin1 = Address::generate(&env);
-    let pool_admin2 = Address::generate(&env);
-    let pool_admin3 = Address::generate(&env);
-    let recipient = Address::generate(&env);
-    let token = setup_token(&env, &pool_admin1);
-    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
-
-    let pool_id = symbol_short!("pool1");
-    client.create_pool(
-        &admin,
-        &pool_id,
-        &token,
-        &vec![
-            &env,
-            pool_admin1.clone(),
-            pool_admin2.clone(),
-            pool_admin3.clone(),
-        ],
-        &2,
-    );
-    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
-
-    // Admin1 proposes (auto-signs)
-    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
-
-    // Admin2 signs later
-    env.ledger().set_timestamp(1000);
-    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
-
-    // Now threshold is met (2 of 3), execute
-    env.ledger().set_timestamp(2000);
-    client.execute_proposal(&pool_id, &proposal_id);
-
-    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
-    assert_eq!(proposal.status, ProposalStatus::Executed);
 }

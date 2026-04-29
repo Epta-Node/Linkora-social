@@ -32,6 +32,7 @@ These primitives provide a minimal base for experimenting with social-financial 
 
 ```text
 .
+├── Makefile
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -77,8 +78,8 @@ The primary contract is `LinkoraContract`.
 | `get_profile_count()` | Return the total number of registered profiles. | None | None | `u64` |
 | `follow(follower, followee)` | Record a follow relationship. Duplicate follows are ignored. Panics if `followee` has blocked `follower`. | `follower` | `follower: Address` — account initiating the follow<br>`followee: Address` — account being followed | `()` |
 | `unfollow(follower, followee)` | Remove a follow relationship. No-op if the relationship does not exist. | `follower` | `follower: Address` — account removing the follow<br>`followee: Address` — account being unfollowed | `()` |
-| `get_following(user)` | Return all accounts followed by a user. | None | `user: Address` | `Vec<Address>` |
-| `get_followers(user)` | Return all accounts that follow a user. | None | `user: Address` | `Vec<Address>` |
+| `get_following(user, offset, limit)` | Return a page of accounts followed by a user. `limit` is capped at 50; panics with "limit exceeded" if violated. Returns an empty vec when `offset` is beyond the list length. | None | `user: Address`<br>`offset: u32` — zero-based start index<br>`limit: u32` — page size (max 50) | `Vec<Address>` |
+| `get_followers(user, offset, limit)` | Return a page of accounts that follow a user. `limit` is capped at 50; panics with "limit exceeded" if violated. Returns an empty vec when `offset` is beyond the list length. | None | `user: Address`<br>`offset: u32` — zero-based start index<br>`limit: u32` — page size (max 50) | `Vec<Address>` |
 | `block_user(blocker, blocked)` | Add an account to the caller's block list, preventing them from following. | `blocker` | `blocker: Address` — account initiating the block<br>`blocked: Address` — account being blocked | `()` |
 | `unblock_user(blocker, blocked)` | Remove an account from the caller's block list. | `blocker` | `blocker: Address` — account removing the block<br>`blocked: Address` — account being unblocked | `()` |
 | `is_blocked(blocker, blocked)` | Check whether `blocker` has blocked `blocked`. | None | `blocker: Address`<br>`blocked: Address` | `bool` |
@@ -86,6 +87,7 @@ The primary contract is `LinkoraContract`.
 | `get_post_count()` | Return the total number of posts created so far. Returns `0` when no posts exist. | None | None | `u64` |
 | `get_post(id)` | Fetch a post by ID. | None | `id: u64` | `Option<Post>` |
 | `delete_post(author, post_id)` | Delete a post. Only the original author may delete their own post. | `author` | `author: Address` — post owner<br>`post_id: u64` — ID of the post to delete | `()` |
+| `get_posts_by_author(author, offset, limit)` | Return a page of post IDs created by an author, in insertion order. `limit` is capped at 50; panics with "limit exceeded" if violated. | None | `author: Address`<br>`offset: u32` — zero-based start index<br>`limit: u32` — page size (max 50) | `Vec<u64>` |
 | `like_post(user, post_id)` | Like a post. Duplicate likes from the same user are ignored. | `user` | `user: Address` — account liking the post<br>`post_id: u64` — target post | `()` |
 | `get_like_count(post_id)` | Return the number of likes on a post. | None | `post_id: u64` | `u64` |
 | `has_liked(user, post_id)` | Check whether a user has liked a specific post. | None | `user: Address`<br>`post_id: u64` | `bool` |
@@ -94,6 +96,10 @@ The primary contract is `LinkoraContract`.
 | `pool_deposit(depositor, pool_id, token, amount)` | Deposit tokens into a named community pool. `amount` must be greater than zero. | `depositor` | `depositor: Address` — token sender<br>`pool_id: Symbol` — pool identifier<br>`token: Address` — SEP-41 token contract (must match pool token)<br>`amount: i128` — token units to deposit (must be > 0) | `()` |
 | `pool_withdraw(signers, pool_id, amount, recipient)` | Withdraw tokens from a community pool. Requires at least `threshold` valid admin signatures from the pool's admin set. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the withdrawal<br>`pool_id: Symbol` — pool identifier<br>`amount: i128` — token units to withdraw (must be > 0 and ≤ pool balance)<br>`recipient: Address` — token receiver | `()` |
 | `get_pool(pool_id)` | Fetch the current state of a pool. | None | `pool_id: Symbol` | `Option<Pool>` |
+| `get_pool_admins(pool_id)` | Return the current admin list for a pool. | None | `pool_id: Symbol` | `Vec<Address>` |
+| `add_pool_admin(signers, pool_id, new_admin)` | Add a new admin to a pool. Requires threshold signatures from existing admins. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the addition<br>`pool_id: Symbol` — pool identifier<br>`new_admin: Address` — admin to add | `()` |
+| `remove_pool_admin(signers, pool_id, admin)` | Remove an admin from a pool. Requires threshold signatures from existing admins. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the removal<br>`pool_id: Symbol` — pool identifier<br>`admin: Address` — admin to remove | `()` |
+| `update_pool_threshold(signers, pool_id, threshold)` | Update the signature threshold for a pool. Requires threshold signatures from existing admins. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the update<br>`pool_id: Symbol` — pool identifier<br>`threshold: u32` — new threshold (must be > 0 and ≤ admin count) | `()` |
 | `set_fee(fee_bps)` | Update the protocol fee. Only callable by the contract admin. | contract `admin` | `fee_bps: u32` — new fee in basis points (0–10 000) | `()` |
 | `set_treasury(treasury)` | Update the treasury address that receives protocol fees. Only callable by the contract admin. | contract `admin` | `treasury: Address` — new fee recipient | `()` |
 | `get_fee_bps()` | Return the current protocol fee in basis points. | None | None | `u32` |
@@ -102,26 +108,44 @@ The primary contract is `LinkoraContract`.
 
 ## Storage Layout
 
-Linkora-socials uses Soroban's state storage to manage its data. Below is a summary of the storage keys and namespaces used by the contract.
+Linkora-socials uses Soroban's state storage to manage its data. All persistent storage keys are typed variants of the `StorageKey` enum defined with `#[contracttype]`, which provides compile-time key consistency and eliminates raw `Symbol` tuple keys.
 
 ### Storage Namespaces
 
 - **Instance Storage**: Used for contract-wide configuration and small, frequently updated counters (e.g., admin address, post counter).
 - **Persistent Storage**: Used for all user-generated data like profiles, posts, and social relationships. This data is subject to TTL extensions to remain on-chain.
 
+### StorageKey Enum
+
+```rust
+#[contracttype]
+pub enum StorageKey {
+    Post(u64),
+    Profile(Address),
+    Following(Address),
+    Followers(Address),
+    Pool(Symbol),
+    Like(u64, Address),
+    AuthorPosts(Address),
+    Blocks(Address),
+}
+```
+
 ### Key Mapping
 
-| Key | Format | Namespace | Purpose |
+| Key | StorageKey variant | Namespace | Purpose |
 |---|---|---|---|
 | `PROFILES` | `(Symbol("PROFILES"), Address)` | Persistent | Stores user `Profile` data. |
+| `UNAMES` | `(Symbol("UNAMES"), String)` | Persistent | Maps each username to the owning `Address` so usernames stay unique. |
 | `PROF_CT` | `Symbol("PROF_CT")` | Instance | Tracks the total number of registered profiles. |
-| `FOLLOWS` | `(Symbol("FOLLOWS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts that the given address follows. |
-| `FOLLOWRS` | `(Symbol("FOLLOWRS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts following the given address. |
-| `BLOCKS` | `(Symbol("BLOCKS"), Address)` | Persistent | Stores a `Map<Address, ()>` of accounts blocked by the given address. |
-| `POSTS` | `(Symbol("POSTS"), u64)` | Persistent | Stores individual `Post` objects by their incremental ID. |
+| Following | `StorageKey::Following(Address)` | Persistent | Stores a `Vec<Address>` of accounts that the given address follows. |
+| Followers | `StorageKey::Followers(Address)` | Persistent | Stores a `Vec<Address>` of accounts following the given address. |
+| Blocks | `StorageKey::Blocks(Address)` | Persistent | Stores a `Map<Address, ()>` of accounts blocked by the given address. |
+| Post | `StorageKey::Post(u64)` | Persistent | Stores individual `Post` objects by their incremental ID. |
 | `POST_CT` | `Symbol("POST_CT")` | Instance | Tracks the total number of posts created (used for ID generation). |
-| `POOLS` | `(Symbol("POOLS"), Symbol)` | Persistent | Stores `Pool` data for named community pools. |
-| `LIKES` | `(Symbol("LIKES"), u64, Address)` | Persistent | Records whether a specific user has liked a specific post. |
+| Pool | `StorageKey::Pool(Symbol)` | Persistent | Stores `Pool` data for named community pools. |
+| Like | `StorageKey::Like(u64, Address)` | Persistent | Records whether a specific user has liked a specific post. |
+| AuthorPosts | `StorageKey::AuthorPosts(Address)` | Persistent | Stores a `Vec<u64>` of post IDs created by the given author. |
 | `ADMIN` | `Symbol("ADMIN")` | Instance | Stores the contract administrator's address. |
 | `TREASURY` | `Symbol("TREASURY")` | Instance | Stores the treasury address that receives protocol fees. |
 | `FEE_BPS` | `Symbol("FEE_BPS")` | Instance | Stores the protocol fee in basis points (0–10 000). |
@@ -203,6 +227,16 @@ Inside `packages/contracts`:
 - `pnpm dev`
 - `pnpm format`
 
+## Makefile Targets
+
+The repository root also includes a `Makefile` with thin wrappers around the existing workspace scripts:
+
+- `make dev` runs the full local development stack.
+- `make build` builds the workspace.
+- `make lint` runs lint checks.
+- `make test` runs the test suite.
+- `make format` formats the workspace.
+
 ## Testing
 
 The contract test suite currently covers:
@@ -224,6 +258,12 @@ pnpm test:integration
 ```
 
 See `tests/README.md` for setup details and CI guidance.
+
+## Documentation
+
+- [Event Schema](packages/contracts/contracts/linkora-contracts/EVENTS.md) — canonical event definitions for indexers and clients
+- [Indexer Design](docs/indexer/INDEXER_DESIGN.md) — how to consume events off-chain to build a queryable social graph
+- [UI Design Spec](docs/design/SPEC.md) — layout and component design tokens
 
 ## Contributor Guide
 
@@ -265,6 +305,31 @@ Please review `SECURITY.md` for vulnerability disclosure guidance and scope.
 | **Build Contracts** | `pnpm build:contracts` | `pnpm build` |
 | **Run Tests** | `pnpm test` | `cargo test` |
 
+## Deployment
+
+A deployment script for Stellar Testnet is included at `scripts/deploy_testnet.sh`. It builds the contract WASM, deploys it to Testnet, and calls `initialize`.
+
+### Required environment variables
+
+| Variable | Description |
+|---|---|
+| `ADMIN_SECRET` | Secret key (`S...`) of the deployer / contract admin account |
+| `TREASURY_ADDRESS` | Public address (`G...`) that receives protocol fees |
+| `FEE_BPS` | Protocol fee in basis points (0–10 000). Defaults to `0`. |
+
+### Usage
+
+```bash
+ADMIN_SECRET=S... \
+TREASURY_ADDRESS=G... \
+FEE_BPS=250 \
+./scripts/deploy_testnet.sh
+```
+
+The script prints the deployed `contract_id` to stdout on success.
+
+> **Note**: The account identified by `ADMIN_SECRET` must be funded on Testnet before running the script. Use [Stellar Testnet Friendbot](https://friendbot.stellar.org) to fund it.
+
 ## Current Limitations
 
 This repository is a prototype and should not be treated as production-ready infrastructure yet.
@@ -291,3 +356,10 @@ Linkora-socials explores how Stellar can support more than payments by combining
 ## License
 
 This repository is licensed under the MIT License.
+
+## 🤝 Contributing
+Fork the repository and clone it to your local machine
+Create a new branch for your changes
+Make and test your updates following the project guidelines
+Commit and push your changes to your fork
+Open a Pull Request with a clear description

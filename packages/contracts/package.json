@@ -2,11 +2,20 @@
   "name": "contracts",
   "version": "0.0.1",
   "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "scripts": {
     "build": "stellar contract build",
     "test": "cargo test",
     "test:integration": "../../tests/integration/run_e2e.sh",
     "dev": "cargo watch -x test",
-    "format": "cargo fmt"
+    "format": "cargo fmt",
+    "generate:bindings": "stellar contract bindings typescript --wasm contracts/linkora-contracts/target/wasm32v1-none/release/linkora_contracts.wasm --output src/ --overwrite"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^13.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
   }
 }
