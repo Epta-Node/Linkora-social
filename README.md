@@ -363,3 +363,28 @@ Create a new branch for your changes
 Make and test your updates following the project guidelines
 Commit and push your changes to your fork
 Open a Pull Request with a clear description
+
+## Contributing Guide
+
+
+How to Contribute 
+
+• Fork the repository. 
+
+• Clone your fork to your local machine. 
+
+• Create a new branch for your task. 
+
+git checkout -b feature/your-task-name 
+
+• Make your changes. 
+
+• Commit clearly. 
+
+git commit -m "Add: short description" 
+
+• Push your branch. 
+
+git push origin feature/your-task-name 
+
+• Open a Pull Request.
