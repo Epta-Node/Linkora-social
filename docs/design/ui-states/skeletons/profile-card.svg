@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 280" role="img" aria-label="Profile card loading skeleton">
+  <defs>
+    <linearGradient id="shimmer-profile" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#E5E7EB"/>
+      <stop offset="50%"  stop-color="#F3F4F6"/>
+      <stop offset="100%" stop-color="#E5E7EB"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="-320 0" to="320 0" dur="1.4s" repeatCount="indefinite"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Card background -->
+  <rect width="320" height="280" rx="12" fill="#F9FAFB" stroke="#E5E7EB" stroke-width="1"/>
+
+  <!-- Banner strip -->
+  <rect x="0" y="0" width="320" height="80" rx="12" fill="url(#shimmer-profile)"/>
+  <rect x="0" y="68" width="320" height="12" fill="url(#shimmer-profile)"/>
+
+  <!-- Avatar -->
+  <circle cx="160" cy="88" r="36" fill="#F9FAFB" stroke="#F9FAFB" stroke-width="4"/>
+  <circle cx="160" cy="88" r="32" fill="url(#shimmer-profile)"/>
+
+  <!-- Display name -->
+  <rect x="105" y="132" width="110" height="14" rx="7" fill="url(#shimmer-profile)"/>
+  <!-- Handle -->
+  <rect x="120" y="154" width="80" height="11" rx="5.5" fill="url(#shimmer-profile)"/>
+  <!-- Bio line 1 -->
+  <rect x="40" y="178" width="240" height="11" rx="5.5" fill="url(#shimmer-profile)"/>
+  <!-- Bio line 2 -->
+  <rect x="60" y="196" width="200" height="11" rx="5.5" fill="url(#shimmer-profile)"/>
+
+  <!-- Stats: posts / followers / following -->
+  <rect x="24"  y="224" width="64" height="28" rx="6" fill="url(#shimmer-profile)"/>
+  <rect x="128" y="224" width="64" height="28" rx="6" fill="url(#shimmer-profile)"/>
+  <rect x="232" y="224" width="64" height="28" rx="6" fill="url(#shimmer-profile)"/>
+</svg>

@@ -35,6 +35,36 @@ Emitted when a user follows another user.
   - `follower`: `Address`
   - `followee`: `Address`
 
+### Unfollow
+Emitted when a user unfollows another user.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `unfollow`
+- **Topic 2**: `v1`
+- **Data Payload**: `UnfollowEvent`
+  - `follower`: `Address`
+  - `followee`: `Address`
+
+### Block
+Emitted when a user blocks another user.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `block`
+- **Topic 2**: `v1`
+- **Data Payload**: `BlockEvent`
+  - `blocker`: `Address`
+  - `blocked`: `Address`
+
+### Unblock
+Emitted when a user unblocks another user.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `unblock`
+- **Topic 2**: `v1`
+- **Data Payload**: `UnblockEvent`
+  - `blocker`: `Address`
+  - `blocked`: `Address`
+
 ### PostCreated
 Emitted when a new post is successfully created.
 
@@ -57,6 +87,16 @@ Emitted when a post author is tipped.
   - `amount`: `i128` (Gross amount)
   - `fee`: `i128` (Amount sent to protocol treasury)
 
+### Like
+Emitted when a user likes a post.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `like`
+- **Topic 2**: `v1`
+- **Data Payload**: `LikePostEvent`
+  - `user`: `Address`
+  - `post_id`: `u64`
+
 ### ContractUpgraded
 Emitted when the contract WASM is upgraded.
 
@@ -65,6 +105,38 @@ Emitted when the contract WASM is upgraded.
 - **Topic 2**: `v1`
 - **Data Payload**: `ContractUpgraded`
   - `new_wasm_hash`: `BytesN<32>`
+
+### PostDeleted
+Emitted when a post is deleted by its author.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `post_del`
+- **Topic 2**: `v1`
+- **Data Payload**: `PostDeleted`
+  - `post_id`: `u64`
+  - `author`: `Address`
+
+### PoolDeposit
+Emitted when tokens are deposited into a community pool.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `deposit`
+- **Topic 2**: `v1`
+- **Data Payload**: `PoolDepositEvent`
+  - `depositor`: `Address`
+  - `pool_id`: `Symbol`
+  - `amount`: `i128`
+
+### PoolWithdraw
+Emitted when tokens are withdrawn from a community pool.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `withdraw`
+- **Topic 2**: `v1`
+- **Data Payload**: `PoolWithdrawEvent`
+  - `recipient`: `Address`
+  - `pool_id`: `Symbol`
+  - `amount`: `i128`
 
 ## Querying and Decoding
 
