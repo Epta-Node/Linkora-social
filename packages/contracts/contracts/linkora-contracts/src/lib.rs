@@ -377,6 +377,8 @@ impl LinkoraContract {
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
+        // Empty lists are never written to persistent storage, so there is no
+        // entry to bump. The TTL is only extended when the list is non-empty.
         if !result.is_empty() {
             Self::bump(&env, &key);
         }
@@ -384,12 +386,16 @@ impl LinkoraContract {
     }
 
     pub fn get_followers(env: Env, user: Address) -> Vec<Address> {
+        // Uses (FOLLOWERS, user) — distinct from the (FOLLOWS, user) key used
+        // by get_following — to avoid bumping the wrong storage entry.
         let key = (FOLLOWERS, user);
         let result: Vec<Address> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
+        // Empty lists are never written to persistent storage, so there is no
+        // entry to bump. The TTL is only extended when the list is non-empty.
         if !result.is_empty() {
             Self::bump(&env, &key);
         }

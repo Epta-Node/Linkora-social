@@ -746,3 +746,43 @@ fn test_post_content_too_long() {
     assert_eq!(content.len(), 281);
     client.create_post(&author, &content);
 }
+
+// ── get_followers / get_following TTL tests ───────────────────────────────────
+
+#[test]
+fn test_get_followers_bumps_followers_key() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // bob follows alice so alice has a non-empty followers list
+    client.follow(&bob, &alice);
+    client.get_followers(&alice);
+
+    let contract_id = client.address.clone();
+
+    // (FOLLOWERS, alice) must have a bumped TTL
+    let followers_ttl = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&(FOLLOWERS, alice.clone()))
+    });
+    assert!(
+        followers_ttl >= LEDGER_THRESHOLD,
+        "followers TTL {followers_ttl} below LEDGER_THRESHOLD"
+    );
+
+    // (FOLLOWS, alice) must NOT exist — get_followers must not touch it
+    let follows_exists = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .has(&(FOLLOWS, alice.clone()))
+    });
+    assert!(
+        !follows_exists,
+        "get_followers must not create or bump the (FOLLOWS, alice) key"
+    );
+}
