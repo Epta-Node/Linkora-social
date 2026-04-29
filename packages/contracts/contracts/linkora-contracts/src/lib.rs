@@ -21,6 +21,7 @@ const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 const INITIALIZED: Symbol = symbol_short!("INIT");
 const BLOCKS: Symbol = symbol_short!("BLOCKS");
 const LIKES: Symbol = symbol_short!("LIKES");
+const USERNAME_IDX: Symbol = symbol_short!("USR_IDX");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -221,20 +222,48 @@ impl LinkoraContract {
         user.require_auth();
         validate_username(&username).expect("invalid username");
 
-        let key = (PROFILES, user.clone());
-        if !env.storage().persistent().has(&key) {
+        // Enforce uniqueness: reject if username is already taken by a different address.
+        let idx_key = (USERNAME_IDX, username.clone());
+        if let Some(existing_owner) = env
+            .storage()
+            .persistent()
+            .get::<_, Address>(&idx_key)
+        {
+            if existing_owner != user {
+                panic!("username taken");
+            }
+        }
+
+        let profile_key = (PROFILES, user.clone());
+        if !env.storage().persistent().has(&profile_key) {
+            // New registration: increment profile counter.
             let count: u64 = env.storage().instance().get(&PROFILE_CT).unwrap_or(0);
             env.storage().instance().set(&PROFILE_CT, &(count + 1));
+        } else {
+            // Existing profile: remove old username from the reverse index if it changed.
+            let old: Profile = env.storage().persistent().get(&profile_key).unwrap();
+            if old.username != username {
+                env.storage()
+                    .persistent()
+                    .remove(&(USERNAME_IDX, old.username));
+            }
         }
+
+        // Write profile.
         env.storage().persistent().set(
-            &key,
+            &profile_key,
             &Profile {
                 address: user.clone(),
                 username: username.clone(),
                 creator_token,
             },
         );
-        Self::bump(&env, &key);
+        Self::bump(&env, &profile_key);
+
+        // Write / refresh reverse index entry.
+        env.storage().persistent().set(&idx_key, &user);
+        Self::bump(&env, &idx_key);
+
         ProfileSetEvent { user, username }.publish(&env);
     }
 
@@ -249,6 +278,15 @@ impl LinkoraContract {
 
     pub fn get_profile_count(env: Env) -> u64 {
         env.storage().instance().get(&PROFILE_CT).unwrap_or(0)
+    }
+
+    pub fn get_address_by_username(env: Env, username: String) -> Option<Address> {
+        let key = (USERNAME_IDX, username);
+        let result: Option<Address> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::bump(&env, &key);
+        }
+        result
     }
 
     // ── Social Graph ──────────────────────────────────────────────────────────
