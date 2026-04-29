@@ -134,12 +134,12 @@ fn test_follow_and_unfollow() {
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     client.follow(&alice, &bob);
-    assert_eq!(client.get_following(&alice).len(), 1);
-    assert_eq!(client.get_followers(&bob).len(), 1);
+    assert_eq!(client.get_following(&alice, &0, &10).len(), 1);
+    assert_eq!(client.get_followers(&bob, &0, &10).len(), 1);
 
     client.unfollow(&alice, &bob);
-    assert_eq!(client.get_following(&alice).len(), 0);
-    assert_eq!(client.get_followers(&bob).len(), 0);
+    assert_eq!(client.get_following(&alice, &0, &10).len(), 0);
+    assert_eq!(client.get_followers(&bob, &0, &10).len(), 0);
 }
 
 #[test]
