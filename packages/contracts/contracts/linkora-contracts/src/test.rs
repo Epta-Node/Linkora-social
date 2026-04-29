@@ -494,3 +494,306 @@ fn test_upgrade_before_initialize_panics() {
     let mock_hash = BytesN::from_array(&env, &[2u8; 32]);
     client.upgrade(&mock_hash);
 }
+
+// ── Pool Governance Proposal tests ────────────────────────────────────────────
+
+#[test]
+fn test_propose_withdrawal_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
+
+    // Propose withdrawal
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
+    assert_eq!(proposal_id, 1);
+
+    // Verify proposal
+    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
+    assert_eq!(proposal.amount, 100);
+    assert_eq!(proposal.recipient, recipient);
+    assert_eq!(proposal.signers.len(), 1); // Proposer auto-signs
+}
+
+#[test]
+#[should_panic(expected = "not a pool admin")]
+fn test_propose_withdrawal_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(&admin, &pool_id, &token, &vec![&env, pool_admin.clone()], &1);
+
+    // Non-admin tries to propose
+    client.propose_withdrawal(&non_admin, &pool_id, &100, &recipient);
+}
+
+#[test]
+fn test_sign_proposal_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
+
+    // Second admin signs
+    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
+
+    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
+    assert_eq!(proposal.signers.len(), 2);
+}
+
+#[test]
+fn test_sign_proposal_duplicate_is_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(&admin, &pool_id, &token, &vec![&env, pool_admin.clone()], &1);
+    client.pool_deposit(&pool_admin, &pool_id, &token, &500);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin, &pool_id, &100, &recipient);
+
+    // Try to sign again (proposer already signed)
+    client.sign_proposal(&pool_admin, &pool_id, &proposal_id);
+
+    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
+    assert_eq!(proposal.signers.len(), 1); // Still 1
+}
+
+#[test]
+#[should_panic(expected = "not a pool admin")]
+fn test_sign_proposal_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(&admin, &pool_id, &token, &vec![&env, pool_admin.clone()], &1);
+    client.pool_deposit(&pool_admin, &pool_id, &token, &500);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin, &pool_id, &100, &recipient);
+
+    // Non-admin tries to sign
+    client.sign_proposal(&non_admin, &pool_id, &proposal_id);
+}
+
+#[test]
+fn test_execute_proposal_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
+    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
+
+    // Execute proposal
+    client.execute_proposal(&pool_id, &proposal_id);
+
+    // Verify execution
+    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
+    assert_eq!(proposal.status, ProposalStatus::Executed);
+
+    let pool = client.get_pool(&pool_id).unwrap();
+    assert_eq!(pool.balance, 400); // 500 - 100
+
+    assert_eq!(TokenClient::new(&env, &token).balance(&recipient), 100);
+}
+
+#[test]
+#[should_panic(expected = "threshold not met")]
+fn test_execute_proposal_insufficient_signatures() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
+
+    // Try to execute with only 1 signature (need 2)
+    client.execute_proposal(&pool_id, &proposal_id);
+}
+
+#[test]
+#[should_panic(expected = "insufficient balance")]
+fn test_execute_proposal_insufficient_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &100);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &200, &recipient);
+    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
+
+    // Try to execute with insufficient balance
+    client.execute_proposal(&pool_id, &proposal_id);
+}
+
+#[test]
+#[should_panic(expected = "proposal not pending")]
+fn test_execute_proposal_already_executed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
+
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
+    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
+    client.execute_proposal(&pool_id, &proposal_id);
+
+    // Try to execute again
+    client.execute_proposal(&pool_id, &proposal_id);
+}
+
+#[test]
+fn test_proposal_async_signing() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let pool_admin3 = Address::generate(&env);
+    let recipient = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+    StellarAssetClient::new(&env, &token).mint(&pool_admin1, &1000);
+
+    let pool_id = symbol_short!("pool1");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![
+            &env,
+            pool_admin1.clone(),
+            pool_admin2.clone(),
+            pool_admin3.clone(),
+        ],
+        &2,
+    );
+    client.pool_deposit(&pool_admin1, &pool_id, &token, &500);
+
+    // Admin1 proposes (auto-signs)
+    let proposal_id = client.propose_withdrawal(&pool_admin1, &pool_id, &100, &recipient);
+
+    // Admin2 signs later
+    env.ledger().set_timestamp(1000);
+    client.sign_proposal(&pool_admin2, &pool_id, &proposal_id);
+
+    // Now threshold is met (2 of 3), execute
+    env.ledger().set_timestamp(2000);
+    client.execute_proposal(&pool_id, &proposal_id);
+
+    let proposal = client.get_proposal(&pool_id, &proposal_id).unwrap();
+    assert_eq!(proposal.status, ProposalStatus::Executed);
+}

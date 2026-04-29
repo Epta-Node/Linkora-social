@@ -30,6 +30,11 @@ const LIKES: Symbol = symbol_short!("LIKES");
 const LEDGER_BUMP: u32 = 535_000;
 const LEDGER_THRESHOLD: u32 = 535_000 - 100;
 
+// ── Storage Keys for Proposals ────────────────────────────────────────────────
+
+const PROPOSALS: Symbol = symbol_short!("PROPSL");
+const PROPOSAL_CT: Symbol = symbol_short!("PROP_CT");
+
 // ── Validation Constants ──────────────────────────────────────────────────────
 
 const MIN_USERNAME_LEN: u32 = 3;
@@ -65,6 +70,25 @@ pub struct Pool {
     pub balance: i128,
     pub admins: Vec<Address>,
     pub threshold: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProposalStatus {
+    Pending,
+    Executed,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Proposal {
+    pub id: u64,
+    pub pool_id: Symbol,
+    pub proposer: Address,
+    pub amount: i128,
+    pub recipient: Address,
+    pub signers: Vec<Address>,
+    pub status: ProposalStatus,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -157,6 +181,39 @@ pub struct PostDeleted {
     pub post_id: u64,
     #[topic]
     pub author: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ProposalCreatedEvent {
+    #[topic]
+    pub pool_id: Symbol,
+    #[topic]
+    pub proposal_id: u64,
+    pub proposer: Address,
+    pub amount: i128,
+    pub recipient: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ProposalSignedEvent {
+    #[topic]
+    pub pool_id: Symbol,
+    #[topic]
+    pub proposal_id: u64,
+    pub signer: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ProposalExecutedEvent {
+    #[topic]
+    pub pool_id: Symbol,
+    #[topic]
+    pub proposal_id: u64,
+    pub amount: i128,
+    pub recipient: Address,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -628,6 +685,183 @@ impl LinkoraContract {
     pub fn get_pool(env: Env, pool_id: Symbol) -> Option<Pool> {
         let key = (POOLS, pool_id);
         let result: Option<Pool> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::bump(&env, &key);
+        }
+        result
+    }
+
+    // ── Pool Governance Proposals ─────────────────────────────────────────────
+
+    /// Create a withdrawal proposal for a pool. Any pool admin can propose.
+    pub fn propose_withdrawal(
+        env: Env,
+        proposer: Address,
+        pool_id: Symbol,
+        amount: i128,
+        recipient: Address,
+    ) -> u64 {
+        assert!(amount > 0, "amount must be positive");
+        proposer.require_auth();
+
+        let pool_key = (POOLS, pool_id.clone());
+        let pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&pool_key)
+            .expect("pool not found");
+
+        // Verify proposer is a pool admin
+        assert!(
+            pool.admins.iter().any(|x| x == proposer),
+            "not a pool admin"
+        );
+
+        // Generate proposal ID
+        let proposal_id: u64 = env.storage().instance().get(&PROPOSAL_CT).unwrap_or(0u64) + 1;
+        env.storage().instance().set(&PROPOSAL_CT, &proposal_id);
+
+        // Create proposal with proposer as first signer
+        let proposal = Proposal {
+            id: proposal_id,
+            pool_id: pool_id.clone(),
+            proposer: proposer.clone(),
+            amount,
+            recipient: recipient.clone(),
+            signers: vec![&env, proposer.clone()],
+            status: ProposalStatus::Pending,
+        };
+
+        let proposal_key = (PROPOSALS, pool_id.clone(), proposal_id);
+        env.storage().persistent().set(&proposal_key, &proposal);
+        Self::bump(&env, &proposal_key);
+
+        ProposalCreatedEvent {
+            pool_id,
+            proposal_id,
+            proposer,
+            amount,
+            recipient,
+        }
+        .publish(&env);
+
+        proposal_id
+    }
+
+    /// Sign a pending proposal. Only pool admins can sign.
+    pub fn sign_proposal(env: Env, signer: Address, pool_id: Symbol, proposal_id: u64) {
+        signer.require_auth();
+
+        let pool_key = (POOLS, pool_id.clone());
+        let pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&pool_key)
+            .expect("pool not found");
+
+        // Verify signer is a pool admin
+        assert!(
+            pool.admins.iter().any(|x| x == signer),
+            "not a pool admin"
+        );
+
+        let proposal_key = (PROPOSALS, pool_id.clone(), proposal_id);
+        let mut proposal: Proposal = env
+            .storage()
+            .persistent()
+            .get(&proposal_key)
+            .expect("proposal not found");
+
+        assert!(
+            proposal.status == ProposalStatus::Pending,
+            "proposal not pending"
+        );
+
+        // Check if already signed
+        if proposal.signers.iter().any(|x| x == signer) {
+            return; // Already signed, no-op
+        }
+
+        // Add signer
+        proposal.signers.push_back(signer.clone());
+        env.storage().persistent().set(&proposal_key, &proposal);
+        Self::bump(&env, &proposal_key);
+
+        ProposalSignedEvent {
+            pool_id,
+            proposal_id,
+            signer,
+        }
+        .publish(&env);
+    }
+
+    /// Execute a proposal if threshold is met. Can be called by anyone.
+    pub fn execute_proposal(env: Env, pool_id: Symbol, proposal_id: u64) {
+        let pool_key = (POOLS, pool_id.clone());
+        let mut pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&pool_key)
+            .expect("pool not found");
+
+        let proposal_key = (PROPOSALS, pool_id.clone(), proposal_id);
+        let mut proposal: Proposal = env
+            .storage()
+            .persistent()
+            .get(&proposal_key)
+            .expect("proposal not found");
+
+        assert!(
+            proposal.status == ProposalStatus::Pending,
+            "proposal not pending"
+        );
+
+        // Check if threshold is met
+        assert!(
+            proposal.signers.len() >= pool.threshold,
+            "threshold not met"
+        );
+
+        // Verify all signers are valid pool admins
+        for signer in proposal.signers.iter() {
+            assert!(
+                pool.admins.iter().any(|x| x == signer),
+                "invalid signer"
+            );
+        }
+
+        // Check balance
+        assert!(pool.balance >= proposal.amount, "insufficient balance");
+
+        // Execute withdrawal
+        pool.balance -= proposal.amount;
+        env.storage().persistent().set(&pool_key, &pool);
+        Self::bump(&env, &pool_key);
+
+        token::Client::new(&env, &pool.token).transfer(
+            &env.current_contract_address(),
+            &proposal.recipient,
+            &proposal.amount,
+        );
+
+        // Mark proposal as executed
+        proposal.status = ProposalStatus::Executed;
+        env.storage().persistent().set(&proposal_key, &proposal);
+        Self::bump(&env, &proposal_key);
+
+        ProposalExecutedEvent {
+            pool_id,
+            proposal_id,
+            amount: proposal.amount,
+            recipient: proposal.recipient,
+        }
+        .publish(&env);
+    }
+
+    /// Get proposal details
+    pub fn get_proposal(env: Env, pool_id: Symbol, proposal_id: u64) -> Option<Proposal> {
+        let key = (PROPOSALS, pool_id, proposal_id);
+        let result: Option<Proposal> = env.storage().persistent().get(&key);
         if result.is_some() {
             Self::bump(&env, &key);
         }
