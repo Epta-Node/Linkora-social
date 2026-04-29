@@ -148,6 +148,93 @@ The contract crate version in `packages/contracts/contracts/linkora-contracts/Ca
 
 When a PR changes contract behavior, include a changelog entry and update the crate version in the same PR.
 
+## Changelog Format
+
+This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format for documenting changes.
+
+### Changelog Entry Structure
+
+```markdown
+## [Version] - YYYY-MM-DD
+
+### Added
+- New features (backward-compatible)
+- New contract functions
+- New events
+
+### Changed
+- Changes to existing functionality (backward-compatible)
+- Updates to function behavior
+- Improvements to existing features
+
+### Fixed
+- Bug fixes
+- Security patches
+- Error handling improvements
+
+### Deprecated
+- Features that will be removed in future versions
+
+### Removed
+- Features removed in this version (breaking changes)
+
+### Security
+- Security-related changes and vulnerabilities
+```
+
+### Version Categories
+
+- **Patch (x.y.Z)**: Bug fixes, security patches, internal improvements
+- **Minor (x.Y.z)**: New features, backward-compatible changes
+- **Major (X.y.z)**: Breaking changes, removed features, incompatible API changes
+
+## Release Process
+
+We provide an automated release script to handle version bumping, changelog updates, and git tagging.
+
+### Using the Release Script
+
+1. Ensure your working directory is clean and you're on the `main` branch
+2. Run the release script:
+   ```bash
+   ./scripts/release.sh
+   ```
+3. Follow the prompts to enter the new version number
+4. Edit the generated changelog entry with actual changes
+5. Review and push the changes:
+   ```bash
+   git diff  # Review changes
+   git push && git push --tags
+   ```
+6. Create a GitHub release from the new tag
+
+### Manual Release Process
+
+If you prefer to handle releases manually:
+
+1. Update version in `packages/contracts/contracts/linkora-contracts/Cargo.toml`
+2. Update version in root `package.json`
+3. Add changelog entry to `CHANGELOG.md`
+4. Commit changes with semantic version message:
+   ```bash
+   git commit -m "Release X.Y.Z"
+   ```
+5. Create and push tag:
+   ```bash
+   git tag -a "vX.Y.Z" -m "Release X.Y.Z"
+   git push && git push --tags
+   ```
+
+### Release Script Features
+
+The `scripts/release.sh` script:
+- Validates semantic version format
+- Checks for existing tags to prevent duplicates
+- Updates versions in both contract and root package files
+- Generates a changelog entry template
+- Creates an annotated git tag
+- Is idempotent for the same version (will fail if tag exists)
+
 ### PR Checklist
 
 Before submitting or requesting a review, verify the following (as found in our PR template):
@@ -198,3 +285,7 @@ The `.github/CODEOWNERS` file maps directories to their maintainers:
 2. If you need to request a review from a specific owner, you can mention them in your PR description: @Epta-Node/maintainers please review
 
 3. For urgent reviews or specific questions, you can also comment on the PR with a mention.
+
+## Security
+
+If you discover a security vulnerability, please review our [Security Policy](SECURITY.md) for responsible disclosure guidelines. Do not open public issues for security concerns.

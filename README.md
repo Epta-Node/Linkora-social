@@ -32,6 +32,7 @@ These primitives provide a minimal base for experimenting with social-financial 
 
 ```text
 .
+├── Makefile
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -95,6 +96,10 @@ The primary contract is `LinkoraContract`.
 | `pool_deposit(depositor, pool_id, token, amount)` | Deposit tokens into a named community pool. `amount` must be greater than zero. | `depositor` | `depositor: Address` — token sender<br>`pool_id: Symbol` — pool identifier<br>`token: Address` — SEP-41 token contract (must match pool token)<br>`amount: i128` — token units to deposit (must be > 0) | `()` |
 | `pool_withdraw(signers, pool_id, amount, recipient)` | Withdraw tokens from a community pool. Requires at least `threshold` valid admin signatures from the pool's admin set. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the withdrawal<br>`pool_id: Symbol` — pool identifier<br>`amount: i128` — token units to withdraw (must be > 0 and ≤ pool balance)<br>`recipient: Address` — token receiver | `()` |
 | `get_pool(pool_id)` | Fetch the current state of a pool. | None | `pool_id: Symbol` | `Option<Pool>` |
+| `get_pool_admins(pool_id)` | Return the current admin list for a pool. | None | `pool_id: Symbol` | `Vec<Address>` |
+| `add_pool_admin(signers, pool_id, new_admin)` | Add a new admin to a pool. Requires threshold signatures from existing admins. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the addition<br>`pool_id: Symbol` — pool identifier<br>`new_admin: Address` — admin to add | `()` |
+| `remove_pool_admin(signers, pool_id, admin)` | Remove an admin from a pool. Requires threshold signatures from existing admins. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the removal<br>`pool_id: Symbol` — pool identifier<br>`admin: Address` — admin to remove | `()` |
+| `update_pool_threshold(signers, pool_id, threshold)` | Update the signature threshold for a pool. Requires threshold signatures from existing admins. | each address in `signers` | `signers: Vec<Address>` — admin addresses authorising the update<br>`pool_id: Symbol` — pool identifier<br>`threshold: u32` — new threshold (must be > 0 and ≤ admin count) | `()` |
 | `set_fee(fee_bps)` | Update the protocol fee. Only callable by the contract admin. | contract `admin` | `fee_bps: u32` — new fee in basis points (0–10 000) | `()` |
 | `set_treasury(treasury)` | Update the treasury address that receives protocol fees. Only callable by the contract admin. | contract `admin` | `treasury: Address` — new fee recipient | `()` |
 | `get_fee_bps()` | Return the current protocol fee in basis points. | None | None | `u32` |
@@ -130,7 +135,8 @@ pub enum StorageKey {
 
 | Key | StorageKey variant | Namespace | Purpose |
 |---|---|---|---|
-| Profile | `StorageKey::Profile(Address)` | Persistent | Stores user `Profile` data. |
+| `PROFILES` | `(Symbol("PROFILES"), Address)` | Persistent | Stores user `Profile` data. |
+| `UNAMES` | `(Symbol("UNAMES"), String)` | Persistent | Maps each username to the owning `Address` so usernames stay unique. |
 | `PROF_CT` | `Symbol("PROF_CT")` | Instance | Tracks the total number of registered profiles. |
 | Following | `StorageKey::Following(Address)` | Persistent | Stores a `Vec<Address>` of accounts that the given address follows. |
 | Followers | `StorageKey::Followers(Address)` | Persistent | Stores a `Vec<Address>` of accounts following the given address. |
@@ -221,6 +227,16 @@ Inside `packages/contracts`:
 - `pnpm dev`
 - `pnpm format`
 
+## Makefile Targets
+
+The repository root also includes a `Makefile` with thin wrappers around the existing workspace scripts:
+
+- `make dev` runs the full local development stack.
+- `make build` builds the workspace.
+- `make lint` runs lint checks.
+- `make test` runs the test suite.
+- `make format` formats the workspace.
+
 ## Testing
 
 The contract test suite currently covers:
@@ -242,6 +258,12 @@ pnpm test:integration
 ```
 
 See `tests/README.md` for setup details and CI guidance.
+
+## Documentation
+
+- [Event Schema](packages/contracts/contracts/linkora-contracts/EVENTS.md) — canonical event definitions for indexers and clients
+- [Indexer Design](docs/indexer/INDEXER_DESIGN.md) — how to consume events off-chain to build a queryable social graph
+- [UI Design Spec](docs/design/SPEC.md) — layout and component design tokens
 
 ## Contributor Guide
 
@@ -334,3 +356,10 @@ Linkora-socials explores how Stellar can support more than payments by combining
 ## License
 
 This repository is licensed under the MIT License.
+
+## 🤝 Contributing
+Fork the repository and clone it to your local machine
+Create a new branch for your changes
+Make and test your updates following the project guidelines
+Commit and push your changes to your fork
+Open a Pull Request with a clear description

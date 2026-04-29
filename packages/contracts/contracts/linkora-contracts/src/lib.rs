@@ -21,13 +21,17 @@ pub enum StorageKey {
 // ── Instance-storage key constants (small scalars, not contracttype) ──────────
 
 const POST_CT: Symbol = symbol_short!("POST_CT");
+const PROFILES: Symbol = symbol_short!("PROFILES");
+const USERNAMES: Symbol = symbol_short!("UNAMES");
 const PROFILE_CT: Symbol = symbol_short!("PROF_CT");
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const TREASURY: Symbol = symbol_short!("TREASURY");
 const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 const INITIALIZED: Symbol = symbol_short!("INIT");
-
-use soroban_sdk::symbol_short;
+const BLOCKS: Symbol = symbol_short!("BLOCKS");
+const LIKES: Symbol = symbol_short!("LIKES");
+const TIP_COOLDOWN: Symbol = symbol_short!("TIP_CD");
+const TIP_COOLDOWN_WINDOW: Symbol = symbol_short!("TIP_CD_W");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -104,6 +108,24 @@ pub struct UnfollowEvent {
     pub follower: Address,
     #[topic]
     pub followee: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct BlockEvent {
+    #[topic]
+    pub blocker: Address,
+    #[topic]
+    pub blocked: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct UnblockEvent {
+    #[topic]
+    pub blocker: Address,
+    #[topic]
+    pub blocked: Address,
 }
 
 #[contractevent]
@@ -206,24 +228,8 @@ fn validate_content(content: &String) -> Result<(), &'static str> {
     Ok(())
 }
 
-/// Slice a Vec<T> by offset/limit with a hard cap of MAX_PAGE_LIMIT.
-fn paginate<T: soroban_sdk::IntoVal<Env, soroban_sdk::Val> + soroban_sdk::TryFromVal<Env, soroban_sdk::Val> + Clone>(
-    env: &Env,
-    list: &Vec<T>,
-    offset: u32,
-    limit: u32,
-) -> Vec<T> {
-    assert!(limit <= MAX_PAGE_LIMIT, "limit exceeded");
-    let len = list.len();
-    if offset >= len {
-        return Vec::new(env);
-    }
-    let end = (offset + limit).min(len);
-    let mut page = Vec::new(env);
-    for i in offset..end {
-        page.push_back(list.get(i).unwrap());
-    }
-    page
+fn username_lookup_key(username: &String) -> (Symbol, String) {
+    (USERNAMES, username.clone())
 }
 
 #[contractimpl]
@@ -244,6 +250,8 @@ impl LinkoraContract {
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&TREASURY, &treasury);
         env.storage().instance().set(&FEE_BPS, &fee_bps);
+        // Default cooldown window: 1 ledger (no cooldown by default)
+        env.storage().instance().set(&TIP_COOLDOWN_WINDOW, &1u32);
     }
 
     // ── Profiles ──────────────────────────────────────────────────────────────
@@ -252,7 +260,27 @@ impl LinkoraContract {
         user.require_auth();
         validate_username(&username).expect("invalid username");
 
-        let key = StorageKey::Profile(user.clone());
+        let key = (PROFILES, user.clone());
+        let username_index_key = username_lookup_key(&username);
+
+        if let Some(existing_owner) = env
+            .storage()
+            .persistent()
+            .get::<(Symbol, String), Address>(&username_index_key)
+        {
+            if existing_owner != user {
+                panic!("username taken");
+            }
+        }
+
+        if let Some(existing_profile) = env.storage().persistent().get::<_, Profile>(&key) {
+            if existing_profile.username != username {
+                env.storage()
+                    .persistent()
+                    .remove(&username_lookup_key(&existing_profile.username));
+            }
+        }
+
         if !env.storage().persistent().has(&key) {
             let count: u64 = env.storage().instance().get(&PROFILE_CT).unwrap_or(0);
             env.storage().instance().set(&PROFILE_CT, &(count + 1));
@@ -265,7 +293,9 @@ impl LinkoraContract {
                 creator_token,
             },
         );
+        env.storage().persistent().set(&username_index_key, &user);
         Self::bump(&env, &key);
+        Self::bump(&env, &username_index_key);
         ProfileSetEvent { user, username }.publish(&env);
     }
 
@@ -363,20 +393,26 @@ impl LinkoraContract {
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
-        if !list.is_empty() {
+        // Empty lists are never written to persistent storage, so there is no
+        // entry to bump. The TTL is only extended when the list is non-empty.
+        if !result.is_empty() {
             Self::bump(&env, &key);
         }
         paginate(&env, &list, offset, limit)
     }
 
-    pub fn get_followers(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
-        let key = StorageKey::Followers(user);
-        let list: Vec<Address> = env
+    pub fn get_followers(env: Env, user: Address) -> Vec<Address> {
+        // Uses (FOLLOWERS, user) — distinct from the (FOLLOWS, user) key used
+        // by get_following — to avoid bumping the wrong storage entry.
+        let key = (FOLLOWERS, user);
+        let result: Vec<Address> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
-        if !list.is_empty() {
+        // Empty lists are never written to persistent storage, so there is no
+        // entry to bump. The TTL is only extended when the list is non-empty.
+        if !result.is_empty() {
             Self::bump(&env, &key);
         }
         paginate(&env, &list, offset, limit)
@@ -392,9 +428,10 @@ impl LinkoraContract {
             .persistent()
             .get(&key)
             .unwrap_or(Map::new(&env));
-        blocks.set(blocked, ());
+        blocks.set(blocked.clone(), ());
         env.storage().persistent().set(&key, &blocks);
         Self::bump(&env, &key);
+        BlockEvent { blocker, blocked }.publish(&env);
     }
 
     pub fn unblock_user(env: Env, blocker: Address, blocked: Address) {
@@ -405,9 +442,10 @@ impl LinkoraContract {
             .persistent()
             .get(&key)
             .unwrap_or(Map::new(&env));
-        blocks.remove(blocked);
+        blocks.remove(blocked.clone());
         env.storage().persistent().set(&key, &blocks);
         Self::bump(&env, &key);
+        UnblockEvent { blocker, blocked }.publish(&env);
     }
 
     pub fn is_blocked(env: Env, blocker: Address, blocked: Address) -> bool {
@@ -544,6 +582,29 @@ impl LinkoraContract {
         if Self::is_blocked(env.clone(), post.author.clone(), tipper.clone()) {
             panic!("blocked");
         }
+
+        // Check tip cooldown
+        let cooldown_key = (TIP_COOLDOWN, tipper.clone(), post_id);
+        let current_ledger = env.ledger().sequence();
+        let cooldown_window: u32 = env
+            .storage()
+            .instance()
+            .get(&TIP_COOLDOWN_WINDOW)
+            .unwrap_or(1u32);
+
+        if let Some(last_tip_ledger) = env.storage().temporary().get::<_, u32>(&cooldown_key) {
+            let ledgers_elapsed = current_ledger.saturating_sub(last_tip_ledger);
+            assert!(
+                ledgers_elapsed >= cooldown_window,
+                "tip cooldown not expired"
+            );
+        }
+
+        // Update last tip ledger
+        env.storage()
+            .temporary()
+            .set(&cooldown_key, &current_ledger);
+        Self::bump_temp(&env, &cooldown_key);
 
         let fee_bps = Self::get_fee_bps(env.clone());
         let fee_amount = (amount * fee_bps as i128) / 10_000;
@@ -690,6 +751,127 @@ impl LinkoraContract {
         result
     }
 
+    pub fn get_pool_admins(env: Env, pool_id: Symbol) -> Vec<Address> {
+        let key = (POOLS, pool_id);
+        let pool: Pool = env.storage().persistent().get(&key).expect("pool not found");
+        Self::bump(&env, &key);
+        pool.admins
+    }
+
+    pub fn add_pool_admin(
+        env: Env,
+        signers: Vec<Address>,
+        pool_id: Symbol,
+        new_admin: Address,
+    ) {
+        let key = (POOLS, pool_id.clone());
+        let mut pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("pool not found");
+
+        // Verify threshold signatures from existing admins
+        assert!(signers.len() >= pool.threshold, "insufficient signers");
+        for signer in signers.iter() {
+            assert!(
+                pool.admins.iter().any(|x| x == signer),
+                "unauthorized signer"
+            );
+            signer.require_auth();
+        }
+
+        // Check if admin already exists
+        assert!(
+            !pool.admins.iter().any(|x| x == new_admin),
+            "admin already exists"
+        );
+
+        pool.admins.push_back(new_admin);
+        env.storage().persistent().set(&key, &pool);
+        Self::bump(&env, &key);
+    }
+
+    pub fn remove_pool_admin(
+        env: Env,
+        signers: Vec<Address>,
+        pool_id: Symbol,
+        admin: Address,
+    ) {
+        let key = (POOLS, pool_id.clone());
+        let mut pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("pool not found");
+
+        // Verify threshold signatures from existing admins
+        assert!(signers.len() >= pool.threshold, "insufficient signers");
+        for signer in signers.iter() {
+            assert!(
+                pool.admins.iter().any(|x| x == signer),
+                "unauthorized signer"
+            );
+            signer.require_auth();
+        }
+
+        // Find and remove the admin
+        let initial_len = pool.admins.len();
+        let mut new_admins = Vec::new(&env);
+        for existing_admin in pool.admins.iter() {
+            if existing_admin != admin {
+                new_admins.push_back(existing_admin.clone());
+            }
+        }
+        pool.admins = new_admins;
+        
+        assert!(pool.admins.len() < initial_len, "admin not found");
+
+        // Ensure threshold is still reachable after removal
+        assert!(
+            pool.threshold <= pool.admins.len(),
+            "threshold unreachable after removal"
+        );
+
+        env.storage().persistent().set(&key, &pool);
+        Self::bump(&env, &key);
+    }
+
+    pub fn update_pool_threshold(
+        env: Env,
+        signers: Vec<Address>,
+        pool_id: Symbol,
+        threshold: u32,
+    ) {
+        assert!(threshold > 0, "threshold must be positive");
+        let key = (POOLS, pool_id.clone());
+        let mut pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("pool not found");
+
+        // Verify threshold signatures from existing admins
+        assert!(signers.len() >= pool.threshold, "insufficient signers");
+        for signer in signers.iter() {
+            assert!(
+                pool.admins.iter().any(|x| x == signer),
+                "unauthorized signer"
+            );
+            signer.require_auth();
+        }
+
+        // Validate new threshold against admin count
+        assert!(
+            threshold <= pool.admins.len(),
+            "threshold cannot exceed admin count"
+        );
+
+        pool.threshold = threshold;
+        env.storage().persistent().set(&key, &pool);
+        Self::bump(&env, &key);
+    }
+
     // ── Fee & Treasury ────────────────────────────────────────────────────────
 
     pub fn set_fee(env: Env, fee_bps: u32) {
@@ -709,6 +891,21 @@ impl LinkoraContract {
 
     pub fn get_treasury(env: Env) -> Option<Address> {
         env.storage().instance().get(&TREASURY)
+    }
+
+    pub fn set_tip_cooldown_window(env: Env, cooldown_ledgers: u32) {
+        Self::require_admin(&env);
+        assert!(cooldown_ledgers > 0, "cooldown must be positive");
+        env.storage()
+            .instance()
+            .set(&TIP_COOLDOWN_WINDOW, &cooldown_ledgers);
+    }
+
+    pub fn get_tip_cooldown_window(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&TIP_COOLDOWN_WINDOW)
+            .unwrap_or(1u32)
     }
 
     // ── Upgradability ─────────────────────────────────────────────────────────
@@ -736,6 +933,13 @@ impl LinkoraContract {
     fn bump<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &Env, key: &K) {
         env.storage()
             .persistent()
+            .extend_ttl(key, LEDGER_THRESHOLD, LEDGER_BUMP);
+    }
+
+    /// Extend the TTL of a temporary entry.
+    fn bump_temp<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &Env, key: &K) {
+        env.storage()
+            .temporary()
             .extend_ttl(key, LEDGER_THRESHOLD, LEDGER_BUMP);
     }
 }

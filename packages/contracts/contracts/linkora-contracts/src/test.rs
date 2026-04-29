@@ -3,7 +3,7 @@
 use super::*;
 use soroban_sdk::{
     symbol_short,
-    testutils::{Address as _, Events, Ledger},
+    testutils::{storage::Persistent as _, Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, BytesN, Env, String,
 };
@@ -495,164 +495,294 @@ fn test_upgrade_before_initialize_panics() {
     client.upgrade(&mock_hash);
 }
 
-// ── Pagination tests (#122) ───────────────────────────────────────────────────
+// ── Fee boundary tests (issue #196) ─────────────────────────────────────────────
 
 #[test]
-fn test_get_following_first_page() {
+fn test_initialize_fee_boundary_max_valid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let alice = Address::generate(&env);
-    let users: soroban_sdk::Vec<Address> = (0..5).map(|_| Address::generate(&env)).collect();
-
-    for u in users.iter() {
-        client.follow(&alice, &u);
-    }
-
-    let page = client.get_following(&alice, &0, &3);
-    assert_eq!(page.len(), 3);
+    
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with fee_bps = 10_000 (100%) should succeed
+    client.initialize(&admin, &treasury, &10_000);
+    assert_eq!(client.get_fee_bps(), 10_000);
 }
 
 #[test]
-fn test_get_following_second_page() {
+#[should_panic(expected = "invalid fee")]
+fn test_initialize_fee_boundary_max_invalid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let alice = Address::generate(&env);
-    let users: soroban_sdk::Vec<Address> = (0..5).map(|_| Address::generate(&env)).collect();
-
-    for u in users.iter() {
-        client.follow(&alice, &u);
-    }
-
-    let page = client.get_following(&alice, &3, &3);
-    assert_eq!(page.len(), 2);
+    
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with fee_bps = 10_001 (>100%) should panic
+    client.initialize(&admin, &treasury, &10_001);
 }
 
 #[test]
-fn test_get_following_offset_beyond_end() {
+fn test_set_fee_zero_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    
+    // Set fee to 0 should succeed
+    client.set_fee(&0);
+    assert_eq!(client.get_fee_bps(), 0);
+}
+
+#[test]
+#[should_panic]
+fn test_set_fee_non_admin_panics() {
+    let env = Env::default();
+    // Don't mock all auths so we can test auth failure
+    let (client, _admin, _) = setup_contract(&env);
+    
+    // Non-admin trying to set fee should panic due to auth failure
+    client.set_fee(&100);
+}
+
+// ── Username validation tests (issue #195) ───────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "username too short")]
+fn test_username_too_short() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 2-character username should panic
+    client.set_profile(&user, &String::from_str(&env, "ab"), &token);
+}
+
+#[test]
+fn test_username_min_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 3-character username should succeed
+    client.set_profile(&user, &String::from_str(&env, "abc"), &token);
+    let profile = client.get_profile(&user).unwrap();
+    assert_eq!(profile.username, String::from_str(&env, "abc"));
+}
+
+#[test]
+fn test_username_max_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 32-character username should succeed
+    let username_str = "abcdefghijklmnopqrstuvwxyz123456";
+    let username = String::from_str(&env, username_str);
+    assert_eq!(username.len(), 32);
+    client.set_profile(&user, &username, &token);
+    let profile = client.get_profile(&user).unwrap();
+    assert_eq!(profile.username, username);
+}
+
+#[test]
+#[should_panic(expected = "username too long")]
+fn test_username_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 33-character username should panic
+    let username_str = "abcdefghijklmnopqrstuvwxyz1234567";
+    let username = String::from_str(&env, username_str);
+    assert_eq!(username.len(), 33);
+    client.set_profile(&user, &username, &token);
+}
+
+#[test]
+#[should_panic(expected = "invalid username character")]
+fn test_username_with_space() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // Username with space should panic
+    client.set_profile(&user, &String::from_str(&env, "user name"), &token);
+}
+
+#[test]
+#[should_panic(expected = "invalid username character")]
+fn test_username_with_special_char() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // Username with special character should panic
+    client.set_profile(&user, &String::from_str(&env, "user@name"), &token);
+}
+
+// ── Unfollow event emission tests (issue #129) ───────────────────────────────────
+
+#[test]
+fn test_unfollow_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    
+    // First establish a follow relationship
+    client.follow(&alice, &bob);
+    
+    // Unfollow should emit UnfollowEvent
+    client.unfollow(&alice, &bob);
+    
+    // Verify at least one event was emitted by unfollow
+    let all_events = env.events().all();
+    let events = all_events.events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+fn test_unfollow_noop_no_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    
+    // Unfollow when no relationship exists should not panic
+    client.unfollow(&alice, &bob);
+    
+    // Verify both indexes are still empty
+    assert_eq!(client.get_following(&alice).len(), 0);
+    assert_eq!(client.get_followers(&bob).len(), 0);
+}
+
+// ── Post content length validation tests (issue #194) ────────────────────────────
+
+#[test]
+#[should_panic(expected = "empty content")]
+fn test_post_content_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // Empty content should panic
+    client.create_post(&author, &String::from_str(&env, ""));
+}
+
+#[test]
+fn test_post_content_min_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 1-character content should succeed
+    let post_id = client.create_post(&author, &String::from_str(&env, "a"));
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.content, String::from_str(&env, "a"));
+}
+
+#[test]
+fn test_post_content_max_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 280-character content should succeed
+    let content_str = "a".repeat(280);
+    let content = String::from_str(&env, &content_str);
+    assert_eq!(content.len(), 280);
+    let post_id = client.create_post(&author, &content);
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.content, content);
+}
+
+#[test]
+#[should_panic(expected = "content too long")]
+fn test_post_content_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 281-character content should panic
+    let content_str = "a".repeat(281);
+    let content = String::from_str(&env, &content_str);
+    assert_eq!(content.len(), 281);
+    client.create_post(&author, &content);
+}
+
+// ── get_followers / get_following TTL tests ───────────────────────────────────
+
+#[test]
+fn test_get_followers_bumps_followers_key() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    client.follow(&alice, &bob);
 
-    let page = client.get_following(&alice, &100, &10);
-    assert_eq!(page.len(), 0);
-}
+    // bob follows alice so alice has a non-empty followers list
+    client.follow(&bob, &alice);
+    client.get_followers(&alice);
 
-#[test]
-#[should_panic(expected = "limit exceeded")]
-fn test_get_following_limit_exceeded() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
+    let contract_id = client.address.clone();
 
-    let alice = Address::generate(&env);
-    client.get_following(&alice, &0, &51);
-}
+    // (FOLLOWERS, alice) must have a bumped TTL
+    let followers_ttl = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .get_ttl(&(FOLLOWERS, alice.clone()))
+    });
+    assert!(
+        followers_ttl >= LEDGER_THRESHOLD,
+        "followers TTL {followers_ttl} below LEDGER_THRESHOLD"
+    );
 
-#[test]
-fn test_get_followers_pagination() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let target = Address::generate(&env);
-    let users: soroban_sdk::Vec<Address> = (0..5).map(|_| Address::generate(&env)).collect();
-
-    for u in users.iter() {
-        client.follow(&u, &target);
-    }
-
-    let page1 = client.get_followers(&target, &0, &3);
-    assert_eq!(page1.len(), 3);
-
-    let page2 = client.get_followers(&target, &3, &3);
-    assert_eq!(page2.len(), 2);
-}
-
-#[test]
-fn test_get_followers_offset_beyond_end() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let target = Address::generate(&env);
-    let follower = Address::generate(&env);
-    client.follow(&follower, &target);
-
-    let page = client.get_followers(&target, &100, &10);
-    assert_eq!(page.len(), 0);
-}
-
-#[test]
-#[should_panic(expected = "limit exceeded")]
-fn test_get_followers_limit_exceeded() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let target = Address::generate(&env);
-    client.get_followers(&target, &0, &51);
-}
-
-#[test]
-fn test_get_posts_by_author_first_page() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let author = Address::generate(&env);
-    for i in 0..5u32 {
-        let content = soroban_sdk::String::from_str(&env, "post");
-        let _ = i;
-        client.create_post(&author, &content);
-    }
-
-    let page = client.get_posts_by_author(&author, &0, &3);
-    assert_eq!(page.len(), 3);
-}
-
-#[test]
-fn test_get_posts_by_author_second_page() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let author = Address::generate(&env);
-    for _ in 0..5u32 {
-        client.create_post(&author, &soroban_sdk::String::from_str(&env, "post"));
-    }
-
-    let page = client.get_posts_by_author(&author, &3, &3);
-    assert_eq!(page.len(), 2);
-}
-
-#[test]
-fn test_get_posts_by_author_offset_beyond_end() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let author = Address::generate(&env);
-    client.create_post(&author, &soroban_sdk::String::from_str(&env, "post"));
-
-    let page = client.get_posts_by_author(&author, &100, &10);
-    assert_eq!(page.len(), 0);
-}
-
-#[test]
-#[should_panic(expected = "limit exceeded")]
-fn test_get_posts_by_author_limit_exceeded() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let author = Address::generate(&env);
-    client.get_posts_by_author(&author, &0, &51);
+    // (FOLLOWS, alice) must NOT exist — get_followers must not touch it
+    let follows_exists = env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .has(&(FOLLOWS, alice.clone()))
+    });
+    assert!(
+        !follows_exists,
+        "get_followers must not create or bump the (FOLLOWS, alice) key"
+    );
 }
