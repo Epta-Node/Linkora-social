@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { Feed } from "../components/Feed";
 import { Post } from "../components/PostCard";
+import { CreatePost } from "../components/CreatePost";
 
 export default function FeedPage() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -68,14 +70,25 @@ export default function FeedPage() {
     <main style={styles.main}>
       <header style={styles.header}>
         <h1 style={styles.title}>Linkora Feed</h1>
+        <Link href="/new" style={styles.newPostButton}>
+          + New Post
+        </Link>
       </header>
-      <Feed
-        posts={posts}
-        loading={loading}
-        onLike={handleLike}
-        onTip={handleTip}
-        likedPosts={likedPosts}
-      />
+      
+      <div style={styles.content}>
+        {/* Inline post composer */}
+        <div style={styles.composerSection}>
+          <CreatePost compact />
+        </div>
+        
+        <Feed
+          posts={posts}
+          loading={loading}
+          onLike={handleLike}
+          onTip={handleTip}
+          likedPosts={likedPosts}
+        />
+      </div>
     </main>
   );
 }
@@ -88,14 +101,34 @@ const styles: Record<string, React.CSSProperties> = {
   header: {
     background: "var(--color-bg)",
     borderBottom: "1px solid var(--color-border)",
-    padding: "var(--spacing-lg)",
+    padding: "var(--spacing-md) var(--spacing-lg)",
     position: "sticky",
     top: 0,
     zIndex: 10,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   title: {
-    textAlign: "center",
-    fontSize: "1.5rem",
+    fontSize: "1.25rem",
     fontWeight: 700,
+    margin: 0,
+  },
+  newPostButton: {
+    padding: "var(--spacing-sm) var(--spacing-md)",
+    background: "var(--color-primary)",
+    color: "white",
+    borderRadius: "20px",
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    textDecoration: "none",
+  },
+  content: {
+    maxWidth: "600px",
+    margin: "0 auto",
+    padding: "var(--spacing-md)",
+  },
+  composerSection: {
+    marginBottom: "var(--spacing-md)",
   },
 };
