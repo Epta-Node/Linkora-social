@@ -19,6 +19,7 @@ const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 const INITIALIZED: Symbol = symbol_short!("INIT");
 const BLOCKS: Symbol = symbol_short!("BLOCKS");
 const LIKES: Symbol = symbol_short!("LIKES");
+const AUTHOR_POSTS: Symbol = symbol_short!("AUTH_POSTS");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -396,6 +397,20 @@ impl LinkoraContract {
             },
         );
         Self::bump(&env, &key);
+
+        // Track post by author
+        let author_posts_key = (AUTHOR_POSTS, author.clone());
+        let mut author_posts: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&author_posts_key)
+            .unwrap_or(Vec::new(&env));
+        author_posts.push_back(id);
+        env.storage()
+            .persistent()
+            .set(&author_posts_key, &author_posts);
+        Self::bump(&env, &author_posts_key);
+
         env.storage().instance().set(&POST_CT, &id);
         PostCreatedEvent { id, author }.publish(&env);
         id
@@ -423,6 +438,19 @@ impl LinkoraContract {
         assert!(post.author == author, "only author can delete post");
         env.storage().persistent().remove(&key);
         PostDeleted { post_id, author }.publish(&env);
+    }
+
+    pub fn get_posts_by_author(env: Env, author: Address) -> Vec<u64> {
+        let key = (AUTHOR_POSTS, author);
+        let result: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(Vec::new(&env));
+        if !result.is_empty() {
+            Self::bump(&env, &key);
+        }
+        result
     }
 
     // ── Reactions ─────────────────────────────────────────────────────────────
