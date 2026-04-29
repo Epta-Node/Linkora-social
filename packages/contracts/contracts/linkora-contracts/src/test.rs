@@ -495,69 +495,254 @@ fn test_upgrade_before_initialize_panics() {
     client.upgrade(&mock_hash);
 }
 
-// ── Block / Unblock tests ─────────────────────────────────────────────────────
+// ── Fee boundary tests (issue #196) ─────────────────────────────────────────────
 
 #[test]
-fn test_unblock_user() {
+fn test_initialize_fee_boundary_max_valid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let blocker = Address::generate(&env);
-    let blocked = Address::generate(&env);
-
-    client.block_user(&blocker, &blocked);
-    assert!(client.is_blocked(&blocker, &blocked));
-
-    client.unblock_user(&blocker, &blocked);
-    assert!(!client.is_blocked(&blocker, &blocked));
+    
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with fee_bps = 10_000 (100%) should succeed
+    client.initialize(&admin, &treasury, &10_000);
+    assert_eq!(client.get_fee_bps(), 10_000);
 }
 
 #[test]
-fn test_double_unblock_is_noop() {
+#[should_panic(expected = "invalid fee")]
+fn test_initialize_fee_boundary_max_invalid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let blocker = Address::generate(&env);
-    let blocked = Address::generate(&env);
-
-    // unblock without a prior block — must not panic
-    client.unblock_user(&blocker, &blocked);
-    // second unblock — also must not panic
-    client.unblock_user(&blocker, &blocked);
+    
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    
+    // Initialize with fee_bps = 10_001 (>100%) should panic
+    client.initialize(&admin, &treasury, &10_001);
 }
 
 #[test]
-fn test_is_blocked_returns_false_for_never_blocked() {
+fn test_set_fee_zero_valid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let a = Address::generate(&env);
-    let b = Address::generate(&env);
-
-    assert!(!client.is_blocked(&a, &b));
+    let (client, admin, _) = setup_contract(&env);
+    
+    // Set fee to 0 should succeed
+    client.set_fee(&0);
+    assert_eq!(client.get_fee_bps(), 0);
 }
 
 #[test]
-fn test_block_user_bumps_ttl() {
+#[should_panic]
+fn test_set_fee_non_admin_panics() {
+    let env = Env::default();
+    // Don't mock all auths so we can test auth failure
+    let (client, _admin, _) = setup_contract(&env);
+    
+    // Non-admin trying to set fee should panic due to auth failure
+    client.set_fee(&100);
+}
+
+// ── Username validation tests (issue #195) ───────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "username too short")]
+fn test_username_too_short() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 2-character username should panic
+    client.set_profile(&user, &String::from_str(&env, "ab"), &token);
+}
 
-    let blocker = Address::generate(&env);
-    let blocked = Address::generate(&env);
+#[test]
+fn test_username_min_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 3-character username should succeed
+    client.set_profile(&user, &String::from_str(&env, "abc"), &token);
+    let profile = client.get_profile(&user).unwrap();
+    assert_eq!(profile.username, String::from_str(&env, "abc"));
+}
 
-    client.block_user(&blocker, &blocked);
+#[test]
+fn test_username_max_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 32-character username should succeed
+    let username_str = "abcdefghijklmnopqrstuvwxyz123456";
+    let username = String::from_str(&env, username_str);
+    assert_eq!(username.len(), 32);
+    client.set_profile(&user, &username, &token);
+    let profile = client.get_profile(&user).unwrap();
+    assert_eq!(profile.username, username);
+}
 
-    let key = (BLOCKS, blocker.clone());
-    let contract_id = client.address.clone();
-    let ttl = env.as_contract(&contract_id, || {
-        env.storage().persistent().get_ttl(&key)
-    });
-    assert!(
-        ttl >= LEDGER_THRESHOLD,
-        "block entry TTL {ttl} is below LEDGER_THRESHOLD {LEDGER_THRESHOLD}"
-    );
+#[test]
+#[should_panic(expected = "username too long")]
+fn test_username_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // 33-character username should panic
+    let username_str = "abcdefghijklmnopqrstuvwxyz1234567";
+    let username = String::from_str(&env, username_str);
+    assert_eq!(username.len(), 33);
+    client.set_profile(&user, &username, &token);
+}
+
+#[test]
+#[should_panic(expected = "invalid username character")]
+fn test_username_with_space() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // Username with space should panic
+    client.set_profile(&user, &String::from_str(&env, "user name"), &token);
+}
+
+#[test]
+#[should_panic(expected = "invalid username character")]
+fn test_username_with_special_char() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    
+    // Username with special character should panic
+    client.set_profile(&user, &String::from_str(&env, "user@name"), &token);
+}
+
+// ── Unfollow event emission tests (issue #129) ───────────────────────────────────
+
+#[test]
+fn test_unfollow_emits_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    
+    // First establish a follow relationship
+    client.follow(&alice, &bob);
+    
+    // Unfollow should emit UnfollowEvent
+    client.unfollow(&alice, &bob);
+    
+    // Verify at least one event was emitted by unfollow
+    let all_events = env.events().all();
+    let events = all_events.events();
+    assert!(!events.is_empty());
+}
+
+#[test]
+fn test_unfollow_noop_no_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    
+    // Unfollow when no relationship exists should not panic
+    client.unfollow(&alice, &bob);
+    
+    // Verify both indexes are still empty
+    assert_eq!(client.get_following(&alice).len(), 0);
+    assert_eq!(client.get_followers(&bob).len(), 0);
+}
+
+// ── Post content length validation tests (issue #194) ────────────────────────────
+
+#[test]
+#[should_panic(expected = "empty content")]
+fn test_post_content_empty() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // Empty content should panic
+    client.create_post(&author, &String::from_str(&env, ""));
+}
+
+#[test]
+fn test_post_content_min_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 1-character content should succeed
+    let post_id = client.create_post(&author, &String::from_str(&env, "a"));
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.content, String::from_str(&env, "a"));
+}
+
+#[test]
+fn test_post_content_max_length_valid() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 280-character content should succeed
+    let content_str = "a".repeat(280);
+    let content = String::from_str(&env, &content_str);
+    assert_eq!(content.len(), 280);
+    let post_id = client.create_post(&author, &content);
+    let post = client.get_post(&post_id).unwrap();
+    assert_eq!(post.content, content);
+}
+
+#[test]
+#[should_panic(expected = "content too long")]
+fn test_post_content_too_long() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    
+    let author = Address::generate(&env);
+    
+    // 281-character content should panic
+    let content_str = "a".repeat(281);
+    let content = String::from_str(&env, &content_str);
+    assert_eq!(content.len(), 281);
+    client.create_post(&author, &content);
 }

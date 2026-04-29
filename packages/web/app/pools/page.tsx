@@ -1,380 +1,190 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useWallet } from "../components/WalletProvider";
+import type { CSSProperties } from "react";
+import Link from "next/link";
+import { useAllPools, useTokenMeta } from "../hooks/usePools";
+import { PoolCard, PoolCardSkeleton } from "../components/pools/PoolCard";
+import { PoolEmptyState } from "../components/pools/PoolEmptyState";
+import type { PoolData, TokenMeta } from "../hooks/usePools";
 
-interface Pool {
-  token: string;
-  balance: number;
+// ── Token meta wrapper per card ───────────────────────────────────────────────
+
+function PoolCardWithMeta({ pool }: { pool: PoolData }) {
+  const tokenMeta = useTokenMeta(pool.token);
+  return <PoolCard pool={pool} tokenMeta={tokenMeta} />;
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export default function PoolsPage() {
-  const { publicKey, isConnected } = useWallet();
-
-  const [searchPoolId, setSearchPoolId] = useState("");
-  const [pool, setPool] = useState<Pool | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [depositPoolId, setDepositPoolId] = useState("");
-  const [depositToken, setDepositToken] = useState("");
-  const [depositAmount, setDepositAmount] = useState("");
-  const [isDepositing, setIsDepositing] = useState(false);
-  const [depositError, setDepositError] = useState<string | null>(null);
-  const [depositSuccess, setDepositSuccess] = useState(false);
-
-  const [withdrawPoolId, setWithdrawPoolId] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
-  const [isWithdrawing, setIsWithdrawing] = useState(false);
-  const [withdrawError, setWithdrawError] = useState<string | null>(null);
-  const [withdrawSuccess, setWithdrawSuccess] = useState(false);
-
-  const handleSearch = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchPoolId.trim()) return;
-
-    setLoading(true);
-    setError(null);
-    setPool(null);
-
-    try {
-      console.log("Fetching pool:", searchPoolId);
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      setPool({
-        token: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-        balance: 1000000000,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Pool not found");
-    } finally {
-      setLoading(false);
-    }
-  }, [searchPoolId]);
-
-  const handleDeposit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isConnected) return;
-
-    const amount = Number(depositAmount);
-    if (amount <= 0) {
-      setDepositError("Amount must be a positive number");
-      return;
-    }
-
-    setIsDepositing(true);
-    setDepositError(null);
-    setDepositSuccess(false);
-
-    try {
-      console.log("Depositing to pool:", depositPoolId, "amount:", amount, "token:", depositToken);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      setDepositSuccess(true);
-      setDepositToken("");
-      setDepositAmount("");
-
-      if (pool && pool.token === depositToken) {
-        setPool((prev) => prev ? { ...prev, balance: prev.balance + amount } : prev);
-      }
-    } catch (err) {
-      setDepositError(err instanceof Error ? err.message : "Failed to deposit");
-    } finally {
-      setIsDepositing(false);
-    }
-  }, [isConnected, depositPoolId, depositToken, depositAmount, pool]);
-
-  const handleWithdraw = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isConnected) return;
-
-    const amount = Number(withdrawAmount);
-    if (amount <= 0) {
-      setWithdrawError("Amount must be a positive number");
-      return;
-    }
-
-    setIsWithdrawing(true);
-    setWithdrawError(null);
-    setWithdrawSuccess(false);
-
-    try {
-      console.log("Withdrawing from pool:", withdrawPoolId, "amount:", amount);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      setWithdrawSuccess(true);
-      setWithdrawAmount("");
-
-      if (pool && amount <= pool.balance) {
-        setPool((prev) => prev ? { ...prev, balance: prev.balance - amount } : prev);
-      }
-    } catch (err) {
-      setWithdrawError(err instanceof Error ? err.message : "Failed to withdraw");
-    } finally {
-      setIsWithdrawing(false);
-    }
-  }, [isConnected, withdrawPoolId, withdrawAmount, pool]);
-
-  const formatAddress = (addr: string) => {
-    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-  };
-
-  const formatBalance = (balance: number) => {
-    return (balance / 10_000_000).toFixed(2);
-  };
+  const { pools, state, error, refresh } = useAllPools();
 
   return (
     <main style={styles.main}>
+      {/* Page header */}
       <header style={styles.header}>
-        <h1 style={styles.title}>Community Pools</h1>
-        <p style={styles.subtitle}>View pool balances, deposit, and withdraw tokens</p>
+        <div style={styles.headerText}>
+          <h1 style={styles.title}>Community Pools</h1>
+          <p style={styles.subtitle}>
+            M-of-N multisig treasury pools governed by admin sets
+          </p>
+        </div>
+        <div style={styles.headerActions}>
+          <button
+            onClick={refresh}
+            disabled={state === "loading"}
+            style={styles.refreshBtn}
+            aria-label="Refresh pool list"
+          >
+            {state === "loading" ? "⏳" : "↻"} Refresh
+          </button>
+          <Link href="/pools/new" style={styles.createBtn}>
+            + Create Pool
+          </Link>
+        </div>
       </header>
 
-      <section style={styles.section}>
-        <h2 style={styles.sectionTitle}>Look Up Pool</h2>
-        <form onSubmit={handleSearch} style={styles.form}>
-          <input
-            type="text"
-            value={searchPoolId}
-            onChange={(e) => setSearchPoolId(e.target.value)}
-            placeholder="Enter pool ID (e.g., community)"
-            style={styles.input}
-            maxLength={9}
-            disabled={loading}
-          />
-          <button type="submit" disabled={loading || !searchPoolId.trim()} style={styles.button}>
-            {loading ? "Loading..." : "Search"}
+      {/* Error state */}
+      {state === "error" && (
+        <div style={styles.errorBanner} role="alert">
+          <span aria-hidden="true">⚠️</span>
+          <span>{error ?? "Failed to load pools"}</span>
+          <button onClick={refresh} style={styles.retryBtn}>
+            Retry
           </button>
-        </form>
+        </div>
+      )}
 
-        {error && <p style={styles.error}>{error}</p>}
+      {/* Loading skeletons */}
+      {state === "loading" && (
+        <div style={styles.grid} aria-busy="true" aria-label="Loading pools">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <PoolCardSkeleton key={i} />
+          ))}
+        </div>
+      )}
 
-        {pool && (
-          <div style={styles.poolInfo}>
-            <div style={styles.poolRow}>
-              <span style={styles.poolLabel}>Pool ID:</span>
-              <span style={styles.poolValue}>{searchPoolId}</span>
-            </div>
-            <div style={styles.poolRow}>
-              <span style={styles.poolLabel}>Token:</span>
-              <span style={styles.poolValue}>{formatAddress(pool.token)}</span>
-            </div>
-            <div style={styles.poolRow}>
-              <span style={styles.poolLabel}>Balance:</span>
-              <span style={styles.poolValue}>{formatBalance(pool.balance)} XLM</span>
-            </div>
-          </div>
-        )}
-      </section>
+      {/* Empty state */}
+      {state === "success" && pools.length === 0 && (
+        <PoolEmptyState variant="no-pools" />
+      )}
 
-      {isConnected ? (
+      {/* Pool grid */}
+      {state === "success" && pools.length > 0 && (
         <>
-          <section style={styles.section}>
-            <h2 style={styles.sectionTitle}>Deposit</h2>
-            <form onSubmit={handleDeposit} style={styles.form}>
-              <input
-                type="text"
-                value={depositPoolId}
-                onChange={(e) => setDepositPoolId(e.target.value)}
-                placeholder="Pool ID"
-                style={styles.input}
-                maxLength={9}
-                disabled={isDepositing}
-              />
-              <input
-                type="text"
-                value={depositToken}
-                onChange={(e) => setDepositToken(e.target.value)}
-                placeholder="Token address"
-                style={styles.input}
-                disabled={isDepositing}
-              />
-              <input
-                type="number"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                placeholder="Amount"
-                min="1"
-                step="1"
-                style={styles.input}
-                disabled={isDepositing}
-              />
-              {depositError && <p style={styles.error}>{depositError}</p>}
-              {depositSuccess && <p style={styles.success}>Deposit successful!</p>}
-              <button
-                type="submit"
-                disabled={
-                  isDepositing ||
-                  !depositPoolId ||
-                  !depositToken ||
-                  !depositAmount ||
-                  Number(depositAmount) <= 0
-                }
-                style={{
-                  ...styles.submitButton,
-                  ...(isDepositing ||
-                  !depositPoolId ||
-                  !depositToken ||
-                  !depositAmount ||
-                  Number(depositAmount) <= 0
-                    ? styles.buttonDisabled
-                    : {}),
-                }}
-              >
-                {isDepositing ? "Depositing..." : "Deposit"}
-              </button>
-            </form>
-          </section>
-
-          <section style={styles.section}>
-            <h2 style={styles.sectionTitle}>Withdraw</h2>
-            <form onSubmit={handleWithdraw} style={styles.form}>
-              <input
-                type="text"
-                value={withdrawPoolId}
-                onChange={(e) => setWithdrawPoolId(e.target.value)}
-                placeholder="Pool ID"
-                style={styles.input}
-                maxLength={9}
-                disabled={isWithdrawing}
-              />
-              <input
-                type="number"
-                value={withdrawAmount}
-                onChange={(e) => setWithdrawAmount(e.target.value)}
-                placeholder="Amount"
-                min="1"
-                step="1"
-                style={styles.input}
-                disabled={isWithdrawing}
-              />
-              {withdrawError && <p style={styles.error}>{withdrawError}</p>}
-              {withdrawSuccess && <p style={styles.success}>Withdrawal successful!</p>}
-              <button
-                type="submit"
-                disabled={
-                  isWithdrawing ||
-                  !withdrawPoolId ||
-                  !withdrawAmount ||
-                  Number(withdrawAmount) <= 0
-                }
-                style={{
-                  ...styles.submitButton,
-                  ...(isWithdrawing ||
-                  !withdrawPoolId ||
-                  !withdrawAmount ||
-                  Number(withdrawAmount) <= 0
-                    ? styles.buttonDisabled
-                    : {}),
-                }}
-              >
-                {isWithdrawing ? "Withdrawing..." : "Withdraw"}
-              </button>
-            </form>
-          </section>
+          <p style={styles.count} aria-live="polite">
+            {pools.length} pool{pools.length !== 1 ? "s" : ""} found
+          </p>
+          <div style={styles.grid}>
+            {pools.map((pool) => (
+              <PoolCardWithMeta key={pool.pool_id} pool={pool} />
+            ))}
+          </div>
         </>
-      ) : (
-        <section style={styles.section}>
-          <p style={styles.placeholder}>Connect wallet to deposit or withdraw</p>
-        </section>
       )}
     </main>
   );
 }
 
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, CSSProperties> = {
   main: {
     minHeight: "100vh",
-    background: "var(--color-bg-secondary)",
-    padding: "var(--spacing-lg)",
+    background: "var(--color-surface-1)",
+    padding: "var(--space-8) var(--space-4)",
   },
   header: {
-    textAlign: "center",
-    marginBottom: "var(--spacing-xl)",
+    maxWidth: "1100px",
+    margin: "0 auto var(--space-8)",
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: "var(--space-4)",
+    flexWrap: "wrap" as const,
   },
-  title: {
-    fontSize: "2rem",
-    fontWeight: 700,
-    marginBottom: "var(--spacing-sm)",
-  },
-  subtitle: {
-    color: "var(--color-text-secondary)",
-    fontSize: "1.1rem",
-  },
-  section: {
-    background: "var(--color-bg)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "12px",
-    padding: "var(--spacing-xl)",
-    maxWidth: "600px",
-    margin: "0 auto var(--spacing-lg)",
-  },
-  sectionTitle: {
-    fontSize: "1.25rem",
-    fontWeight: 600,
-    marginBottom: "var(--spacing-md)",
-  },
-  form: {
+  headerText: {
     display: "flex",
     flexDirection: "column",
-    gap: "var(--spacing-md)",
+    gap: "var(--space-1)",
   },
-  input: {
-    padding: "var(--spacing-md)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "8px",
-    fontSize: "1rem",
-    width: "100%",
+  title: {
+    margin: 0,
+    fontSize: "var(--text-3xl)",
+    fontWeight: 700,
+    color: "var(--color-text-primary)",
   },
-  button: {
-    padding: "var(--spacing-md)",
-    background: "var(--color-primary)",
-    color: "white",
-    borderRadius: "8px",
-    fontWeight: 600,
-    fontSize: "1rem",
+  subtitle: {
+    margin: 0,
+    fontSize: "var(--text-base)",
+    color: "var(--color-text-secondary)",
   },
-  submitButton: {
-    padding: "var(--spacing-md)",
-    background: "var(--color-primary)",
-    color: "white",
-    borderRadius: "8px",
-    fontWeight: 600,
-    fontSize: "1rem",
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-    cursor: "not-allowed",
-  },
-  poolInfo: {
-    marginTop: "var(--spacing-lg)",
-    padding: "var(--spacing-lg)",
-    background: "var(--color-bg-secondary)",
-    borderRadius: "8px",
-  },
-  poolRow: {
+  headerActions: {
     display: "flex",
-    justifyContent: "space-between",
-    padding: "var(--spacing-sm) 0",
+    alignItems: "center",
+    gap: "var(--space-3)",
+    flexShrink: 0,
   },
-  poolLabel: {
-    color: "var(--color-text-secondary)",
-  },
-  poolValue: {
-    fontFamily: "monospace",
+  refreshBtn: {
+    padding: "var(--space-2) var(--space-4)",
+    background: "var(--color-bg)",
+    border: "1px solid var(--color-border)",
+    borderRadius: "var(--radius-lg)",
+    fontSize: "var(--text-sm)",
     fontWeight: 500,
-  },
-  error: {
-    color: "var(--color-like)",
-    fontSize: "0.9rem",
-  },
-  success: {
-    color: "#10b981",
-    fontSize: "0.9rem",
-  },
-  placeholder: {
-    textAlign: "center",
     color: "var(--color-text-secondary)",
-    padding: "var(--spacing-lg)",
+    cursor: "pointer",
+    minHeight: "44px",
+    transition: "border-color 0.2s",
+  },
+  createBtn: {
+    padding: "var(--space-2) var(--space-5)",
+    background: "var(--color-primary)",
+    color: "white",
+    borderRadius: "var(--radius-lg)",
+    fontWeight: 700,
+    fontSize: "var(--text-sm)",
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: "44px",
+    transition: "background 0.2s",
+  },
+  errorBanner: {
+    maxWidth: "1100px",
+    margin: "0 auto var(--space-6)",
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-3)",
+    padding: "var(--space-4)",
+    background: "var(--color-error-light)",
+    border: "1px solid var(--color-error)",
+    borderRadius: "var(--radius-lg)",
+    color: "#991b1b",
+    fontSize: "var(--text-sm)",
+  },
+  retryBtn: {
+    marginLeft: "auto",
+    padding: "var(--space-1) var(--space-3)",
+    border: "1px solid currentColor",
+    borderRadius: "var(--radius-md)",
+    background: "none",
+    color: "inherit",
+    fontWeight: 600,
+    fontSize: "var(--text-sm)",
+    cursor: "pointer",
+    minHeight: "auto",
+    minWidth: "auto",
+  },
+  count: {
+    maxWidth: "1100px",
+    margin: "0 auto var(--space-4)",
+    fontSize: "var(--text-sm)",
+    color: "var(--color-text-secondary)",
+  },
+  grid: {
+    maxWidth: "1100px",
+    margin: "0 auto",
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+    gap: "var(--space-4)",
   },
 };
