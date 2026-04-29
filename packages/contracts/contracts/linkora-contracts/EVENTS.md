@@ -45,6 +45,26 @@ Emitted when a user unfollows another user.
   - `follower`: `Address`
   - `followee`: `Address`
 
+### Block
+Emitted when a user blocks another user.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `block`
+- **Topic 2**: `v1`
+- **Data Payload**: `BlockEvent`
+  - `blocker`: `Address`
+  - `blocked`: `Address`
+
+### Unblock
+Emitted when a user unblocks another user.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `unblock`
+- **Topic 2**: `v1`
+- **Data Payload**: `UnblockEvent`
+  - `blocker`: `Address`
+  - `blocked`: `Address`
+
 ### PostCreated
 Emitted when a new post is successfully created.
 

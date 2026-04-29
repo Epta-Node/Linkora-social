@@ -32,6 +32,7 @@ These primitives provide a minimal base for experimenting with social-financial 
 
 ```text
 .
+├── Makefile
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -114,6 +115,7 @@ Linkora-socials uses Soroban's state storage to manage its data. Below is a summ
 | Key | Format | Namespace | Purpose |
 |---|---|---|---|
 | `PROFILES` | `(Symbol("PROFILES"), Address)` | Persistent | Stores user `Profile` data. |
+| `UNAMES` | `(Symbol("UNAMES"), String)` | Persistent | Maps each username to the owning `Address` so usernames stay unique. |
 | `PROF_CT` | `Symbol("PROF_CT")` | Instance | Tracks the total number of registered profiles. |
 | `FOLLOWS` | `(Symbol("FOLLOWS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts that the given address follows. |
 | `FOLLOWRS` | `(Symbol("FOLLOWRS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts following the given address. |
@@ -202,6 +204,16 @@ Inside `packages/contracts`:
 - `pnpm test`
 - `pnpm dev`
 - `pnpm format`
+
+## Makefile Targets
+
+The repository root also includes a `Makefile` with thin wrappers around the existing workspace scripts:
+
+- `make dev` runs the full local development stack.
+- `make build` builds the workspace.
+- `make lint` runs lint checks.
+- `make test` runs the test suite.
+- `make format` formats the workspace.
 
 ## Testing
 
