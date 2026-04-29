@@ -32,6 +32,7 @@ These primitives provide a minimal base for experimenting with social-financial 
 
 ```text
 .
+├── Makefile
 ├── package.json
 ├── pnpm-workspace.yaml
 ├── turbo.json
@@ -114,6 +115,7 @@ Linkora-socials uses Soroban's state storage to manage its data. Below is a summ
 | Key | Format | Namespace | Purpose |
 |---|---|---|---|
 | `PROFILES` | `(Symbol("PROFILES"), Address)` | Persistent | Stores user `Profile` data. |
+| `UNAMES` | `(Symbol("UNAMES"), String)` | Persistent | Maps each username to the owning `Address` so usernames stay unique. |
 | `PROF_CT` | `Symbol("PROF_CT")` | Instance | Tracks the total number of registered profiles. |
 | `FOLLOWS` | `(Symbol("FOLLOWS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts that the given address follows. |
 | `FOLLOWRS` | `(Symbol("FOLLOWRS"), Address)` | Persistent | Stores a `Vec<Address>` of accounts following the given address. |
@@ -203,6 +205,16 @@ Inside `packages/contracts`:
 - `pnpm dev`
 - `pnpm format`
 
+## Makefile Targets
+
+The repository root also includes a `Makefile` with thin wrappers around the existing workspace scripts:
+
+- `make dev` runs the full local development stack.
+- `make build` builds the workspace.
+- `make lint` runs lint checks.
+- `make test` runs the test suite.
+- `make format` formats the workspace.
+
 ## Testing
 
 The contract test suite currently covers:
@@ -224,6 +236,12 @@ pnpm test:integration
 ```
 
 See `tests/README.md` for setup details and CI guidance.
+
+## Documentation
+
+- [Event Schema](packages/contracts/contracts/linkora-contracts/EVENTS.md) — canonical event definitions for indexers and clients
+- [Indexer Design](docs/indexer/INDEXER_DESIGN.md) — how to consume events off-chain to build a queryable social graph
+- [UI Design Spec](docs/design/SPEC.md) — layout and component design tokens
 
 ## Contributor Guide
 
@@ -291,3 +309,10 @@ Linkora-socials explores how Stellar can support more than payments by combining
 ## License
 
 This repository is licensed under the MIT License.
+
+## 🤝 Contributing
+Fork the repository and clone it to your local machine
+Create a new branch for your changes
+Make and test your updates following the project guidelines
+Commit and push your changes to your fork
+Open a Pull Request with a clear description

@@ -1,0 +1,15 @@
+{
+  "name": "sdk",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "scripts": {
+    "build": "echo \"Run generate.sh to regenerate the client from the contract WASM\""
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^12.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
