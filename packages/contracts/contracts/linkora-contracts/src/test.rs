@@ -37,6 +37,75 @@ fn test_set_and_get_profile() {
 }
 
 #[test]
+fn test_username_reverse_index_registration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    let resolved = client.get_address_by_username(&String::from_str(&env, "alice"));
+    assert_eq!(resolved, Some(user));
+}
+
+#[test]
+fn test_username_reverse_index_update() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    client.set_profile(&user, &String::from_str(&env, "alice2"), &token);
+
+    // Old username should be gone
+    assert!(client
+        .get_address_by_username(&String::from_str(&env, "alice"))
+        .is_none());
+    // New username should resolve
+    assert_eq!(
+        client.get_address_by_username(&String::from_str(&env, "alice2")),
+        Some(user)
+    );
+}
+
+#[test]
+#[should_panic(expected = "username taken")]
+fn test_username_duplicate_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user1 = Address::generate(&env);
+    let user2 = Address::generate(&env);
+    let token = Address::generate(&env);
+
+    client.set_profile(&user1, &String::from_str(&env, "alice"), &token);
+    // Different address tries to claim the same username
+    client.set_profile(&user2, &String::from_str(&env, "alice"), &token);
+}
+
+#[test]
+fn test_username_same_user_can_reregister_same_name() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    // Same user re-registering with the same username should not panic
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    assert_eq!(
+        client.get_address_by_username(&String::from_str(&env, "alice")),
+        Some(user)
+    );
+}
+
+#[test]
 fn test_tip_fee_split() {
     let env = Env::default();
     env.mock_all_auths();

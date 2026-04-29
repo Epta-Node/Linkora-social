@@ -284,9 +284,19 @@ impl LinkoraContract {
         if !env.storage().persistent().has(&key) {
             let count: u64 = env.storage().instance().get(&PROFILE_CT).unwrap_or(0);
             env.storage().instance().set(&PROFILE_CT, &(count + 1));
+        } else {
+            // Existing profile: remove old username from the reverse index if it changed.
+            let old: Profile = env.storage().persistent().get(&profile_key).unwrap();
+            if old.username != username {
+                env.storage()
+                    .persistent()
+                    .remove(&(USERNAME_IDX, old.username));
+            }
         }
+
+        // Write profile.
         env.storage().persistent().set(
-            &key,
+            &profile_key,
             &Profile {
                 address: user.clone(),
                 username: username.clone(),
@@ -310,6 +320,15 @@ impl LinkoraContract {
 
     pub fn get_profile_count(env: Env) -> u64 {
         env.storage().instance().get(&PROFILE_CT).unwrap_or(0)
+    }
+
+    pub fn get_address_by_username(env: Env, username: String) -> Option<Address> {
+        let key = (USERNAME_IDX, username);
+        let result: Option<Address> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::bump(&env, &key);
+        }
+        result
     }
 
     // ── Social Graph ──────────────────────────────────────────────────────────
