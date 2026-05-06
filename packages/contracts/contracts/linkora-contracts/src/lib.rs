@@ -8,7 +8,6 @@ use soroban_sdk::{
 
 const POSTS: Symbol = symbol_short!("POSTS");
 const POST_CT: Symbol = symbol_short!("POST_CT");
-const AUTHOR_POSTS: Symbol = symbol_short!("AUTH_PST");
 const PROFILES: Symbol = symbol_short!("PROFILES");
 const FOLLOWS: Symbol = symbol_short!("FOLLOWS");
 const FOLLOWERS: Symbol = symbol_short!("FOLLOWRS");
@@ -31,7 +30,6 @@ const MIN_USERNAME_LEN: u32 = 3;
 const MAX_USERNAME_LEN: u32 = 32;
 const MIN_CONTENT_LEN: u32 = 1;
 const MAX_CONTENT_LEN: u32 = 280;
-const MAX_PAGINATION_LIMIT: u32 = 50;
 
 // ── Data Types ────────────────────────────────────────────────────────────────
 
@@ -226,31 +224,15 @@ impl LinkoraContract {
         }
     }
 
-    pub fn get_following(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
-        assert!(limit > 0 && limit <= MAX_PAGINATION_LIMIT, "limit must be between 1 and 50");
-        
+    pub fn get_following(env: Env, user: Address) -> Vec<Address> {
         let key = (FOLLOWS, user);
-        let list: Vec<Address> = env
+        let result: Vec<Address> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
-        
-        if list.is_empty() {
-            return Vec::new(&env);
-        }
-        
-        let start = offset as usize;
-        if start >= list.len() {
-            return Vec::new(&env);
-        }
-        
-        Self::bump(&env, &key);
-        
-        let end = core::cmp::min(start + limit as usize, list.len());
-        let mut result = Vec::new(&env);
-        for i in start..end {
-            result.push_back(list.get(i as u32).unwrap());
+        if !result.is_empty() {
+            Self::bump(&env, &key);
         }
         result
     }
@@ -290,17 +272,6 @@ impl LinkoraContract {
         Self::bump(&env, &key);
         env.storage().instance().set(&POST_CT, &id);
 
-        // Track post ID under author's posts
-        let author_key = (AUTHOR_POSTS, author.clone());
-        let mut author_posts: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&author_key)
-            .unwrap_or(Vec::new(&env));
-        author_posts.push_back(id);
-        env.storage().persistent().set(&author_key, &author_posts);
-        Self::bump(&env, &author_key);
-
         env.events().publish(
             (symbol_short!("Linkora"), symbol_short!("post"), symbol_short!("v1")),
             PostCreatedEvent { id, author },
@@ -331,54 +302,10 @@ impl LinkoraContract {
             .expect("post does not exist");
         assert!(post.author == author, "only author can delete post");
         env.storage().persistent().remove(&key);
-        
-        // Remove post ID from author's posts list
-        let author_key = (AUTHOR_POSTS, author.clone());
-        if let Some(mut author_posts): Option<Vec<u64>> = env.storage().persistent().get(&author_key) {
-            if let Some(i) = author_posts.iter().position(|&id| id == post_id) {
-                author_posts.remove(i as u32);
-                if author_posts.is_empty() {
-                    env.storage().persistent().remove(&author_key);
-                } else {
-                    env.storage().persistent().set(&author_key, &author_posts);
-                    Self::bump(&env, &author_key);
-                }
-            }
-        }
-        
         env.events().publish(
             (symbol_short!("Linkora"), symbol_short!("post_del"), symbol_short!("v1")),
             PostDeleted { post_id, author },
         );
-    }
-
-    pub fn get_posts_by_author(env: Env, author: Address, offset: u32, limit: u32) -> Vec<u64> {
-        assert!(limit > 0 && limit <= MAX_PAGINATION_LIMIT, "limit must be between 1 and 50");
-        
-        let author_key = (AUTHOR_POSTS, author);
-        let posts: Vec<u64> = env
-            .storage()
-            .persistent()
-            .get(&author_key)
-            .unwrap_or(Vec::new(&env));
-        
-        if posts.is_empty() {
-            return Vec::new(&env);
-        }
-        
-        let start = offset as usize;
-        if start >= posts.len() {
-            return Vec::new(&env);
-        }
-        
-        Self::bump(&env, &author_key);
-        
-        let end = core::cmp::min(start + limit as usize, posts.len());
-        let mut result = Vec::new(&env);
-        for i in start..end {
-            result.push_back(posts.get(i as u32).unwrap());
-        }
-        result
     }
 
     // ── Reactions ─────────────────────────────────────────────────────────────
