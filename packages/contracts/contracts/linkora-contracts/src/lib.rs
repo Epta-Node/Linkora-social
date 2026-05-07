@@ -53,7 +53,6 @@ const MIN_USERNAME_LEN: u32 = 3;
 const MAX_USERNAME_LEN: u32 = 32;
 const MIN_CONTENT_LEN: u32 = 1;
 const MAX_CONTENT_LEN: u32 = 280;
-const MAX_PAGINATION_LIMIT: u32 = 50;
 
 // ── Data Types ────────────────────────────────────────────────────────────────
 
