@@ -21,11 +21,6 @@ pub enum StorageKey {
 // ── Instance-storage key constants (small scalars, not contracttype) ──────────
 
 const POST_CT: Symbol = symbol_short!("POST_CT");
-const AUTHOR_POSTS: Symbol = symbol_short!("AUTH_PST");
-const PROFILES: Symbol = symbol_short!("PROFILES");
-const FOLLOWS: Symbol = symbol_short!("FOLLOWS");
-const FOLLOWERS: Symbol = symbol_short!("FOLLOWRS");
-const POOLS: Symbol = symbol_short!("POOLS");
 const USERNAMES: Symbol = symbol_short!("UNAMES");
 const PROFILE_CT: Symbol = symbol_short!("PROF_CT");
 const ADMIN: Symbol = symbol_short!("ADMIN");
