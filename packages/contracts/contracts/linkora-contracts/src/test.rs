@@ -85,7 +85,7 @@ fn test_username_duplicate_rejected() {
 
     let following = client.get_following(&alice, &0, &50);
     assert_eq!(following.len(), 1);
-    assert_eq!(following.get(0).unwrap(), bob);
+    assert_eq!(following.get(0).unwrap(), bob.clone());
 }
 
 // ── Pagination tests ──────────────────────────────────────────────────────────
