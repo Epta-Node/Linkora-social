@@ -471,7 +471,10 @@ impl LinkoraContract {
     }
 
     pub fn get_following(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
-        assert!(limit > 0 && limit <= MAX_PAGINATION_LIMIT, "limit must be between 1 and 50");
+        assert!(
+            limit > 0 && limit <= MAX_PAGINATION_LIMIT,
+            "limit must be between 1 and 50"
+        );
         let key = StorageKey::Following(user);
         let list: Vec<Address> = env
             .storage()
@@ -601,24 +604,27 @@ impl LinkoraContract {
     }
 
     pub fn get_posts_by_author(env: Env, author: Address, offset: u32, limit: u32) -> Vec<u64> {
-        assert!(limit > 0 && limit <= MAX_PAGINATION_LIMIT, "limit must be between 1 and 50");
-        
+        assert!(
+            limit > 0 && limit <= MAX_PAGINATION_LIMIT,
+            "limit must be between 1 and 50"
+        );
+
         let key = StorageKey::AuthorPosts(author);
         let posts: Vec<u64> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
-        
+
         if posts.is_empty() {
             return Vec::new(&env);
         }
-        
+
         let start = offset as usize;
         if start >= posts.len() {
             return Vec::new(&env);
         }
-        
+
         Self::bump(&env, &key);
         paginate(&env, &posts, offset, limit)
     }

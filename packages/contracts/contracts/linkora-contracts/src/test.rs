@@ -97,9 +97,7 @@ fn test_get_following_first_page() {
     let client = LinkoraContractClient::new(&env, &contract_id);
 
     let alice = Address::generate(&env);
-    let followees: Vec<Address> = (0..10)
-        .map(|_| Address::generate(&env))
-        .collect::<Vec<_>>();
+    let followees: Vec<Address> = (0..10).map(|_| Address::generate(&env)).collect::<Vec<_>>();
 
     for followee in followees.iter() {
         client.follow(&alice, followee);
@@ -119,9 +117,7 @@ fn test_get_following_second_page() {
     let client = LinkoraContractClient::new(&env, &contract_id);
 
     let alice = Address::generate(&env);
-    let followees: Vec<Address> = (0..10)
-        .map(|_| Address::generate(&env))
-        .collect::<Vec<_>>();
+    let followees: Vec<Address> = (0..10).map(|_| Address::generate(&env)).collect::<Vec<_>>();
 
     for followee in followees.iter() {
         client.follow(&alice, followee);
