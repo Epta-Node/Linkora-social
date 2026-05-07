@@ -83,10 +83,239 @@ fn test_username_duplicate_rejected() {
     let user2 = Address::generate(&env);
     let token = Address::generate(&env);
 
-    client.set_profile(&user1, &String::from_str(&env, "alice"), &token);
-    // Different address tries to claim the same username
-    client.set_profile(&user2, &String::from_str(&env, "alice"), &token);
+    client.set_profile(&user1, &String::from_str(&env, "shared_username"), &token);
+    client.set_profile(&user2, &String::from_str(&env, "shared_username"), &token);
 }
+
+// ── Pagination tests ──────────────────────────────────────────────────────────
+
+#[test]
+fn test_get_following_first_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let mut followees = soroban_sdk::vec![&env];
+    for _ in 0..10 {
+        followees.push_back(Address::generate(&env));
+    }
+
+    for followee in followees.iter() {
+        client.follow(&alice, &followee);
+    }
+
+    let page = client.get_following(&alice, &0, &5);
+    assert_eq!(page.len(), 5);
+    assert_eq!(page.get(0).unwrap(), followees.get(0).unwrap());
+    assert_eq!(page.get(4).unwrap(), followees.get(4).unwrap());
+}
+
+#[test]
+fn test_get_following_second_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let mut followees = soroban_sdk::vec![&env];
+    for _ in 0..10 {
+        followees.push_back(Address::generate(&env));
+    }
+
+    for followee in followees.iter() {
+        client.follow(&alice, &followee);
+    }
+
+    let page = client.get_following(&alice, &5, &5);
+    assert_eq!(page.len(), 5);
+    assert_eq!(page.get(0).unwrap(), followees.get(5).unwrap());
+    assert_eq!(page.get(4).unwrap(), followees.get(9).unwrap());
+}
+
+#[test]
+fn test_get_following_offset_beyond_end() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.follow(&alice, &bob);
+
+    let page = client.get_following(&alice, &10, &10);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+#[should_panic(expected = "limit must be between 1 and 50")]
+fn test_get_following_limit_exceeds_maximum() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.follow(&alice, &bob);
+
+    client.get_following(&alice, &0, &51);
+}
+
+#[test]
+#[should_panic(expected = "limit must be between 1 and 50")]
+fn test_get_following_zero_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    client.follow(&alice, &bob);
+
+    client.get_following(&alice, &0, &0);
+}
+
+#[test]
+fn test_get_posts_by_author_first_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    for i in 0..10 {
+        let post_str = if i == 0 {
+            String::from_str(&env, "post 0")
+        } else if i == 1 {
+            String::from_str(&env, "post 1")
+        } else if i == 2 {
+            String::from_str(&env, "post 2")
+        } else if i == 3 {
+            String::from_str(&env, "post 3")
+        } else if i == 4 {
+            String::from_str(&env, "post 4")
+        } else if i == 5 {
+            String::from_str(&env, "post 5")
+        } else if i == 6 {
+            String::from_str(&env, "post 6")
+        } else if i == 7 {
+            String::from_str(&env, "post 7")
+        } else if i == 8 {
+            String::from_str(&env, "post 8")
+        } else {
+            String::from_str(&env, "post 9")
+        };
+        client.create_post(&author, &post_str);
+    }
+
+    let page = client.get_posts_by_author(&author, &0, &5);
+    assert_eq!(page.len(), 5);
+    assert_eq!(page.get(0).unwrap(), 1u64);
+    assert_eq!(page.get(4).unwrap(), 5u64);
+}
+
+#[test]
+fn test_get_posts_by_author_second_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    for i in 0..10 {
+        let post_str = if i == 0 {
+            String::from_str(&env, "post 0")
+        } else if i == 1 {
+            String::from_str(&env, "post 1")
+        } else if i == 2 {
+            String::from_str(&env, "post 2")
+        } else if i == 3 {
+            String::from_str(&env, "post 3")
+        } else if i == 4 {
+            String::from_str(&env, "post 4")
+        } else if i == 5 {
+            String::from_str(&env, "post 5")
+        } else if i == 6 {
+            String::from_str(&env, "post 6")
+        } else if i == 7 {
+            String::from_str(&env, "post 7")
+        } else if i == 8 {
+            String::from_str(&env, "post 8")
+        } else {
+            String::from_str(&env, "post 9")
+        };
+        client.create_post(&author, &post_str);
+    }
+
+    let page = client.get_posts_by_author(&author, &5, &5);
+    assert_eq!(page.len(), 5);
+    assert_eq!(page.get(0).unwrap(), 6u64);
+    assert_eq!(page.get(4).unwrap(), 10u64);
+}
+
+#[test]
+fn test_get_posts_by_author_offset_beyond_end() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    client.create_post(&author, &String::from_str(&env, "post 1"));
+
+    let page = client.get_posts_by_author(&author, &10, &10);
+    assert_eq!(page.len(), 0);
+}
+
+#[test]
+#[should_panic(expected = "limit must be between 1 and 50")]
+fn test_get_posts_by_author_limit_exceeds_maximum() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    client.create_post(&author, &String::from_str(&env, "post 1"));
+
+    client.get_posts_by_author(&author, &0, &51);
+}
+
+#[test]
+fn test_get_posts_by_author_after_delete() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+
+    let author = Address::generate(&env);
+
+    let id1 = client.create_post(&author, &String::from_str(&env, "post 1"));
+    let id2 = client.create_post(&author, &String::from_str(&env, "post 2"));
+    let id3 = client.create_post(&author, &String::from_str(&env, "post 3"));
+
+    // Delete middle post
+    client.delete_post(&author, &id2);
+
+    let page = client.get_posts_by_author(&author, &0, &10);
+    assert_eq!(page.len(), 2);
+    assert_eq!(page.get(0).unwrap(), id1);
+    assert_eq!(page.get(1).unwrap(), id3);
+}
+
+// ── Post tests ────────────────────────────────────────────────────────────────
 
 #[test]
 fn test_username_same_user_can_reregister_same_name() {
@@ -654,7 +883,7 @@ fn test_upgrade_by_admin_succeeds() {
 #[should_panic]
 fn test_upgrade_by_non_admin_panics() {
     let env = Env::default();
-    let (client, admin, _) = setup_contract(&env);
+    let (client, _admin, _) = setup_contract(&env);
 
     let mock_hash = BytesN::from_array(&env, &[1u8; 32]);
 
@@ -729,7 +958,7 @@ fn test_initialize_fee_boundary_max_invalid() {
 fn test_set_fee_zero_valid() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
+    let (client, _admin, _) = setup_contract(&env);
 
     // Set fee to 0 should succeed
     client.set_fee(&0);

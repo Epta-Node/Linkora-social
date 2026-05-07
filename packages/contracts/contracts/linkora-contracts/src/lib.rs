@@ -41,6 +41,7 @@ const LEDGER_THRESHOLD: u32 = 535_000 - 100;
 // ── Pagination Limit ──────────────────────────────────────────────────────────
 
 const MAX_PAGE_LIMIT: u32 = 50;
+const MAX_PAGINATION_LIMIT: u32 = 50;
 
 // ── Validation Constants ──────────────────────────────────────────────────────
 
@@ -465,7 +466,10 @@ impl LinkoraContract {
     }
 
     pub fn get_following(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
-        assert!(limit <= MAX_PAGE_LIMIT, "limit exceeded");
+        assert!(
+            limit > 0 && limit <= MAX_PAGINATION_LIMIT,
+            "limit must be between 1 and 50"
+        );
         let key = StorageKey::Following(user);
         let list: Vec<Address> = env
             .storage()
@@ -553,7 +557,7 @@ impl LinkoraContract {
         Self::bump(&env, &key);
         env.storage().instance().set(&POST_CT, &id);
 
-        // Track this post under the author's list
+        // Track post ID under author's posts
         let author_key = StorageKey::AuthorPosts(author.clone());
         let mut author_posts: Vec<u64> = env
             .storage()
@@ -591,20 +595,47 @@ impl LinkoraContract {
         });
         assert!(post.author == author, "only author can delete post");
         env.storage().persistent().remove(&key);
+
+        // Remove post ID from author's posts list
+        let author_key = StorageKey::AuthorPosts(author.clone());
+        if let Some(mut author_posts) = env
+            .storage()
+            .persistent()
+            .get::<_, soroban_sdk::Vec<u64>>(&author_key)
+        {
+            if let Some(index) = author_posts.iter().position(|id| id == post_id) {
+                author_posts.remove(index as u32);
+                if author_posts.is_empty() {
+                    env.storage().persistent().remove(&author_key);
+                } else {
+                    env.storage().persistent().set(&author_key, &author_posts);
+                    Self::bump(&env, &author_key);
+                }
+            }
+        }
+
         PostDeleted { post_id, author }.publish(&env);
     }
 
     pub fn get_posts_by_author(env: Env, author: Address, offset: u32, limit: u32) -> Vec<u64> {
+        assert!(
+            limit > 0 && limit <= MAX_PAGINATION_LIMIT,
+            "limit must be between 1 and 50"
+        );
+
         let key = StorageKey::AuthorPosts(author);
-        let list: Vec<u64> = env
+        let posts: Vec<u64> = env
             .storage()
             .persistent()
             .get(&key)
             .unwrap_or(Vec::new(&env));
-        if !list.is_empty() {
-            Self::bump(&env, &key);
+
+        if posts.is_empty() {
+            return Vec::new(&env);
         }
-        paginate(&env, &list, offset, limit)
+
+        Self::bump(&env, &key);
+        paginate(&env, &posts, offset, limit)
     }
 
     // ── Reactions ─────────────────────────────────────────────────────────────
