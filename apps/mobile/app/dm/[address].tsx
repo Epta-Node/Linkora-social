@@ -1,18 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useWallet } from '../../context/WalletContext';
+import { useWalletContext } from '../../context/WalletContext';
 import { useToast } from '../../context/ToastContext';
-import { DmService, ConversationMessage } from '../../../../packages/sdk/src/dm';
+import { DmService, type ConversationMessage } from '../../../../packages/sdk/src/dm';
 import { EmptyState, ErrorState } from '../../components/states';
 
 export default function DirectMessageScreen() {
   const router = useRouter();
   const { address } = useLocalSearchParams<{ address: string }>();
-  const { wallet } = useWallet();
+  const { wallet } = useWalletContext();
   const { showToast } = useToast();
 
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [messages, setMessages] = useState<Array<ConversationMessage & { content: string }>>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export default function DirectMessageScreen() {
                 onPress: async () => {
                   try {
                     await service.generateAndPublishKeys();
-                    showToast('Encryption keys generated successfully', 'success');
+                    showToast({ kind: 'success', title: 'Encryption keys generated successfully' });
                     setDmService(service);
                   } catch (err) {
                     setError(`Failed to generate keys: ${err}`);
@@ -57,7 +57,7 @@ export default function DirectMessageScreen() {
         }
         
         setDmService(service);
-        await loadMessages(service);
+        await loadMessages();
       } catch (err) {
         setError(`Failed to initialize messaging: ${err}`);
       } finally {
@@ -68,9 +68,10 @@ export default function DirectMessageScreen() {
     initializeDm();
   }, [wallet, address]);
 
-  const loadMessages = async (service: DmService) => {
+  const loadMessages = async () => {
+    if (!dmService || !address) return;
     try {
-      const msgs = await service.getMessages(address);
+      const msgs = await dmService.getMessages(address);
       setMessages(msgs);
     } catch (err) {
       setError(`Failed to load messages: ${err}`);
@@ -84,15 +85,15 @@ export default function DirectMessageScreen() {
       setLoading(true);
       await dmService.sendMessage(address, newMessage.trim());
       setNewMessage('');
-      await loadMessages(dmService);
-      showToast('Message sent', 'success');
+      await loadMessages();
+      showToast({ kind: 'success', title: 'Message sent' });
     } catch (err) {
       setError(`Failed to send message: ${err}`);
-      showToast('Failed to send message', 'error');
+      showToast({ kind: 'error', title: 'Failed to send message' });
     } finally {
       setLoading(false);
     }
-  }, [dmService, newMessage, address]);
+  }, [dmService, newMessage, address, loadMessages, showToast]);
 
   const renderMessage = ({ item }: { item: ConversationMessage }) => {
     const isMyMessage = item.sender === wallet?.publicKey;

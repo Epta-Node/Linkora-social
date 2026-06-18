@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useWallet } from '../../../contexts/WalletContext';
 import { useToast } from '../../../contexts/ToastContext';
-import { DmService, ConversationMessage } from '../../../../sdk/src/dm';
+import { DmService, type ConversationMessage } from '../../../../sdk/src/dm';
 import { EmptyState, ErrorState } from '../../../components/states';
 
 interface DirectMessagePageProps {
@@ -19,7 +19,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
   const { wallet } = useWallet();
   const { showToast } = useToast();
 
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [messages, setMessages] = useState<Array<ConversationMessage & { content: string }>>([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
         }
         
         setDmService(service);
-        await loadMessages(service);
+        await loadMessages();
       } catch (err) {
         setError(`Failed to initialize messaging: ${err}`);
       } finally {
@@ -53,7 +53,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     };
 
     initializeDm();
-  }, [wallet, address]);
+  }, [wallet, address, loadMessages]);
 
   const generateKeys = async () => {
     if (!wallet) return;
@@ -73,9 +73,10 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     }
   };
 
-  const loadMessages = async (service: DmService) => {
+  const loadMessages = async () => {
+    if (!dmService || !address) return;
     try {
-      const msgs = await service.getMessages(address);
+      const msgs = await dmService.getMessages(address);
       setMessages(msgs);
     } catch (err) {
       setError(`Failed to load messages: ${err}`);
@@ -90,7 +91,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
       setLoading(true);
       await dmService.sendMessage(address, newMessage.trim());
       setNewMessage('');
-      await loadMessages(dmService);
+      await loadMessages();
       showToast('Message sent', 'success');
     } catch (err) {
       setError(`Failed to send message: ${err}`);
@@ -98,12 +99,13 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     } finally {
       setLoading(false);
     }
-  }, [dmService, newMessage, address]);
+  }, [dmService, newMessage, address, loadMessages, showToast]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage(e as any);
+      const formEvent = { preventDefault: () => {} } as React.FormEvent;
+      sendMessage(formEvent);
     }
   };
 
@@ -145,7 +147,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
         onRetry={() => {
           setError(null);
           if (dmService) {
-            loadMessages(dmService);
+            loadMessages();
           }
         }}
       />
