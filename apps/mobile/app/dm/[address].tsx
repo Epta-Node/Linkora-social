@@ -95,8 +95,8 @@ export default function DirectMessageScreen() {
     }
   }, [dmService, newMessage, address, loadMessages, showToast]);
 
-  const renderMessage = ({ item }: { item: ConversationMessage }) => {
-    const isMyMessage = item.sender === wallet?.publicKey;
+  const renderMessage = ({ item }: { item: ConversationMessage & { content: string } }) => {
+    const isMyMessage = item.sender === wallet?.address;
     
     return (
       <View style={[
@@ -110,7 +110,7 @@ export default function DirectMessageScreen() {
           {item.content}
         </Text>
         <Text style={styles.timestamp}>
-          {new Date(item.timestamp).toLocaleTimeString()}
+          {new Date(item.timestamp * 1000).toLocaleTimeString()}
         </Text>
       </View>
     );

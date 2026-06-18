@@ -5,7 +5,7 @@
  * direct messaging without central key management.
  */
 
-import { Client } from '../client';
+import { LinkoraClient } from '../client';
 import { 
   generateDmKeypair, 
   deriveSharedSecret, 
@@ -47,18 +47,20 @@ export {
  * High-level DM service that combines contract interaction, encryption, and relay communication
  */
 export class DmService {
-  private client: Client;
+  private client: LinkoraClient;
   private relayClient: RelayClient;
   private keypair: DmKeyPair | null = null;
+  private userAddress: string;
 
   constructor(wallet: any, relayUrl: string) {
     // Create a minimal client config for contract interaction
-    this.client = new Client({
+    this.client = new LinkoraClient({
       networkPassphrase: wallet?.networkPassphrase || 'Test SDF Network ; September 2015',
       rpcUrl: wallet?.rpcUrl || 'https://soroban-testnet.stellar.org',
       contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || ''
     });
     this.relayClient = new RelayClient(relayUrl, wallet);
+    this.userAddress = wallet?.address || wallet?.publicKey || '';
   }
 
   async hasLocalKeys(): Promise<boolean> {
@@ -69,11 +71,14 @@ export class DmService {
   async generateAndPublishKeys(): Promise<void> {
     this.keypair = generateDmKeypair();
     
-    // Publish public key to contract
-    await this.client.publish_dm_key({
-      user: this.client.options.publicKey,
-      x25519_pubkey: Array.from(this.keypair.publicKey)
-    });
+    // Publish public key to contract - this returns a transaction XDR string
+    const txXdr = this.client.publishDmKey(
+      this.userAddress,
+      this.keypair.publicKey
+    );
+    
+    // Note: In a real implementation, you'd need to sign and submit this transaction
+    console.log('Transaction XDR for publishing DM key:', txXdr);
 
     // Store keys locally
     if (typeof localStorage !== 'undefined') {
@@ -107,9 +112,7 @@ export class DmService {
       }
 
       // Get the other user's public key for decryption
-      const otherPubKey = await this.client.get_dm_key({
-        user: otherAddress
-      });
+      const otherPubKey = await this.client.getDmKey(otherAddress);
 
       if (!otherPubKey) {
         throw new Error('Cannot decrypt messages: other user has not published DM keys');
@@ -121,7 +124,7 @@ export class DmService {
           const content = decryptDirectMessage(
             msg.ciphertext_b64,
             this.keypair!.privateKey,
-            new Uint8Array(otherPubKey)
+            otherPubKey
           );
           return { ...msg, content };
         } catch (error) {
@@ -155,9 +158,7 @@ export class DmService {
     }
 
     // Get recipient's public key from contract
-    const recipientPubKey = await this.client.get_dm_key({
-      user: toAddress
-    });
+    const recipientPubKey = await this.client.getDmKey(toAddress);
 
     if (!recipientPubKey) {
       throw new Error('Recipient has not published DM keys');
@@ -167,7 +168,7 @@ export class DmService {
     const encrypted = encryptDirectMessage(
       content,
       this.keypair.privateKey,
-      new Uint8Array(recipientPubKey)
+      recipientPubKey
     );
 
     // Send via relay

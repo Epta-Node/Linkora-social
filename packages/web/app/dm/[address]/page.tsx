@@ -198,7 +198,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
                         isMyMessage ? 'text-blue-100' : 'text-gray-500'
                       }`}
                     >
-                      {new Date(message.timestamp).toLocaleTimeString()}
+                      {new Date(message.timestamp * 1000).toLocaleTimeString()}
                     </p>
                   </div>
                 </div>
