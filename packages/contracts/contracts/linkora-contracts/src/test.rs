@@ -2866,9 +2866,13 @@ fn test_publish_dm_key_emits_event() {
 
     let events_before = env.events().all().events().len();
     client.publish_dm_key(&user, &dm_key);
-    
+
     let events_after = env.events().all().events().len();
-    assert_eq!(events_after, events_before + 1, "DmKeyPublishedEvent should be emitted");
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "DmKeyPublishedEvent should be emitted"
+    );
 }
 
 #[test]
