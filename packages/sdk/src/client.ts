@@ -266,6 +266,17 @@ export class LinkoraClient {
     return Number(scValToNative(retval));
   }
 
+  /**
+   * Get a user's X25519 public key for direct messages.
+   * Returns null if the user hasn't published a DM key.
+   */
+  async getDmKey(address: string): Promise<Uint8Array | null> {
+    const result = await this.simulateCall("get_dm_key", scvAddress(address));
+    if (!result) return null;
+    const native = scValToNative(result);
+    return native ? new Uint8Array(native) : null;
+  }
+
   // ── Write Methods (XDR envelope builders) ───────────────────────────────────
 
   setProfile(user: string, username: string, creatorToken: string): string {
@@ -279,6 +290,16 @@ export class LinkoraClient {
 
   deleteProfile(user: string): string {
     return this.buildTx("delete_profile", scvAddress(user));
+  }
+
+  /**
+   * Publish a user's X25519 public key for encrypted direct messages.
+   */
+  publishDmKey(user: string, x25519PubKey: Uint8Array): string {
+    if (x25519PubKey.length !== 32) {
+      throw new Error("X25519 public key must be exactly 32 bytes");
+    }
+    return this.buildTx("publish_dm_key", scvAddress(user), nativeToScVal(Array.from(x25519PubKey), { type: "bytes" }));
   }
 
   createPost(author: string, content: string): string {

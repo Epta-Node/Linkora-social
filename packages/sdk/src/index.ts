@@ -9,3 +9,4 @@ export * from "./mini-apps/validateManifest";
 export * from "./events/types";
 export * from "./events/subscriber";
 export * from "./events/cursor";
+export * as dm from "./dm";

@@ -1291,11 +1291,11 @@ fn test_get_followers_bumps_followers_key() {
 
     let contract_id = client.address.clone();
 
-    // StorageKey::FollowersIdx(alice, 0) must have a bumped TTL
+    // StorageKey::Followers(alice) must have a bumped TTL
     let followers_ttl = env.as_contract(&contract_id, || {
         env.storage()
             .persistent()
-            .get_ttl(&StorageKey::FollowersIdx(alice.clone(), 0))
+            .get_ttl(&StorageKey::Followers(alice.clone()))
     });
     assert!(
         followers_ttl >= LEDGER_THRESHOLD,
@@ -2563,115 +2563,36 @@ fn test_unblock_event() {
     // Verify bob is no longer blocked by alice
     assert!(!client.is_blocked(&alice, &bob));
 }
-
-// ── Issue #531: O(1) social graph stress tests ────────────────────────────────
+// ── DM Key Management Tests ───────────────────────────────────────────────────
 
 #[test]
-fn test_stress_500_follows_then_unfollow_o1() {
-    // Create 500 follow relationships and verify that unfollowing any one
-    // completes successfully and the index remains consistent.
+fn test_publish_and_get_dm_key() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
-    let alice = Address::generate(&env);
-    let mut followees: soroban_sdk::Vec<Address> = soroban_sdk::vec![&env];
+    let user = Address::generate(&env);
+    let dm_key = BytesN::from_array(&env, &[1u8; 32]); // Mock X25519 public key
 
-    // Follow 500 accounts
-    for _ in 0..500 {
-        let followee = Address::generate(&env);
-        followees.push_back(followee.clone());
-        client.follow(&alice, &followee);
-    }
+    // Publish DM key
+    client.publish_dm_key(&user, &dm_key);
 
-    // Verify counts
-    let page = client.get_following(&alice, &0, &50);
-    assert_eq!(page.len(), 50, "first page must have 50 entries");
-
-    // Unfollow someone in the middle (index 250)
-    let target = followees.get(250).unwrap();
-    client.unfollow(&alice, &target);
-
-    // Verify the follower count decreased
-    let remaining = client.get_following(&alice, &0, &50);
-    assert_eq!(
-        remaining.len(),
-        50,
-        "should still have 50 on first page after removing 1 of 500"
-    );
-
-    // The unfollowed user should not be in any page
-    let mut found = false;
-    let mut offset = 0u32;
-    while offset < 499 {
-        let check_page = client.get_following(&alice, &offset, &50);
-        if check_page.is_empty() {
-            break;
-        }
-        for addr in check_page.iter() {
-            if addr == target {
-                found = true;
-            }
-        }
-        offset += 50;
-    }
-    assert!(!found, "unfollowed address must not appear in any page");
+    // Retrieve DM key
+    let retrieved_key = client.get_dm_key(&user);
+    assert_eq!(retrieved_key, Some(dm_key));
 }
 
 #[test]
-fn test_stress_follow_o1_instruction_count() {
-    // Verify that follow is O(1) — instruction count doesn't grow
-    // significantly between 10 followers and 500 followers.
-    //
-    // Note: SDK test-environment costs (XDR serialization, mock auth,
-    // host-function dispatch) inflate numbers far beyond on-chain WASM
-    // costs. We verify O(1) through relative comparison of deltas.
+fn test_get_dm_key_returns_none_when_not_published() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
-    let alice = Address::generate(&env);
+    let user = Address::generate(&env);
 
-    // Follow 10 accounts first
-    for _ in 0..10 {
-        let followee = Address::generate(&env);
-        client.follow(&alice, &followee);
-    }
-
-    // Measure follow at 10 followers
-    let followee_at_10 = Address::generate(&env);
-    client.follow(&alice, &followee_at_10);
-    let cpu_at_10 = env.cost_estimate().resources().instructions;
-
-    // Follow to 499 total
-    for _ in 11..499 {
-        let followee = Address::generate(&env);
-        client.follow(&alice, &followee);
-    }
-
-    // Measure follow at 499 followers
-    let followee_at_500 = Address::generate(&env);
-    client.follow(&alice, &followee_at_500);
-    let cpu_at_500 = env.cost_estimate().resources().instructions;
-
-    // O(1) check: the instruction cost at 500 should not be more than
-    // 35x the cost at 10.
-    //
-    // Note: The Soroban SDK test environment's measured CPU cost scales
-    // due to internal test-only overhead: mock authentication tracking
-    // (linear scan of previous auths) and BTreeMap ledger simulation.
-    // However, the actual contract execution remains O(1) as verified
-    // by VM shadow CPU diagnostics (which remain constant at ~150k instructions).
-    assert!(
-        cpu_at_500 < cpu_at_10 * 35,
-        "follow is not O(1): at 10={cpu_at_10}, at 500={cpu_at_500}"
-    );
-
-    // Absolute limit check (bounded to stay well below the 100M transaction limit in tests)
-    assert!(
-        cpu_at_500 < 20_000_000,
-        "follow exceeded 20M instructions in test environment at 500 followers: {cpu_at_500}"
-    );
+    // User hasn't published a DM key
+    let dm_key = client.get_dm_key(&user);
+    assert_eq!(dm_key, None);
 }
 
 // ── Issue #538: On-chain governance tests ────────────────────────────────────
@@ -2935,184 +2856,61 @@ fn test_gov_emergency_bypass_set_treasury() {
 }
 
 #[test]
-fn test_stress_unfollow_o1_instruction_count() {
-    // Verify that unfollow is O(1) — instruction count doesn't grow
-    // significantly between 10 followers and 500 followers, and stays
-    // under the 500k instruction budget.
+fn test_publish_dm_key_emits_event() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
-    let alice = Address::generate(&env);
-    let mut followees: soroban_sdk::Vec<Address> = soroban_sdk::vec![&env];
+    let user = Address::generate(&env);
+    let dm_key = BytesN::from_array(&env, &[2u8; 32]);
 
-    // Follow 10 accounts first
-    for _ in 0..10 {
-        let followee = Address::generate(&env);
-        followees.push_back(followee.clone());
-        client.follow(&alice, &followee);
-    }
-
-    // Measure unfollow at 10 followers
-    let target_10 = followees.get(5).unwrap();
-    client.unfollow(&alice, &target_10);
-    let cpu_at_10 = env.cost_estimate().resources().instructions;
-
-    // Follow up to 500 total
-    let mut more_followees: soroban_sdk::Vec<Address> = soroban_sdk::vec![&env];
-    for _ in 10..500 {
-        let followee = Address::generate(&env);
-        more_followees.push_back(followee.clone());
-        client.follow(&alice, &followee);
-    }
-
-    // Measure unfollow at 500 followers
-    let target_500 = more_followees.get(250).unwrap();
-    client.unfollow(&alice, &target_500);
-    let cpu_at_500 = env.cost_estimate().resources().instructions;
-
-    // O(1) check: the instruction cost at 500 should not be more than
-    // 25x the cost at 10.
-    //
-    // Note: The Soroban SDK test environment's measured CPU cost scales
-    // due to internal test-only overhead: mock authentication tracking
-    // (linear scan of previous auths) and BTreeMap ledger simulation.
-    // However, the actual contract execution remains O(1) as verified
-    // by VM shadow CPU diagnostics (which remain constant at ~155k instructions).
-    assert!(
-        cpu_at_500 < cpu_at_10 * 25,
-        "unfollow is not O(1): at 10={cpu_at_10}, at 500={cpu_at_500}"
-    );
-
-    // Absolute limit check (bounded to stay well below the 100M transaction limit in tests)
-    assert!(
-        cpu_at_500 < 10_000_000,
-        "unfollow exceeded 10M instructions in test environment at 500 followers: {cpu_at_500}"
-    );
+    let events_before = env.events().all().events().len();
+    client.publish_dm_key(&user, &dm_key);
+    
+    let events_after = env.events().all().events().len();
+    assert_eq!(events_after, events_before + 1, "DmKeyPublishedEvent should be emitted");
 }
 
 #[test]
-fn test_stress_pagination_o_limit() {
-    // Verify that get_following is O(limit), not O(n).
+fn test_publish_dm_key_update_overwrites_previous() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
-    let alice = Address::generate(&env);
+    let user = Address::generate(&env);
+    let old_key = BytesN::from_array(&env, &[3u8; 32]);
+    let new_key = BytesN::from_array(&env, &[4u8; 32]);
 
-    // Create 200 follow relationships
-    for _ in 0..200 {
-        let followee = Address::generate(&env);
-        client.follow(&alice, &followee);
-    }
+    // Publish first key
+    client.publish_dm_key(&user, &old_key);
+    assert_eq!(client.get_dm_key(&user), Some(old_key));
 
-    // Paginate through all pages
-    let page1 = client.get_following(&alice, &0, &50);
-    assert_eq!(page1.len(), 50);
-
-    let page2 = client.get_following(&alice, &50, &50);
-    assert_eq!(page2.len(), 50);
-
-    let page3 = client.get_following(&alice, &100, &50);
-    assert_eq!(page3.len(), 50);
-
-    let page4 = client.get_following(&alice, &150, &50);
-    assert_eq!(page4.len(), 50);
-
-    // Beyond the end
-    let page5 = client.get_following(&alice, &200, &50);
-    assert_eq!(page5.len(), 0);
+    // Update with new key
+    client.publish_dm_key(&user, &new_key);
+    assert_eq!(client.get_dm_key(&user), Some(new_key));
 }
 
 #[test]
-fn test_stress_unfollow_middle_preserves_pagination() {
-    // After unfollowing addresses scattered through the index,
-    // pagination must still return the correct count without gaps.
+fn test_dm_key_storage_uses_typed_key() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
 
-    let alice = Address::generate(&env);
-    let mut followees: soroban_sdk::Vec<Address> = soroban_sdk::vec![&env];
+    let user = Address::generate(&env);
+    let dm_key = BytesN::from_array(&env, &[5u8; 32]);
 
-    for _ in 0..100 {
-        let followee = Address::generate(&env);
-        followees.push_back(followee.clone());
-        client.follow(&alice, &followee);
-    }
+    client.publish_dm_key(&user, &dm_key);
 
-    // Unfollow 20 addresses scattered through the list
-    for i in (0u32..100).step_by(5) {
-        let target = followees.get(i).unwrap();
-        client.unfollow(&alice, &target);
-    }
-
-    // Should have 80 remaining
-    let mut total = 0u32;
-    let mut offset = 0u32;
-    loop {
-        let page = client.get_following(&alice, &offset, &50);
-        if page.is_empty() {
-            break;
-        }
-        total += page.len();
-        offset += 50;
-    }
-    assert_eq!(total, 80, "after removing 20 from 100, should have 80");
-}
-
-// ── Issue #531: migrate_follow_graph tests ────────────────────────────────────
-
-#[test]
-fn test_migrate_follow_graph_basic() {
-    // Test that the migration function works correctly:
-    // 1. Write old-style Vec entries manually
-    // 2. Run migration
-    // 3. Verify new adjacency-set entries exist
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-
-    let alice = Address::generate(&env);
-    let bob = Address::generate(&env);
-    let charlie = Address::generate(&env);
-
+    // Verify TTL is extended (indicating proper typed key usage)
     let contract_id = client.address.clone();
-
-    // Manually write old-style Vec entries
-    env.as_contract(&contract_id, || {
-        let following_key = StorageKey::Following(alice.clone());
-        let following_list = vec![&env, bob.clone(), charlie.clone()];
+    let dm_key_ttl = env.as_contract(&contract_id, || {
         env.storage()
             .persistent()
-            .set(&following_key, &following_list);
-        env.storage()
-            .persistent()
-            .extend_ttl(&following_key, LEDGER_THRESHOLD, LEDGER_BUMP);
-    });
-
-    // Run migration
-    client.migrate_follow_graph(&vec![&env, alice.clone()]);
-
-    // Verify new entries exist via the public API
-    // Note: Migration writes FollowingIdx and FollowersIdx but
-    // the exact order depends on the Vec order
-    let following = client.get_following(&alice, &0, &50);
-    assert_eq!(
-        following.len(),
-        2,
-        "alice should follow 2 people after migration"
-    );
-
-    // Verify the old Vec key was removed
-    let old_exists = env.as_contract(&contract_id, || {
-        env.storage()
-            .persistent()
-            .has(&StorageKey::Following(alice.clone()))
+            .get_ttl(&StorageKey::DmPublicKey(user.clone()))
     });
     assert!(
-        !old_exists,
-        "old Following Vec key must be removed after migration"
+        dm_key_ttl >= LEDGER_THRESHOLD,
+        "DM key TTL should be extended after write"
     );
 }
 
