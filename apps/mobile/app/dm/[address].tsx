@@ -122,9 +122,7 @@ export default function DirectMessageScreen() {
         message={error}
         onRetry={() => {
           setError(null);
-          if (dmService) {
-            loadMessages(dmService);
-          }
+          loadMessages();
         }}
       />
     );

@@ -9,16 +9,21 @@ import { LinkoraClient } from '../client';
 import { Keypair } from '@stellar/stellar-sdk';
 import { 
   generateDmKeypair, 
-  deriveSharedSecret, 
   encryptDirectMessage, 
   decryptDirectMessage,
   type DmKeyPair 
 } from './crypto';
 import { 
   RelayClient, 
-  type ConversationMessage,
-  type RelayMessage 
+  type ConversationMessage
 } from './relay';
+
+interface WalletLike {
+  networkPassphrase?: string;
+  rpcUrl?: string;
+  address?: string;
+  publicKey?: string;
+}
 
 export {
   generateDmKeypair,
@@ -52,9 +57,9 @@ export class DmService {
   private relayClient: RelayClient;
   private keypair: DmKeyPair | null = null;
   private userAddress: string;
-  private wallet: any;
+  private wallet: WalletLike;
 
-  constructor(wallet: any, relayUrl: string) {
+  constructor(wallet: WalletLike, relayUrl: string) {
     // Create a minimal client config for contract interaction
     this.client = new LinkoraClient({
       networkPassphrase: wallet?.networkPassphrase || 'Test SDF Network ; September 2015',
@@ -103,7 +108,7 @@ export class DmService {
       }
 
       // Decrypt messages
-      return response.messages.map((msg, index) => {
+      return response.messages.map((msg) => {
         try {
           const content = decryptDirectMessage(
             this.keypair!.privateKey,

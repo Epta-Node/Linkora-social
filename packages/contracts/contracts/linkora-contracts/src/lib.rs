@@ -33,7 +33,7 @@ pub enum StorageKey {
     GovConfig,             // persistent: governance configuration
     GovProposalCount,      // persistent: next proposal id counter
     // ── End-to-end encrypted direct messages ──────────────────────────────
-    DmPublicKey(Address),      // persistent: user -> X25519 public key for E2EE DMs
+    DmPublicKey(Address), // persistent: user -> X25519 public key for E2EE DMs
 }
 
 // ── Instance-storage key constants (small scalars, not contracttype) ──────────
