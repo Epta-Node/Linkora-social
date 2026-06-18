@@ -1291,26 +1291,26 @@ fn test_get_followers_bumps_followers_key() {
 
     let contract_id = client.address.clone();
 
-    // StorageKey::Followers(alice) must have a bumped TTL
-    let followers_ttl = env.as_contract(&contract_id, || {
+    // StorageKey::FollowersIdx(alice, 0) must have a bumped TTL (new adjacency-set implementation)
+    let followers_idx_ttl = env.as_contract(&contract_id, || {
         env.storage()
             .persistent()
-            .get_ttl(&StorageKey::Followers(alice.clone()))
+            .get_ttl(&StorageKey::FollowersIdx(alice.clone(), 0))
     });
     assert!(
-        followers_ttl >= LEDGER_THRESHOLD,
-        "followers TTL {followers_ttl} below LEDGER_THRESHOLD"
+        followers_idx_ttl >= LEDGER_THRESHOLD,
+        "followers index TTL {followers_idx_ttl} below LEDGER_THRESHOLD"
     );
 
-    // StorageKey::Following(alice) must NOT exist — get_followers must not touch it
-    let follows_exists = env.as_contract(&contract_id, || {
+    // StorageKey::FollowingIdx(alice, 0) must NOT be bumped by get_followers
+    let following_idx_exists = env.as_contract(&contract_id, || {
         env.storage()
             .persistent()
-            .has(&StorageKey::Following(alice.clone()))
+            .has(&StorageKey::FollowingIdx(alice.clone(), 0))
     });
     assert!(
-        !follows_exists,
-        "get_followers must not create or bump the Following(alice) key"
+        !following_idx_exists,
+        "get_followers must not create or bump alice's FollowingIdx key"
     );
 }
 
