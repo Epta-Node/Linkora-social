@@ -2866,11 +2866,18 @@ fn test_publish_dm_key_emits_event() {
 
     let events_before = env.events().all().events().len();
     client.publish_dm_key(&user, &dm_key);
-
     let events_after = env.events().all().events().len();
+
+    // Verify that exactly one event was emitted
     assert_eq!(
         events_after,
         events_before + 1,
+        "Exactly one DmKeyPublishedEvent should be emitted"
+    );
+
+    // Verify at least one event exists (the DmKeyPublishedEvent)
+    assert!(
+        !env.events().all().events().is_empty(),
         "DmKeyPublishedEvent should be emitted"
     );
 }

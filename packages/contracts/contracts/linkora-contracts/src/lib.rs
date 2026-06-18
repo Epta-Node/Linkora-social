@@ -627,7 +627,9 @@ impl LinkoraContract {
     pub fn get_dm_key(env: Env, user: Address) -> Option<BytesN<32>> {
         let key = StorageKey::DmPublicKey(user);
         let result: Option<BytesN<32>> = env.storage().persistent().get(&key);
-        Self::bump(&env, &key);
+        if result.is_some() {
+            Self::bump(&env, &key);
+        }
         result
     }
 
