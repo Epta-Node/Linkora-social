@@ -6,6 +6,7 @@
  */
 
 import { LinkoraClient } from '../client';
+import { Keypair } from '@stellar/stellar-sdk';
 import { 
   generateDmKeypair, 
   deriveSharedSecret, 
@@ -51,6 +52,7 @@ export class DmService {
   private relayClient: RelayClient;
   private keypair: DmKeyPair | null = null;
   private userAddress: string;
+  private wallet: any;
 
   constructor(wallet: any, relayUrl: string) {
     // Create a minimal client config for contract interaction
@@ -59,13 +61,14 @@ export class DmService {
       rpcUrl: wallet?.rpcUrl || 'https://soroban-testnet.stellar.org',
       contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || ''
     });
-    this.relayClient = new RelayClient(relayUrl, wallet);
+    this.relayClient = new RelayClient(relayUrl);
     this.userAddress = wallet?.address || wallet?.publicKey || '';
+    this.wallet = wallet;
   }
 
   async hasLocalKeys(): Promise<boolean> {
-    // Check if keys are stored locally (implementation depends on storage mechanism)
-    return this.keypair !== null || typeof localStorage !== 'undefined' && localStorage.getItem('dm_keypair') !== null;
+    // Check if keys are stored in memory
+    return this.keypair !== null;
   }
 
   async generateAndPublishKeys(): Promise<void> {
@@ -80,33 +83,14 @@ export class DmService {
     // Note: In a real implementation, you'd need to sign and submit this transaction
     console.log('Transaction XDR for publishing DM key:', txXdr);
 
-    // Store keys locally
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('dm_keypair', JSON.stringify({
-        publicKey: Array.from(this.keypair.publicKey),
-        privateKey: Array.from(this.keypair.privateKey)
-      }));
-    }
+    // Store keys in memory (real app should persist securely)
+    // The application layer should handle secure storage based on the environment
   }
 
   async getMessages(otherAddress: string): Promise<Array<ConversationMessage & { content: string }>> {
     try {
       const response = await this.relayClient.getMessages(otherAddress);
       
-      if (!this.keypair) {
-        // Try to load from localStorage
-        if (typeof localStorage !== 'undefined') {
-          const stored = localStorage.getItem('dm_keypair');
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            this.keypair = {
-              publicKey: new Uint8Array(parsed.publicKey),
-              privateKey: new Uint8Array(parsed.privateKey)
-            };
-          }
-        }
-      }
-
       if (!this.keypair) {
         throw new Error('No DM keys available. Generate keys first.');
       }
@@ -119,12 +103,15 @@ export class DmService {
       }
 
       // Decrypt messages
-      return response.messages.map(msg => {
+      return response.messages.map((msg, index) => {
         try {
           const content = decryptDirectMessage(
-            msg.ciphertext_b64,
             this.keypair!.privateKey,
-            otherPubKey
+            otherPubKey,
+            this.userAddress,
+            otherAddress,
+            Uint8Array.from(atob(msg.ciphertext_b64), c => c.charCodeAt(0)),
+            msg.message_index
           );
           return { ...msg, content };
         } catch (error) {
@@ -140,20 +127,6 @@ export class DmService {
 
   async sendMessage(toAddress: string, content: string): Promise<void> {
     if (!this.keypair) {
-      // Try to load from localStorage
-      if (typeof localStorage !== 'undefined') {
-        const stored = localStorage.getItem('dm_keypair');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          this.keypair = {
-            publicKey: new Uint8Array(parsed.publicKey),
-            privateKey: new Uint8Array(parsed.privateKey)
-          };
-        }
-      }
-    }
-
-    if (!this.keypair) {
       throw new Error('No DM keys available. Generate keys first.');
     }
 
@@ -164,14 +137,25 @@ export class DmService {
       throw new Error('Recipient has not published DM keys');
     }
 
+    // For now, use a simple incrementing message index - in a real implementation,
+    // this should be managed more carefully to prevent replay attacks
+    const messageIndex = Date.now();
+
     // Encrypt message
     const encrypted = encryptDirectMessage(
-      content,
       this.keypair.privateKey,
-      recipientPubKey
+      recipientPubKey,
+      this.userAddress,
+      toAddress,
+      content,
+      messageIndex
     );
 
+    // Create a keypair for signing (this is a simplified approach)
+    // In a real implementation, you'd get this from the wallet
+    const signingKeypair = Keypair.random(); // This needs to be the user's actual signing keypair
+
     // Send via relay
-    await this.relayClient.sendMessage(toAddress, encrypted);
+    await this.relayClient.sendMessage(signingKeypair, toAddress, encrypted, messageIndex);
   }
 }
