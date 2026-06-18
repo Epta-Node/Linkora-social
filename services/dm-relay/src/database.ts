@@ -83,8 +83,8 @@ class Database {
     try {
       const result = await this.pool.query(query, values);
       return result.rows[0].id;
-    } catch (error: any) {
-      if (error.code === '23505') { // Unique violation
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === '23505') { // Unique violation
         throw new Error('Message with this index already exists for this sender-recipient pair');
       }
       throw error;
@@ -103,7 +103,7 @@ class Database {
       WHERE conversation_id = $1
     `;
     
-    const values: any[] = [conversationId];
+    const values: (string | number)[] = [conversationId];
 
     if (beforeCreatedAt) {
       query += ' AND created_at < $2';

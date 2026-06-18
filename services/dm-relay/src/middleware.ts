@@ -3,10 +3,11 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { generateRequestId, sanitizeError } from './utils';
+import { generateRequestId } from './utils';
 
 // Extend Express Request type to include custom properties
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       requestId: string;
@@ -48,7 +49,7 @@ export function errorHandler(
   error: Error,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ) {
   console.error(`[${req.requestId}] Error:`, error);
 

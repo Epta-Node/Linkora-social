@@ -5,7 +5,6 @@
 import {
   generateDmKeypair,
   deriveSharedSecret,
-  deriveConversationKey,
   createConversationId,
   encryptDirectMessage,
   decryptDirectMessage,

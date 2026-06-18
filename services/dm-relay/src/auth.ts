@@ -4,7 +4,7 @@
  * Verifies Stellar signatures to prevent unauthorized message submission.
  */
 
-import { Keypair, Networks, StrKey } from '@stellar/stellar-sdk';
+import { Keypair, StrKey } from '@stellar/stellar-sdk';
 import { sha256 } from '@noble/hashes/sha256';
 
 export interface AuthData {
