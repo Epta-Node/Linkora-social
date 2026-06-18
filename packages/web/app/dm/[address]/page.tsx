@@ -73,7 +73,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     }
   };
 
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     if (!dmService || !address) return;
     try {
       const msgs = await dmService.getMessages(address);
@@ -81,7 +81,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     } catch (err) {
       setError(`Failed to load messages: ${err}`);
     }
-  };
+  }, [dmService, address]);
 
   const sendMessage = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();

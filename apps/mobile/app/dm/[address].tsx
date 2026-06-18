@@ -68,7 +68,7 @@ export default function DirectMessageScreen() {
     initializeDm();
   }, [wallet, address]);
 
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     if (!dmService || !address) return;
     try {
       const msgs = await dmService.getMessages(address);
@@ -76,7 +76,7 @@ export default function DirectMessageScreen() {
     } catch (err) {
       setError(`Failed to load messages: ${err}`);
     }
-  };
+  }, [dmService, address]);
 
   const sendMessage = useCallback(async () => {
     if (!dmService || !newMessage.trim() || !address) return;
