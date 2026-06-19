@@ -27,7 +27,7 @@
     "helmet": "^7.1.0",
     "pg": "^8.11.3",
     "node-cron": "^3.0.3",
-    "@stellar/stellar-sdk": "^12.3.0",
+    "@stellar/stellar-sdk": "^16.0.1",
     "@noble/hashes": "^1.4.0",
     "zod": "^3.22.4",
     "dotenv": "^16.3.1"

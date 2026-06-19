@@ -42,7 +42,7 @@
     "test:e2e": "jest --config jest.e2e.config.js"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^12.3.0",
+    "@stellar/stellar-sdk": "^16.0.1",
     "@noble/curves": "^1.4.0",
     "@noble/hashes": "^1.4.0",
     "@noble/ciphers": "^0.5.3",
