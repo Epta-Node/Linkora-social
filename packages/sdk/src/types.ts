@@ -24,3 +24,14 @@ export interface Pool {
   admins: string[];
   threshold: number;
 }
+
+/** Parameters for deploying a new SEP-41 creator token via the token factory. */
+export interface DeployTokenParams {
+  /** The creator's address — becomes the token admin and receives initial_supply. */
+  deployer: string;
+  name: string;
+  symbol: string;
+  decimals: number;
+  /** Stroops to mint to deployer on creation (>= 0). */
+  initialSupply: bigint;
+}

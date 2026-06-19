@@ -8,7 +8,7 @@ import {
   Keypair,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Profile, Post, Pool } from "./types";
+import { Profile, Post, Pool, DeployTokenParams } from "./types";
 import { mapError, NotFoundError } from "./errors";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
@@ -49,6 +49,8 @@ function scvAddressVec(addresses: string[]): xdr.ScVal {
  */
 export interface ClientConfig {
   contractId: string;
+  /** Contract ID of the token factory contract. Required for deployCreatorToken / setProfileWithNewToken. */
+  factoryContractId?: string;
   rpcUrl: string;
   networkPassphrase?: string;
 }
@@ -58,11 +60,13 @@ export interface ClientConfig {
  */
 export class LinkoraClient {
   private contractId: string;
+  private factoryContractId: string | undefined;
   private rpcUrl: string;
   private networkPassphrase: string;
 
   constructor(config: ClientConfig) {
     this.contractId = config.contractId;
+    this.factoryContractId = config.factoryContractId;
     this.rpcUrl = config.rpcUrl;
     this.networkPassphrase = config.networkPassphrase || DEFAULT_NETWORK;
   }
@@ -94,6 +98,23 @@ export class LinkoraClient {
 
   private buildTx(method: string, ...args: xdr.ScVal[]): string {
     const contract = new Contract(this.contractId);
+    const op = contract.call(method, ...args);
+
+    const source = Keypair.random();
+    const account = new Account(source.publicKey(), "0");
+    const tx = new TransactionBuilder(account, {
+      fee: "100",
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(op)
+      .setTimeout(DEFAULT_TIMEOUT)
+      .build();
+
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  private buildTxFor(contractId: string, method: string, ...args: xdr.ScVal[]): string {
+    const contract = new Contract(contractId);
     const op = contract.call(method, ...args);
 
     const source = Keypair.random();
@@ -377,5 +398,61 @@ export class LinkoraClient {
 
   setTipCooldownWindow(cooldownLedgers: number): string {
     return this.buildTx("set_tip_cooldown_window", scvU32(cooldownLedgers));
+  }
+
+  // ── Token Factory Methods ────────────────────────────────────────────────────
+
+  /**
+   * Build a transaction envelope that calls `deploy_creator_token` on the
+   * token factory contract. The caller must sign and submit this XDR.
+   *
+   * Returns the base64-encoded XDR transaction envelope.
+   * The caller is responsible for extracting the returned token address from
+   * the transaction result after submission.
+   */
+  deployCreatorToken(params: DeployTokenParams): string {
+    if (!this.factoryContractId) {
+      throw new Error("factoryContractId is required to call deployCreatorToken");
+    }
+    return this.buildTxFor(
+      this.factoryContractId,
+      "deploy_creator_token",
+      scvAddress(params.deployer),
+      scvString(params.name),
+      scvString(params.symbol),
+      scvU32(params.decimals),
+      scvI128(params.initialSupply)
+    );
+  }
+
+  /**
+   * Build the two transaction envelopes needed to deploy a creator token and
+   * register a profile in sequence.
+   *
+   * Returns `{ deployTx, setProfileTx }` where:
+   * - `deployTx`      — must be signed/submitted first; the returned address
+   *                     from this transaction must be passed as `tokenAddress`
+   *                     before building `setProfileTx`.
+   * - `setProfileTxBuilder` — a function that accepts the deployed token address
+   *                           and returns the `set_profile` XDR envelope.
+   *
+   * Usage:
+   * ```ts
+   * const { deployTx, setProfileTxBuilder } = client.setProfileWithNewToken(username, tokenParams);
+   * const tokenAddress = await sign_and_submit(deployTx);   // extract from result
+   * const setProfileTx = setProfileTxBuilder(tokenAddress);
+   * await sign_and_submit(setProfileTx);
+   * ```
+   */
+  setProfileWithNewToken(
+    username: string,
+    tokenParams: DeployTokenParams
+  ): { deployTx: string; setProfileTxBuilder: (tokenAddress: string) => string } {
+    const deployTx = this.deployCreatorToken(tokenParams);
+
+    const setProfileTxBuilder = (tokenAddress: string): string =>
+      this.setProfile(tokenParams.deployer, username, tokenAddress);
+
+    return { deployTx, setProfileTxBuilder };
   }
 }
