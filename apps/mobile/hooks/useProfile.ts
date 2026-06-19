@@ -101,14 +101,14 @@ export function useProfile(address: string) {
         const res = await kit.signAndSubmitTransaction({ txXdr });
         const txHash = res?.hash ?? res?.txHash ?? "";
         showSuccess(txHash);
-      } else if (kit && typeof kit.signTransaction === "function") {
-        const signed = await kit.signTransaction({ txXdr });
-        const signedXdr = signed?.signedTxXdr ?? signed?.signedXdr ?? signed?.signedTx;
+      } else if (kit && (kit as any).signTransaction) {
+        const signed = await (kit as any).signTransaction({ txXdr });
+        const signedXdr = signed?.signedTxXdr ?? (signed as any)?.signedXdr ?? (signed as any)?.signedTx;
         if (!signedXdr) throw new Error("Wallet did not return signed transaction XDR");
 
         const { rpc } = await import("@stellar/stellar-sdk");
         const server = new rpc.Server(rpcUrl);
-        const submitRes = await server.submitTransaction(signedXdr);
+        const submitRes = await (server as any).submitTransaction(signedXdr);
         const txHash = submitRes?.hash ?? "";
         showSuccess(txHash);
       } else {

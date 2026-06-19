@@ -251,6 +251,10 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       justifyContent: "center",
       padding: 32,
     },
+    loadingStack: {
+      gap: 16,
+      padding: 16,
+    },
     muted: {
       color: theme.colors.text.secondary,
       fontSize: 13,

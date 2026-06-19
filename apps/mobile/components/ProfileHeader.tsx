@@ -129,7 +129,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       marginLeft: 8,
     },
     editButton: {
-      backgroundColor: theme.colors.surface.elevated,
+      backgroundColor: theme.colors.surface.surface1,
       paddingHorizontal: 12,
       paddingVertical: 8,
       borderRadius: theme.radius.full,
@@ -145,7 +145,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       borderRadius: theme.radius.full,
     },
     following: {
-      backgroundColor: theme.colors.surface.elevated,
+      backgroundColor: theme.colors.surface.surface1,
       borderWidth: 1,
       borderColor: theme.colors.surface.border,
     },

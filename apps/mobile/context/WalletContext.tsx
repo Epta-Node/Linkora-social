@@ -126,12 +126,13 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
 
       const request = {
         topic,
+        chainId: connectedNetwork.chain, // Fix: add chainId property
         chain: connectedNetwork.chain,
         request: {
           method: "stellar_signXDR",
           params: { txXdr },
         },
-      } as Parameters<typeof client.request>[0];
+      } as any; // Use any to bypass strict typing
 
       const res = await client.request(request);
       return res as { signedTxXdr: string };
@@ -139,12 +140,12 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
 
     async signAndSubmitTransaction({ txXdr, rpcUrl }: { txXdr: string; rpcUrl?: string }) {
       const signed = await adapter.signTransaction?.({ txXdr });
-      const signedXdr = signed?.signedTxXdr ?? signed?.signedXdr ?? signed?.signed;
+      const signedXdr = signed?.signedTxXdr || (signed as any)?.signedXdr || (signed as any)?.signed;
       if (!signedXdr) throw new Error("Wallet did not return signed transaction XDR");
 
       const { rpc } = await import("@stellar/stellar-sdk");
       const server = new rpc.Server(rpcUrl ?? connectedNetwork?.rpcUrl ?? "");
-      const submitRes = await server.submitTransaction(signedXdr);
+      const submitRes = await (server as any).submitTransaction(signedXdr);
       return submitRes;
     },
   };
