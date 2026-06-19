@@ -1,10 +1,13 @@
 import express, { Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
+import { Pool as PgPool } from "pg";
 import { Database } from "../db";
 import { createProfilesRouter } from "./routes/profiles";
 import { createPostsRouter } from "./routes/posts";
 import { createFollowsRouter } from "./routes/follows";
 import { createPoolsRouter } from "./routes/pools";
+import { createStateRootRouter } from "./routes/stateRoot";
+import { isFenced } from "../gossip";
 
 // ── Rate-limit configuration (all values are env-overridable) ────────────────
 
@@ -40,18 +43,32 @@ const apiLimiter = rateLimit({
 
 // ── App factory ───────────────────────────────────────────────────────────────
 
-export function createApp(db: Database): express.Application {
+export function createApp(db: Database, pg?: PgPool): express.Application {
   const app = express();
   app.use(express.json());
 
   // Apply rate limiting to all /api routes.
   app.use("/api", apiLimiter);
 
+  // Self-fencing middleware: stop serving when Byzantine majority detected.
+  app.use("/api", (_req: Request, res: Response, next: NextFunction): void => {
+    if (isFenced()) {
+      res.status(503).json({ error: "Node self-fenced: Byzantine divergence detected", code: "SELF_FENCED" });
+      return;
+    }
+    next();
+  });
+
   // ── Resource routes ────────────────────────────────────────────────────────
   app.use("/api/profiles", createProfilesRouter(db));
   app.use("/api/posts", createPostsRouter(db));
   app.use("/api/follows", createFollowsRouter(db));
   app.use("/api/pools", createPoolsRouter(db));
+
+  // State root endpoint (requires pg pool).
+  if (pg) {
+    app.use("/api/state-root", createStateRootRouter(pg));
+  }
 
   // ── Search endpoint ──────────────────────────────────────────────────────────
 

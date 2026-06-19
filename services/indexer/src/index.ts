@@ -15,6 +15,8 @@
 
 import { Pool } from "pg";
 import { streamEvents, RawEvent } from "./stream";
+import { saveStateRoot } from "./stateRoot";
+import { startGossip } from "./gossip";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +56,13 @@ async function ensureEventsTable(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_events_ledger      ON events (ledger);
     CREATE INDEX IF NOT EXISTS idx_events_contract_id ON events (contract_id);
   `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS indexer_state (
+      ledger_sequence BIGINT      PRIMARY KEY,
+      state_root      TEXT        NOT NULL,
+      computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 }
 
 async function persistEvent(event: RawEvent): Promise<void> {
@@ -78,11 +87,24 @@ async function persistEvent(event: RawEvent): Promise<void> {
 
 // ── Event dispatch ────────────────────────────────────────────────────────────
 
+let lastStateLedger = -1;
+
 async function handleEvent(event: RawEvent): Promise<void> {
   await persistEvent(event);
 
   const eventType = event.topic[0];
   console.log(`[indexer] ledger=${event.ledger} type=${eventType} tx=${event.txHash}`);
+
+  // After processing the last event of a new ledger, compute and store the state root.
+  if (event.ledger !== lastStateLedger) {
+    lastStateLedger = event.ledger;
+    try {
+      const root = await saveStateRoot(pgPool, event.ledger);
+      console.log(`[indexer] state_root ledger=${event.ledger} root=${root}`);
+    } catch (err) {
+      console.error("[indexer] Failed to compute state root:", err);
+    }
+  }
 }
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
@@ -106,6 +128,11 @@ async function main(): Promise<void> {
   console.log(`[indexer] From ledger: ${START_LEDGER}`);
 
   await ensureEventsTable();
+
+  // Start gossip in the background.
+  startGossip(pgPool, abortController.signal).catch((err) =>
+    console.error("[gossip] Fatal error:", err)
+  );
 
   await streamEvents(
     {
