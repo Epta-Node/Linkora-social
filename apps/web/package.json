@@ -7,15 +7,18 @@
     "build": "next build",
     "start": "next start",
     "lint": "echo 'No lint configured for apps/web stub'",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@stellar/freighter-api": "^2.0.0",
+    "linkora-sdk": "workspace:*",
     "next": "15.3.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.44.0",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
