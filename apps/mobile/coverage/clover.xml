@@ -1,6 +1,189 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1780277160985" clover="3.2.0">
-  <project timestamp="1780277160985" name="All files">
-    <metrics statements="0" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0" elements="0" coveredelements="0" complexity="0" loc="0" ncloc="0" packages="0" files="0" classes="0"/>
+<coverage generated="1781865223921" clover="3.2.0">
+  <project timestamp="1781865223922" name="All files">
+    <metrics statements="165" coveredstatements="94" conditionals="105" coveredconditionals="26" methods="32" coveredmethods="22" elements="302" coveredelements="142" complexity="0" loc="165" ncloc="165" packages="3" files="3" classes="3"/>
+    <package name="context">
+      <metrics statements="145" coveredstatements="75" conditionals="103" coveredconditionals="24" methods="22" coveredmethods="12"/>
+      <file name="WalletContext.tsx" path="/Users/user/Linkora-social/apps/mobile/context/WalletContext.tsx">
+        <metrics statements="145" coveredstatements="75" conditionals="103" coveredconditionals="24" methods="22" coveredmethods="12"/>
+        <line num="84" count="0" type="stmt"/>
+        <line num="86" count="0" type="stmt"/>
+        <line num="88" count="0" type="stmt"/>
+        <line num="89" count="0" type="stmt"/>
+        <line num="90" count="0" type="stmt"/>
+        <line num="91" count="0" type="stmt"/>
+        <line num="92" count="0" type="stmt"/>
+        <line num="94" count="0" type="stmt"/>
+        <line num="96" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="97" count="0" type="stmt"/>
+        <line num="100" count="0" type="stmt"/>
+        <line num="112" count="0" type="stmt"/>
+        <line num="122" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="124" count="0" type="stmt"/>
+        <line num="125" count="0" type="stmt"/>
+        <line num="126" count="0" type="stmt"/>
+        <line num="127" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="128" count="0" type="stmt"/>
+        <line num="130" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="132" count="0" type="stmt"/>
+        <line num="136" count="0" type="cond" truecount="0" falsecount="4"/>
+        <line num="137" count="0" type="stmt"/>
+        <line num="139" count="0" type="stmt"/>
+        <line num="140" count="0" type="stmt"/>
+        <line num="141" count="0" type="stmt"/>
+        <line num="145" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="146" count="0" type="stmt"/>
+        <line num="150" count="0" type="stmt"/>
+        <line num="154" count="0" type="cond" truecount="0" falsecount="5"/>
+        <line num="156" count="0" type="stmt"/>
+        <line num="166" count="0" type="stmt"/>
+        <line num="167" count="0" type="stmt"/>
+        <line num="171" count="0" type="stmt"/>
+        <line num="172" count="0" type="cond" truecount="0" falsecount="3"/>
+        <line num="173" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="175" count="0" type="stmt"/>
+        <line num="176" count="0" type="cond" truecount="0" falsecount="3"/>
+        <line num="177" count="0" type="stmt"/>
+        <line num="180" count="0" type="stmt"/>
+        <line num="184" count="0" type="stmt"/>
+        <line num="203" count="1" type="stmt"/>
+        <line num="206" count="61" type="stmt"/>
+        <line num="207" count="61" type="stmt"/>
+        <line num="208" count="61" type="stmt"/>
+        <line num="209" count="61" type="stmt"/>
+        <line num="214" count="61" type="stmt"/>
+        <line num="216" count="61" type="stmt"/>
+        <line num="217" count="11" type="cond" truecount="1" falsecount="1"/>
+        <line num="220" count="61" type="stmt"/>
+        <line num="221" count="11" type="stmt"/>
+        <line num="223" count="11" type="stmt"/>
+        <line num="224" count="11" type="stmt"/>
+        <line num="225" count="11" type="cond" truecount="1" falsecount="1"/>
+        <line num="226" count="11" type="stmt"/>
+        <line num="227" count="11" type="stmt"/>
+        <line num="230" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="231" count="0" type="stmt"/>
+        <line num="234" count="0" type="stmt"/>
+        <line num="235" count="0" type="stmt"/>
+        <line num="238" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="239" count="0" type="stmt"/>
+        <line num="240" count="0" type="stmt"/>
+        <line num="245" count="11" type="stmt"/>
+        <line num="246" count="11" type="stmt"/>
+        <line num="247" count="11" type="stmt"/>
+        <line num="251" count="61" type="stmt"/>
+        <line num="252" count="0" type="stmt"/>
+        <line num="255" count="0" type="stmt"/>
+        <line num="258" count="61" type="stmt"/>
+        <line num="259" count="0" type="stmt"/>
+        <line num="262" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="264" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="266" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="267" count="0" type="stmt"/>
+        <line num="268" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="269" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="275" count="0" type="stmt"/>
+        <line num="279" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="280" count="0" type="stmt"/>
+        <line num="281" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="284" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="285" count="0" type="stmt"/>
+        <line num="286" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="287" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="293" count="0" type="stmt"/>
+        <line num="297" count="0" type="stmt"/>
+        <line num="300" count="61" type="stmt"/>
+        <line num="301" count="11" type="cond" truecount="1" falsecount="1"/>
+        <line num="303" count="11" type="stmt"/>
+        <line num="304" count="11" type="stmt"/>
+        <line num="305" count="11" type="stmt"/>
+        <line num="307" count="11" type="stmt"/>
+        <line num="308" count="11" type="stmt"/>
+        <line num="310" count="11" type="cond" truecount="4" falsecount="0"/>
+        <line num="311" count="5" type="cond" truecount="1" falsecount="1"/>
+        <line num="315" count="5" type="cond" truecount="2" falsecount="0"/>
+        <line num="316" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="320" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="321" count="4" type="stmt"/>
+        <line num="326" count="4" type="stmt"/>
+        <line num="327" count="4" type="stmt"/>
+        <line num="331" count="1" type="stmt"/>
+        <line num="334" count="7" type="stmt"/>
+        <line num="335" count="7" type="stmt"/>
+        <line num="337" count="0" type="stmt"/>
+        <line num="338" count="0" type="cond" truecount="0" falsecount="2"/>
+        <line num="342" count="61" type="stmt"/>
+        <line num="343" count="11" type="cond" truecount="1" falsecount="1"/>
+        <line num="346" count="61" type="stmt"/>
+        <line num="348" count="6" type="stmt"/>
+        <line num="349" count="6" type="stmt"/>
+        <line num="350" count="6" type="stmt"/>
+        <line num="352" count="6" type="stmt"/>
+        <line num="354" count="6" type="cond" truecount="1" falsecount="1"/>
+        <line num="355" count="0" type="stmt"/>
+        <line num="357" count="6" type="cond" truecount="1" falsecount="1"/>
+        <line num="360" count="6" type="stmt"/>
+        <line num="361" count="3" type="cond" truecount="1" falsecount="2"/>
+        <line num="363" count="3" type="cond" truecount="1" falsecount="1"/>
+        <line num="364" count="3" type="stmt"/>
+        <line num="368" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="370" count="2" type="stmt"/>
+        <line num="375" count="2" type="stmt"/>
+        <line num="377" count="2" type="stmt"/>
+        <line num="378" count="2" type="stmt"/>
+        <line num="380" count="4" type="stmt"/>
+        <line num="381" count="4" type="cond" truecount="1" falsecount="1"/>
+        <line num="382" count="4" type="stmt"/>
+        <line num="388" count="61" type="stmt"/>
+        <line num="389" count="2" type="stmt"/>
+        <line num="390" count="2" type="stmt"/>
+        <line num="391" count="2" type="cond" truecount="1" falsecount="1"/>
+        <line num="395" count="2" type="stmt"/>
+        <line num="396" count="2" type="stmt"/>
+        <line num="397" count="2" type="stmt"/>
+        <line num="401" count="61" type="stmt"/>
+        <line num="402" count="0" type="stmt"/>
+        <line num="405" count="61" type="stmt"/>
+        <line num="406" count="18" type="cond" truecount="2" falsecount="0"/>
+        <line num="407" count="6" type="stmt"/>
+        <line num="411" count="61" type="stmt"/>
+        <line num="422" count="61" type="stmt"/>
+        <line num="426" count="58" type="stmt"/>
+        <line num="427" count="58" type="cond" truecount="1" falsecount="1"/>
+        <line num="428" count="58" type="stmt"/>
+      </file>
+    </package>
+    <package name="hooks">
+      <metrics statements="2" coveredstatements="2" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
+      <file name="useWallet.ts" path="/Users/user/Linkora-social/apps/mobile/hooks/useWallet.ts">
+        <metrics statements="2" coveredstatements="2" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="1"/>
+        <line num="42" count="58" type="stmt"/>
+        <line num="44" count="58" type="stmt"/>
+      </file>
+    </package>
+    <package name="utils">
+      <metrics statements="18" coveredstatements="17" conditionals="2" coveredconditionals="2" methods="9" coveredmethods="9"/>
+      <file name="secureStorage.js" path="/Users/user/Linkora-social/apps/mobile/utils/secureStorage.js">
+        <metrics statements="18" coveredstatements="17" conditionals="2" coveredconditionals="2" methods="9" coveredmethods="9"/>
+        <line num="1" count="1" type="stmt"/>
+        <line num="3" count="1" type="stmt"/>
+        <line num="10" count="12" type="stmt"/>
+        <line num="11" count="12" type="stmt"/>
+        <line num="15" count="28" type="stmt"/>
+        <line num="16" count="28" type="cond" truecount="2" falsecount="0"/>
+        <line num="17" count="12" type="stmt"/>
+        <line num="18" count="12" type="stmt"/>
+        <line num="20" count="0" type="stmt"/>
+        <line num="25" count="6" type="stmt"/>
+        <line num="29" count="6" type="stmt"/>
+        <line num="33" count="15" type="stmt"/>
+        <line num="37" count="3" type="stmt"/>
+        <line num="41" count="6" type="stmt"/>
+        <line num="45" count="13" type="stmt"/>
+        <line num="49" count="3" type="stmt"/>
+        <line num="52" count="1" type="stmt"/>
+        <line num="58" count="1" type="stmt"/>
+      </file>
+    </package>
   </project>
 </coverage>

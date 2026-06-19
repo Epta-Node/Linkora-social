@@ -20,6 +20,14 @@ jest.mock("../../context/ToastContext", () => ({
 }));
 
 describe("PostCard Snapshots", () => {
+  beforeAll(() => {
+    jest.spyOn(Date, "now").mockReturnValue((1700000000 + 930 * 86400) * 1000);
+  });
+
+  afterAll(() => {
+    jest.restoreAllMocks();
+  });
+
   const defaultPost: Post = {
     id: 1,
     author: "GABCD1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
