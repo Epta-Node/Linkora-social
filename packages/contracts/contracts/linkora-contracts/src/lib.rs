@@ -33,8 +33,6 @@ pub enum StorageKey {
     GovVote(u64, Address), // persistent: (proposal_id, voter) -> bool (prevents double-voting)
     GovConfig,             // persistent: governance configuration
     GovProposalCount,      // persistent: next proposal id counter
-    // ── End-to-end encrypted direct messages ──────────────────────────────
-    DmPublicKey(Address), // persistent: user -> X25519 public key for E2EE DMs
     Report(u64, Address),  // persistent: (post_id, reporter) -> Report
     ReportCount(u64),      // persistent: post_id -> u32 count of reports
 }

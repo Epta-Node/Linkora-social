@@ -142,6 +142,7 @@ fn test_negative_supply_panics() {
 // produce distinct addresses, emitted event carries the correct symbol) live in
 // the integration test suite at packages/contracts/tests/.
 
+
 // ── Salt Uniqueness (unit-level, no WASM required) ────────────────────────────
 //
 // The salt is derived from the ledger sequence number. We verify that two calls
