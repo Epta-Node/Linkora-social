@@ -6,6 +6,7 @@ export interface Profile {
   address: string;
   username: string;
   creator_token: string;
+  bio?: string | null;
 }
 
 export interface Post {

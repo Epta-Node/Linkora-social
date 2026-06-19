@@ -61,6 +61,8 @@ export function getFeedPostById(postId: string): Post | null {
   return ALL_POSTS.find((post) => String(post.id) === postId && !isDeleted(post.id)) ?? null;
 }
 
+export const getFeedPost = getFeedPostById;
+
 export function markFeedPostDeleted(postId: string | number): void {
   deletedPostIds.add(String(postId));
   deleteListeners.forEach((listener) => listener());

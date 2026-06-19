@@ -1,13 +1,5 @@
 import React, { useMemo, useState } from "react";
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import {
@@ -40,7 +32,7 @@ type PendingAction =
 export default function PoolAdminsScreen(): JSX.Element {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const poolId = Array.isArray(id) ? id[0] : id ?? "";
+  const poolId = Array.isArray(id) ? id[0] : (id ?? "");
   const pool = usePoolRecord(poolId);
   const { address } = useWallet();
   const connectedAddress = address ? normalizeAddress(address) : null;
@@ -51,7 +43,7 @@ export default function PoolAdminsScreen(): JSX.Element {
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const pendingApprovals = pendingAction?.approvals ?? [];
+  const pendingApprovals = useMemo(() => pendingAction?.approvals ?? [], [pendingAction]);
   const canExecute = Boolean(pendingAction) && pendingApprovals.length >= pool.threshold;
 
   const signerSummary = useMemo(
@@ -129,7 +121,9 @@ export default function PoolAdminsScreen(): JSX.Element {
     if (pendingAction.kind === "threshold") {
       const nextThreshold = Number(pendingAction.value);
       const changed = updatePoolThreshold(poolId, nextThreshold);
-      setMessage(changed ? "Threshold updated." : "Threshold must be between 1 and the admin count.");
+      setMessage(
+        changed ? "Threshold updated." : "Threshold must be between 1 and the admin count."
+      );
     }
 
     setPendingAction(null);
@@ -192,7 +186,9 @@ export default function PoolAdminsScreen(): JSX.Element {
             <Text style={styles.adminAddress}>
               {admin.slice(0, 10)}...{admin.slice(-6)}
             </Text>
-            <Text style={styles.adminTag}>{admin === connectedAddress ? "Connected" : "Admin"}</Text>
+            <Text style={styles.adminTag}>
+              {admin === connectedAddress ? "Connected" : "Admin"}
+            </Text>
           </View>
         ))}
         <Text style={styles.meta}>Threshold: {pool.threshold} signatures required</Text>
@@ -238,7 +234,9 @@ export default function PoolAdminsScreen(): JSX.Element {
       <View style={styles.panel}>
         <View style={styles.rowHeader}>
           <Text style={styles.sectionLabel}>Pending action</Text>
-          <Text style={styles.meta}>{pendingApprovals.length}/{pool.threshold} approvals</Text>
+          <Text style={styles.meta}>
+            {pendingApprovals.length}/{pool.threshold} approvals
+          </Text>
         </View>
         {pendingAction ? (
           <>
@@ -246,8 +244,8 @@ export default function PoolAdminsScreen(): JSX.Element {
               {pendingAction.kind === "add"
                 ? "Add admin"
                 : pendingAction.kind === "remove"
-                ? "Remove admin"
-                : "Update threshold"}
+                  ? "Remove admin"
+                  : "Update threshold"}
             </Text>
             <Text style={styles.pendingValue}>{pendingAction.value}</Text>
 
@@ -272,10 +270,7 @@ export default function PoolAdminsScreen(): JSX.Element {
 
             <View style={styles.buttonStack}>
               <Pressable
-                style={[
-                  styles.primaryButton,
-                  !connectedIsAdmin ? styles.buttonDisabled : null,
-                ]}
+                style={[styles.primaryButton, !connectedIsAdmin ? styles.buttonDisabled : null]}
                 onPress={signPendingAction}
                 disabled={!connectedIsAdmin}
               >

@@ -13,6 +13,21 @@ export interface Profile {
   bio?: string | null;
 }
 
+interface WalletKitWithSigning {
+  signAndSubmitTransaction?: (opts: {
+    txXdr: string;
+  }) => Promise<{ hash?: string; txHash?: string }>;
+  signTransaction?: (opts: { txXdr: string }) => Promise<{
+    signedTxXdr?: string;
+    signedXdr?: string;
+    signedTx?: string;
+  }>;
+}
+
+interface StellarServerWithSubmit {
+  submitTransaction: (signedXdr: string) => Promise<{ hash?: string }>;
+}
+
 export function useProfile(address: string) {
   const { rpcUrl, contractId } = useNetwork();
   const { address: me } = useWallet();
@@ -89,11 +104,7 @@ export function useProfile(address: string) {
       // Try to use an injected wallet kit that can sign/submit
       const kit = (
         globalThis as unknown as {
-          __LINKORA_WALLET_KIT__?: {
-            signAndSubmitTransaction: (opts: {
-              txXdr: string;
-            }) => Promise<{ hash?: string; txHash?: string }>;
-          };
+          __LINKORA_WALLET_KIT__?: WalletKitWithSigning;
         }
       ).__LINKORA_WALLET_KIT__;
 
@@ -101,14 +112,16 @@ export function useProfile(address: string) {
         const res = await kit.signAndSubmitTransaction({ txXdr });
         const txHash = res?.hash ?? res?.txHash ?? "";
         showSuccess(txHash);
-      } else if (kit && (kit as any).signTransaction) {
-        const signed = await (kit as any).signTransaction({ txXdr });
-        const signedXdr = signed?.signedTxXdr ?? (signed as any)?.signedXdr ?? (signed as any)?.signedTx;
+      } else if (kit && typeof kit.signTransaction === "function") {
+        const signed = await kit.signTransaction({ txXdr });
+        const signedXdr = signed?.signedTxXdr ?? signed?.signedXdr ?? signed?.signedTx;
         if (!signedXdr) throw new Error("Wallet did not return signed transaction XDR");
 
         const { rpc } = await import("@stellar/stellar-sdk");
         const server = new rpc.Server(rpcUrl);
-        const submitRes = await (server as any).submitTransaction(signedXdr);
+        const submitRes = await (server as unknown as StellarServerWithSubmit).submitTransaction(
+          signedXdr
+        );
         const txHash = submitRes?.hash ?? "";
         showSuccess(txHash);
       } else {

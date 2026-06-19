@@ -44,12 +44,41 @@ interface WalletConnectLike {
   disconnect: () => Promise<void>;
   getPublicKey?: () => Promise<string>;
   isConnected?: () => Promise<boolean>;
-  signTransaction?: (payload: { txXdr: string }) => Promise<{ signedTxXdr: string }>;
+  signTransaction?: (payload: { txXdr: string }) => Promise<WalletSignResult>;
   signAndSubmitTransaction?: (payload: {
     txXdr: string;
     rpcUrl?: string;
-  }) => Promise<{ hash?: string; txHash?: string }>;
+  }) => Promise<WalletSubmitResult>;
 }
+
+interface WalletSignResult {
+  signedTxXdr?: string;
+  signedXdr?: string;
+  signed?: string;
+}
+
+interface WalletSubmitResult {
+  hash?: string;
+  txHash?: string;
+}
+
+interface StellarServerWithSubmit {
+  submitTransaction: (signedXdr: string) => Promise<WalletSubmitResult>;
+}
+
+type WalletConnectRequestArgs = {
+  topic: string;
+  chainId: string;
+  chain: string;
+  request: {
+    method: string;
+    params: { txXdr: string };
+  };
+};
+
+type LinkoraGlobal = typeof globalThis & {
+  __LINKORA_WALLET_KIT__?: WalletConnectLike;
+};
 
 async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
@@ -126,26 +155,28 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
 
       const request = {
         topic,
-        chainId: connectedNetwork.chain, // Fix: add chainId property
+        chainId: connectedNetwork.chain,
         chain: connectedNetwork.chain,
         request: {
           method: "stellar_signXDR",
           params: { txXdr },
         },
-      } as any; // Use any to bypass strict typing
+      } satisfies WalletConnectRequestArgs;
 
-      const res = await client.request(request);
-      return res as { signedTxXdr: string };
+      const res = await client.request(request as Parameters<typeof client.request>[0]);
+      return res as WalletSignResult;
     },
 
     async signAndSubmitTransaction({ txXdr, rpcUrl }: { txXdr: string; rpcUrl?: string }) {
       const signed = await adapter.signTransaction?.({ txXdr });
-      const signedXdr = signed?.signedTxXdr || (signed as any)?.signedXdr || (signed as any)?.signed;
+      const signedXdr = signed?.signedTxXdr || signed?.signedXdr || signed?.signed;
       if (!signedXdr) throw new Error("Wallet did not return signed transaction XDR");
 
       const { rpc } = await import("@stellar/stellar-sdk");
       const server = new rpc.Server(rpcUrl ?? connectedNetwork?.rpcUrl ?? "");
-      const submitRes = await (server as any).submitTransaction(signedXdr);
+      const submitRes = await (server as unknown as StellarServerWithSubmit).submitTransaction(
+        signedXdr
+      );
       return submitRes;
     },
   };
@@ -154,8 +185,8 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
 }
 
 declare global {
-  // eslint-disable-next-line no-var, @typescript-eslint/no-explicit-any
-  var __LINKORA_WALLET_KIT__: any | undefined;
+  // eslint-disable-next-line no-var
+  var __LINKORA_WALLET_KIT__: WalletConnectLike | undefined;
 }
 
 export interface WalletContextType {
@@ -200,8 +231,7 @@ export function WalletProvider({ children }: { children: ReactNode }): JSX.Eleme
           const adapter = await createWalletConnectAdapter();
           // Expose globally for other modules that expect a wallet kit
           // (tests or mini-app bridges may rely on this global).
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (globalThis as any).__LINKORA_WALLET_KIT__ = adapter;
+          (globalThis as LinkoraGlobal).__LINKORA_WALLET_KIT__ = adapter;
           setWalletKit(adapter);
         }
       } catch {

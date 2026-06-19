@@ -27,6 +27,7 @@ pub enum StorageKey {
     FollowingPos(Address, Address), // persistent: (follower, followee) -> u32 position in idx
     FollowersPos(Address, Address), // persistent: (followee, follower) -> u32 position in idx
     GraphMigrated(Address),         // persistent: user -> bool (migration tracking)
+    DmPublicKey(Address),           // persistent: user -> X25519 public key for encrypted DMs
     // ── Governance ────────────────────────────────────────────────────────
     GovProposal(u64),      // persistent: proposal_id -> GovProposal
     GovVote(u64, Address), // persistent: (proposal_id, voter) -> bool (prevents double-voting)

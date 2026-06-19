@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useWalletContext } from '../../context/WalletContext';
-import { useToast } from '../../context/ToastContext';
-import { DmService, type ConversationMessage } from '../../../../packages/sdk/src/dm';
-import { EmptyState, ErrorState } from '../../components/states';
+import React, { useState, useEffect, useCallback } from "react";
+import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet } from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useWalletContext } from "../../context/WalletContext";
+import { useToast } from "../../context/ToastContext";
+import { DmService, type ConversationMessage } from "../../../../packages/sdk/src/dm";
+import { EmptyState, ErrorState } from "../../components/states";
 
 export default function DirectMessageScreen() {
   const router = useRouter();
@@ -13,10 +13,28 @@ export default function DirectMessageScreen() {
   const { showToast } = useToast();
 
   const [messages, setMessages] = useState<Array<ConversationMessage & { content: string }>>([]);
-  const [newMessage, setNewMessage] = useState('');
+  const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dmService, setDmService] = useState<DmService | null>(null);
+
+  const loadMessagesForService = useCallback(
+    async (service: DmService) => {
+      if (!address) return;
+      try {
+        const msgs = await service.getMessages(address);
+        setMessages(msgs);
+      } catch (err) {
+        setError(`Failed to load messages: ${err}`);
+      }
+    },
+    [address]
+  );
+
+  const loadMessages = useCallback(async () => {
+    if (!dmService) return;
+    await loadMessagesForService(dmService);
+  }, [dmService, loadMessagesForService]);
 
   // Initialize DM service and check if keys need to be generated
   useEffect(() => {
@@ -25,26 +43,26 @@ export default function DirectMessageScreen() {
     const initializeDm = async () => {
       try {
         setLoading(true);
-        const service = new DmService(wallet, 'https://dm-relay.linkora.app');
-        
+        const service = new DmService(wallet, "https://dm-relay.linkora.app");
+
         // Check if user has DM keys, if not prompt to generate
         const hasKeys = await service.hasLocalKeys();
         if (!hasKeys) {
           Alert.alert(
-            'Enable Direct Messages',
-            'To send encrypted messages, you need to generate encryption keys. This only needs to be done once.',
+            "Enable Direct Messages",
+            "To send encrypted messages, you need to generate encryption keys. This only needs to be done once.",
             [
               {
-                text: 'Cancel',
-                style: 'cancel',
+                text: "Cancel",
+                style: "cancel",
                 onPress: () => router.back(),
               },
               {
-                text: 'Generate Keys',
+                text: "Generate Keys",
                 onPress: async () => {
                   try {
                     await service.generateAndPublishKeys();
-                    showToast({ kind: 'success', title: 'Encryption keys generated successfully' });
+                    showToast({ kind: "success", title: "Encryption keys generated successfully" });
                     setDmService(service);
                   } catch (err) {
                     setError(`Failed to generate keys: ${err}`);
@@ -55,9 +73,9 @@ export default function DirectMessageScreen() {
           );
           return;
         }
-        
+
         setDmService(service);
-        await loadMessages();
+        await loadMessagesForService(service);
       } catch (err) {
         setError(`Failed to initialize messaging: ${err}`);
       } finally {
@@ -66,17 +84,7 @@ export default function DirectMessageScreen() {
     };
 
     initializeDm();
-  }, [wallet, address]);
-
-  const loadMessages = useCallback(async () => {
-    if (!dmService || !address) return;
-    try {
-      const msgs = await dmService.getMessages(address);
-      setMessages(msgs);
-    } catch (err) {
-      setError(`Failed to load messages: ${err}`);
-    }
-  }, [dmService, address]);
+  }, [wallet, address, router, showToast, loadMessagesForService]);
 
   const sendMessage = useCallback(async () => {
     if (!dmService || !newMessage.trim() || !address) return;
@@ -84,12 +92,12 @@ export default function DirectMessageScreen() {
     try {
       setLoading(true);
       await dmService.sendMessage(address, newMessage.trim());
-      setNewMessage('');
+      setNewMessage("");
       await loadMessages();
-      showToast({ kind: 'success', title: 'Message sent' });
+      showToast({ kind: "success", title: "Message sent" });
     } catch (err) {
       setError(`Failed to send message: ${err}`);
-      showToast({ kind: 'error', title: 'Failed to send message' });
+      showToast({ kind: "error", title: "Failed to send message" });
     } finally {
       setLoading(false);
     }
@@ -97,21 +105,15 @@ export default function DirectMessageScreen() {
 
   const renderMessage = ({ item }: { item: ConversationMessage & { content: string } }) => {
     const isMyMessage = item.sender === wallet?.address;
-    
+
     return (
-      <View style={[
-        styles.messageContainer,
-        isMyMessage ? styles.myMessage : styles.theirMessage
-      ]}>
-        <Text style={[
-          styles.messageText,
-          isMyMessage ? styles.myMessageText : styles.theirMessageText
-        ]}>
+      <View style={[styles.messageContainer, isMyMessage ? styles.myMessage : styles.theirMessage]}>
+        <Text
+          style={[styles.messageText, isMyMessage ? styles.myMessageText : styles.theirMessageText]}
+        >
           {item.content}
         </Text>
-        <Text style={styles.timestamp}>
-          {new Date(item.timestamp * 1000).toLocaleTimeString()}
-        </Text>
+        <Text style={styles.timestamp}>{new Date(item.timestamp * 1000).toLocaleTimeString()}</Text>
       </View>
     );
   };
@@ -169,7 +171,7 @@ export default function DirectMessageScreen() {
         <TouchableOpacity
           style={[
             styles.sendButton,
-            (!newMessage.trim() || loading || !dmService) && styles.sendButtonDisabled
+            (!newMessage.trim() || loading || !dmService) && styles.sendButtonDisabled,
           ]}
           onPress={sendMessage}
           disabled={!newMessage.trim() || loading || !dmService}
@@ -184,29 +186,29 @@ export default function DirectMessageScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: "#fff",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e1e5e9',
+    borderBottomColor: "#e1e5e9",
   },
   backButton: {
-    color: '#007AFF',
+    color: "#007AFF",
     fontSize: 16,
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#1d2129',
+    fontWeight: "600",
+    color: "#1d2129",
   },
   addressText: {
     fontSize: 14,
-    color: '#65676b',
+    color: "#65676b",
   },
   messagesContainer: {
     flex: 1,
@@ -220,43 +222,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
-    maxWidth: '80%',
+    maxWidth: "80%",
   },
   myMessage: {
-    alignSelf: 'flex-end',
-    backgroundColor: '#007AFF',
+    alignSelf: "flex-end",
+    backgroundColor: "#007AFF",
   },
   theirMessage: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#f0f0f0',
+    alignSelf: "flex-start",
+    backgroundColor: "#f0f0f0",
   },
   messageText: {
     fontSize: 16,
   },
   myMessageText: {
-    color: '#fff',
+    color: "#fff",
   },
   theirMessageText: {
-    color: '#1d2129',
+    color: "#1d2129",
   },
   timestamp: {
     fontSize: 12,
-    color: '#65676b',
+    color: "#65676b",
     marginTop: 4,
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+    flexDirection: "row",
+    alignItems: "flex-end",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#e1e5e9',
-    backgroundColor: '#fff',
+    borderTopColor: "#e1e5e9",
+    backgroundColor: "#fff",
   },
   textInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#e1e5e9',
+    borderColor: "#e1e5e9",
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -265,17 +267,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   sendButton: {
-    backgroundColor: '#007AFF',
+    backgroundColor: "#007AFF",
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
   sendButtonDisabled: {
-    backgroundColor: '#cccccc',
+    backgroundColor: "#cccccc",
   },
   sendButtonText: {
-    color: '#fff',
+    color: "#fff",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });
