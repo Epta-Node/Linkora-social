@@ -13,7 +13,7 @@
   "dependencies": {
     "@stellar/freighter-api": "^2.0.0",
     "linkora-sdk": "workspace:*",
-    "next": "15.3.1",
+    "next": "15.5.19",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
