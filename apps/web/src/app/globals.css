@@ -1,13 +1,42 @@
 @import "tailwindcss";
 
 :root {
+  /* Existing tokens */
   --background: #0a0a0f;
   --foreground: #f0f0f5;
   --accent: #7c3aed;
   --accent-hover: #6d28d9;
   --muted: #1e1e2e;
   --border: #2e2e3e;
-  --text-muted: #8888aa;
+
+  /* SPEC.md design tokens — Profile page, layout shell, etc. */
+  --bg-primary: #0D0D12;
+  --bg-secondary: #1A1A23;
+  --bg-tertiary: #252530;
+  --accent-coral: #FF6B5B;
+  --accent-teal: #4ECDC4;
+  --text-primary: #F5F5F7;
+  --text-muted: #8E8E93;
+  --success: #34D399;
+  --error: #F87171;
+  --glass: rgba(26, 26, 35, 0.8);
+
+  /* Spacing scale */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 body {
