@@ -35,6 +35,8 @@ pub enum StorageKey {
     GovProposalCount,      // persistent: next proposal id counter
     // ── End-to-end encrypted direct messages ──────────────────────────────
     DmPublicKey(Address), // persistent: user -> X25519 public key for E2EE DMs
+    Report(u64, Address),  // persistent: (post_id, reporter) -> Report
+    ReportCount(u64),      // persistent: post_id -> u32 count of reports
 }
 
 // ── Instance-storage key constants (small scalars, not contracttype) ──────────
@@ -46,6 +48,7 @@ const TREASURY: Symbol = symbol_short!("TREASURY");
 const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 const INITIALIZED: Symbol = symbol_short!("INIT");
 const TIP_COOLDOWN_WINDOW: Symbol = symbol_short!("TIP_CD_W");
+const MODERATION_SLASH_BPS: Symbol = symbol_short!("MOD_SL_B");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -133,6 +136,7 @@ pub enum GovParameter {
     GovQuorum,
     GovTimeLock,
     GovVoteWindow,
+    ModerationSlashBps,
 }
 
 #[contracttype]
@@ -167,6 +171,26 @@ pub struct GovConfig {
     pub vote_window_ledgers: u32,
     pub quorum_decay_rate_bps: u32,
     pub quorum_floor: u32,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReportStatus {
+    Pending,
+    Dismissed,
+    Upheld,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct Report {
+    pub post_id: u64,
+    pub reporter: Address,
+    pub stake_amount: i128,
+    pub token: Address,
+    pub reason_hash: BytesN<32>,
+    pub created_ledger: u32,
+    pub status: ReportStatus,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -415,6 +439,34 @@ pub struct EmergencyBypassEvent {
     pub action: Symbol,
 }
 
+#[contractevent]
+#[derive(Clone)]
+pub struct PostReportedEvent {
+    #[topic]
+    pub post_id: u64,
+    #[topic]
+    pub reporter: Address,
+    pub stake_amount: i128,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PostRemovedByModerationEvent {
+    #[topic]
+    pub post_id: u64,
+    #[topic]
+    pub reporter: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ReportDismissedEvent {
+    #[topic]
+    pub post_id: u64,
+    #[topic]
+    pub reporter: Address,
+}
+
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -491,6 +543,9 @@ impl LinkoraContract {
         env.storage()
             .instance()
             .set(&TIP_COOLDOWN_WINDOW, &TIP_COOLDOWN_LEDGERS);
+        env.storage()
+            .instance()
+            .set(&MODERATION_SLASH_BPS, &0u32);
     }
 
     // ── Profiles ──────────────────────────────────────────────────────────────
@@ -1679,6 +1734,11 @@ impl LinkoraContract {
                 cfg.vote_window_ledgers = val;
                 env.storage().persistent().set(&StorageKey::GovConfig, &cfg);
             }
+            GovParameter::ModerationSlashBps => {
+                let val = proposal.new_value as u32;
+                assert!(val <= 10_000, "invalid slash bps");
+                env.storage().instance().set(&MODERATION_SLASH_BPS, &val);
+            }
         }
 
         proposal.status = GovStatus::Executed;
@@ -1764,6 +1824,194 @@ impl LinkoraContract {
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
         ContractUpgraded { new_wasm_hash }.publish(&env);
+    }
+
+    pub fn report_post(
+        env: Env,
+        reporter: Address,
+        post_id: u64,
+        token: Address,
+        stake_amount: i128,
+        reason_hash: BytesN<32>,
+    ) {
+        Self::bump_instance(&env);
+        reporter.require_auth();
+
+        let post_key = StorageKey::Post(post_id);
+        if !env.storage().persistent().has(&post_key) {
+            panic!("post does not exist");
+        }
+
+        let report_key = StorageKey::Report(post_id, reporter.clone());
+        if env.storage().persistent().has(&report_key) {
+            panic!("already reported");
+        }
+
+        assert!(stake_amount > 0, "stake amount must be positive");
+        token::Client::new(&env, &token).transfer(
+            &reporter,
+            &env.current_contract_address(),
+            &stake_amount,
+        );
+
+        let count_key = StorageKey::ReportCount(post_id);
+        let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage().persistent().set(&count_key, &(count + 1));
+        Self::bump(&env, &count_key);
+
+        let report = Report {
+            post_id,
+            reporter: reporter.clone(),
+            stake_amount,
+            token,
+            reason_hash,
+            created_ledger: env.ledger().sequence(),
+            status: ReportStatus::Pending,
+        };
+        env.storage().persistent().set(&report_key, &report);
+        Self::bump(&env, &report_key);
+
+        PostReportedEvent {
+            post_id,
+            reporter,
+            stake_amount,
+        }
+        .publish(&env);
+    }
+
+    pub fn review_report(
+        env: Env,
+        signers: Vec<Address>,
+        post_id: u64,
+        reporter: Address,
+        verdict: ReportStatus,
+    ) {
+        Self::bump_instance(&env);
+        assert!(verdict != ReportStatus::Pending, "invalid verdict");
+
+        let pool_key = StorageKey::Pool(ADMIN);
+        let pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&pool_key)
+            .expect("pool not found");
+
+        assert!(signers.len() >= pool.threshold, "insufficient signers");
+        for signer in signers.iter() {
+            assert!(
+                pool.admins.iter().any(|x| x == signer),
+                "unauthorized signer"
+            );
+            signer.require_auth();
+        }
+
+        let report_key = StorageKey::Report(post_id, reporter.clone());
+        let mut report: Report = env
+            .storage()
+            .persistent()
+            .get(&report_key)
+            .expect("report not found");
+        assert!(report.status == ReportStatus::Pending, "report already resolved");
+
+        match verdict {
+            ReportStatus::Upheld => {
+                let post_key = StorageKey::Post(post_id);
+                if let Some(post) = env.storage().persistent().get::<_, Post>(&post_key) {
+                    let author = post.author.clone();
+                    env.storage().persistent().remove(&post_key);
+
+                    let author_key = StorageKey::AuthorPosts(author.clone());
+                    if let Some(mut author_posts) = env
+                        .storage()
+                        .persistent()
+                        .get::<_, soroban_sdk::Vec<u64>>(&author_key)
+                    {
+                        if let Some(index) = author_posts.iter().position(|id| id == post_id) {
+                            author_posts.remove(index as u32);
+                            if author_posts.is_empty() {
+                                env.storage().persistent().remove(&author_key);
+                            } else {
+                                env.storage().persistent().set(&author_key, &author_posts);
+                                Self::bump(&env, &author_key);
+                            }
+                        }
+                    }
+
+                    // Slasher
+                    let slash_bps = env
+                        .storage()
+                        .instance()
+                        .get(&MODERATION_SLASH_BPS)
+                        .unwrap_or(0u32);
+                    if slash_bps > 0 {
+                        let profile_key = StorageKey::Profile(author.clone());
+                        if let Some(profile) = env.storage().persistent().get::<_, Profile>(&profile_key) {
+                            let creator_token = profile.creator_token;
+                            let token_client = token::Client::new(&env, &creator_token);
+                            let balance = token_client.balance(&author);
+                            let slash_amount = (balance * slash_bps as i128) / 10_000;
+                            if slash_amount > 0 {
+                                token_client.burn(&author, &slash_amount);
+                            }
+                        }
+                    }
+                }
+
+                token::Client::new(&env, &report.token).transfer(
+                    &env.current_contract_address(),
+                    &report.reporter,
+                    &report.stake_amount,
+                );
+
+                PostRemovedByModerationEvent {
+                    post_id,
+                    reporter: report.reporter.clone(),
+                }
+                .publish(&env);
+            }
+            ReportStatus::Dismissed => {
+                let treasury: Address = env
+                    .storage()
+                    .instance()
+                    .get(&TREASURY)
+                    .expect("treasury not set");
+
+                token::Client::new(&env, &report.token).transfer(
+                    &env.current_contract_address(),
+                    &treasury,
+                    &report.stake_amount,
+                );
+
+                ReportDismissedEvent {
+                    post_id,
+                    reporter: report.reporter.clone(),
+                }
+                .publish(&env);
+            }
+            _ => {}
+        }
+
+        report.status = verdict;
+        env.storage().persistent().set(&report_key, &report);
+        Self::bump(&env, &report_key);
+    }
+
+    pub fn get_report(env: Env, post_id: u64, reporter: Address) -> Option<Report> {
+        let key = StorageKey::Report(post_id, reporter);
+        let result: Option<Report> = env.storage().persistent().get(&key);
+        if result.is_some() {
+            Self::bump(&env, &key);
+        }
+        result
+    }
+
+    pub fn get_report_count(env: Env, post_id: u64) -> u32 {
+        let key = StorageKey::ReportCount(post_id);
+        let result = env.storage().persistent().get(&key).unwrap_or(0u32);
+        if result > 0 {
+            Self::bump(&env, &key);
+        }
+        result
     }
 
     // ── Internal Helpers ──────────────────────────────────────────────────────
