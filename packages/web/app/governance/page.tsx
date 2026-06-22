@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, CSSProperties } from "react";
+import React, { useState, useCallback, CSSProperties } from "react";
 import { useWallet } from "../components/WalletProvider";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -264,7 +264,6 @@ export default function GovernancePage() {
           ) : (
             <div style={styles.proposalList}>
               {activeProposals.map((proposal) => {
-                const totalVotes = proposal.votes_for + proposal.votes_against;
                 const votesForPctOfSupply = (proposal.votes_for / TOTAL_SUPPLY) * 100;
                 // Calculate progress % toward meeting the target quorum (e.g. 60%)
                 const quorumProgress =

@@ -43,7 +43,11 @@ function FollowButton({
   state,
   onFollow,
   onUnfollow,
-}: Pick<ProfileHeaderProps, "followState" | "onFollow" | "onUnfollow"> & { state: ProfileHeaderProps["followState"] }) {
+}: {
+  state: ProfileHeaderProps["followState"];
+  onFollow: () => void;
+  onUnfollow: () => void;
+}) {
   if (state === "blocked") {
     return <button disabled style={{ ...styles.followBtn, ...styles.blockedBtn }}>Blocked</button>;
   }

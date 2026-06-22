@@ -1,11 +1,38 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useWallet } from '../../../contexts/WalletContext';
-import { useToast } from '../../../contexts/ToastContext';
+import { useWallet } from '../../components/WalletProvider';
+import { useNotification } from '../../context/NotificationContext';
 import { DmService, type ConversationMessage } from '../../../../sdk/src/dm';
-import { EmptyState, ErrorState } from '../../../components/states';
+
+function EmptyState({ icon, title, subtitle }: { icon?: string; title: string; subtitle?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-center">
+      {icon && <div className="text-4xl mb-2">{icon}</div>}
+      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+      {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
+    </div>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center p-6 text-center bg-red-50 rounded-lg border border-red-200">
+      <div className="text-2xl text-red-500 mb-2">⚠️</div>
+      <h3 className="text-lg font-semibold text-red-800">Something went wrong</h3>
+      <p className="text-sm text-red-600 mt-1 max-w-md">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="mt-4 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition"
+        >
+          Try Again
+        </button>
+      )}
+    </div>
+  );
+}
 
 interface DirectMessagePageProps {
   params: {
@@ -16,8 +43,12 @@ interface DirectMessagePageProps {
 export default function DirectMessagePage({ params }: DirectMessagePageProps) {
   const router = useRouter();
   const { address } = params;
-  const { wallet } = useWallet();
-  const { showToast } = useToast();
+  const { publicKey } = useWallet();
+  const wallet = useMemo(() => publicKey ? { publicKey, address: publicKey } : null, [publicKey]);
+  const { addNotification } = useNotification();
+  const showToast = useCallback((message: string, status: 'success' | 'error') => {
+    addNotification({ status, message });
+  }, [addNotification]);
 
   const [messages, setMessages] = useState<Array<ConversationMessage & { content: string }>>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -25,6 +56,17 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
   const [error, setError] = useState<string | null>(null);
   const [dmService, setDmService] = useState<DmService | null>(null);
   const [showKeyPrompt, setShowKeyPrompt] = useState(false);
+
+  const loadMessages = useCallback(async (service?: DmService) => {
+    const activeService = service || dmService;
+    if (!activeService || !address) return;
+    try {
+      const msgs = await activeService.getMessages(address);
+      setMessages(msgs);
+    } catch (err) {
+      setError(`Failed to load messages: ${err}`);
+    }
+  }, [dmService, address]);
 
   // Initialize DM service and check if keys need to be generated
   useEffect(() => {
@@ -44,7 +86,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
         }
         
         setDmService(service);
-        await loadMessages();
+        await loadMessages(service);
       } catch (err) {
         setError(`Failed to initialize messaging: ${err}`);
       } finally {
@@ -72,16 +114,6 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
       setLoading(false);
     }
   };
-
-  const loadMessages = useCallback(async () => {
-    if (!dmService || !address) return;
-    try {
-      const msgs = await dmService.getMessages(address);
-      setMessages(msgs);
-    } catch (err) {
-      setError(`Failed to load messages: ${err}`);
-    }
-  }, [dmService, address]);
 
   const sendMessage = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
