@@ -1,6 +1,6 @@
 # ADR-007: Community-Driven Content Moderation and Slashed Stakes
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-06-21  
 **Authors:** Antigravity
 
@@ -49,10 +49,24 @@ The slash percentage is configurable via the existing on-chain governance system
 
 On an `Upheld` report:
 - The contract checks if the author has registered a profile containing a `creator_token` address.
-- If a creator token exists, the contract calls `token.burn(author, slash_amount)` where `slash_amount` is calculated as `(author_balance * moderation_slash_bps) / 10,000`.
+- If a creator token exists, the contract calls `token.burn_from(contract, author, slash_amount)` where `slash_amount` is calculated as `(author_balance * moderation_slash_bps) / 10,000`.
+- Slashing only executes if the author has pre-approved the Linkora contract via `token.approve(author, contract_address, amount, expiry)`. If no allowance exists, the slash is **gracefully skipped** — the post is still deleted and the reporter's stake is still refunded.
 - The reporter's stake is refunded in full.
+- If the post has already been deleted before `review_report` is called, post deletion and slashing are skipped, but the stake is still refunded to the reporter.
 
-### 5. Storage Layout
+### 5. The Moderator Pool
+
+The `review_report` function authenticates reviewers via a community pool with symbol ID `mods`. This pool **must** be created via `create_pool` before `review_report` is callable. The pool uses M-of-N threshold signatures.
+
+Deployers must create the `mods` pool after initializing the contract:
+```bash
+# Example: create 2-of-3 moderator pool
+stellar contract invoke -- create_pool \
+  --admin <admin> --pool_id mods --token <xlm> \
+  --initial_admins '[mod1, mod2, mod3]' --threshold 2
+```
+
+### 6. Storage Layout
 
 The following storage keys are added to `StorageKey` enum:
 - `StorageKey::Report(u64, Address)` (Persistent): Stores the `Report` struct mapping a `(post_id, reporter)` to its state.
@@ -87,6 +101,8 @@ pub struct Report {
 - Robust, spam-resistant moderation mechanism.
 - Financial alignment of incentives between reporters and creators.
 - Integration with governance for configurable penalties.
+- Graceful degradation: upheld-report stake refund and post deletion succeed even when slashing cannot proceed.
 
 ### Negative
-- Slashed creator tokens require the contract to have permission to burn from authors, which must be supported by the creator token contract design.
+- Slashed creator tokens require the author to pre-approve the Linkora contract via `token.approve()`. Without this allowance, the slash is silently skipped rather than reverting. Front-ends and documentation must surface this requirement to users.
+- `review_report` will panic if the `mods` pool has not been created. Deployers must ensure the pool is created before the moderation feature is live.

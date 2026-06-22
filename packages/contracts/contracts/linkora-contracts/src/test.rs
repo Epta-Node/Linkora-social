@@ -3283,14 +3283,14 @@ fn test_moderation_happy_path_uphold() {
 
     let (client, admin, treasury) = setup_contract(&env);
 
-    // Create the admin pool with M-of-N signatures (2-of-2)
+    // Create the moderator pool with M-of-N signatures (2-of-2)
     let pool_admin1 = Address::generate(&env);
     let pool_admin2 = Address::generate(&env);
     let pool_admins = vec![&env, pool_admin1.clone(), pool_admin2.clone()];
     let token = setup_token(&env, &pool_admin1);
     
-    // We register the ADMIN pool
-    client.create_pool(&admin, &symbol_short!("ADMIN"), &token, &pool_admins, &2);
+    // We register the mods pool
+    client.create_pool(&admin, &symbol_short!("mods"), &token, &pool_admins, &2);
 
     let author = Address::generate(&env);
     let reporter = Address::generate(&env);
@@ -3300,6 +3300,10 @@ fn test_moderation_happy_path_uphold() {
     let creator_token = setup_token(&env, &author);
     StellarAssetClient::new(&env, &creator_token).mint(&author, &10000);
     client.set_profile(&author, &String::from_str(&env, "author"), &creator_token);
+
+    // Approve Linkora contract to burn creator token from author
+    let creator_token_client = TokenClient::new(&env, &creator_token);
+    creator_token_client.approve(&author, &client.address, &5000, &999999);
 
     // Set ModerationSlashBps via governance (to 50% = 5000 bps)
     client.gov_init_config(&50, &100, &200, &50, &30);
@@ -3354,7 +3358,7 @@ fn test_moderation_dismiss() {
     let pool_admins = vec![&env, pool_admin1.clone()];
     let token = setup_token(&env, &pool_admin1);
     
-    client.create_pool(&admin, &symbol_short!("ADMIN"), &token, &pool_admins, &1);
+    client.create_pool(&admin, &symbol_short!("mods"), &token, &pool_admins, &1);
 
     let author = Address::generate(&env);
     let reporter = Address::generate(&env);
@@ -3410,7 +3414,7 @@ fn test_moderation_unauthorized_review_panics() {
     let pool_admins = vec![&env, pool_admin1.clone(), pool_admin2.clone()];
     let token = setup_token(&env, &pool_admin1);
     
-    client.create_pool(&admin, &symbol_short!("ADMIN"), &token, &pool_admins, &2);
+    client.create_pool(&admin, &symbol_short!("mods"), &token, &pool_admins, &2);
 
     let author = Address::generate(&env);
     let reporter = Address::generate(&env);
@@ -3423,4 +3427,55 @@ fn test_moderation_unauthorized_review_panics() {
     // Call review with only 1 signer when 2 are required
     let only_one_signer = vec![&env, pool_admin1.clone()];
     client.review_report(&only_one_signer, &post_id, &reporter, &ReportStatus::Upheld);
+}
+
+#[test]
+#[should_panic(expected = "cannot report own post")]
+fn test_moderation_cannot_report_own_post() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+    let token = setup_token(&env, &author);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "own content"));
+    let reason_hash = BytesN::from_array(&env, &[5u8; 32]);
+
+    client.report_post(&author, &post_id, &token, &100, &reason_hash);
+}
+
+#[test]
+fn test_moderation_review_already_deleted_post() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admins = vec![&env, pool_admin1.clone()];
+    let token = setup_token(&env, &pool_admin1);
+    
+    client.create_pool(&admin, &symbol_short!("mods"), &token, &pool_admins, &1);
+
+    let author = Address::generate(&env);
+    let reporter = Address::generate(&env);
+    StellarAssetClient::new(&env, &token).mint(&reporter, &1000);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "content to delete"));
+    let reason_hash = BytesN::from_array(&env, &[6u8; 32]);
+
+    client.report_post(&reporter, &post_id, &token, &100, &reason_hash);
+
+    // Delete post before review
+    client.delete_post(&author, &post_id);
+
+    // Review report: Upheld should succeed gracefully and still refund reporter
+    client.review_report(&pool_admins, &post_id, &reporter, &ReportStatus::Upheld);
+
+    // Stake should be returned to reporter
+    assert_eq!(TokenClient::new(&env, &token).balance(&reporter), 1000);
+
+    let report_after = client.get_report(&post_id, &reporter).unwrap();
+    assert_eq!(report_after.status, ReportStatus::Upheld);
 }

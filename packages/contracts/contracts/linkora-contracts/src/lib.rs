@@ -1838,9 +1838,13 @@ impl LinkoraContract {
         reporter.require_auth();
 
         let post_key = StorageKey::Post(post_id);
-        if !env.storage().persistent().has(&post_key) {
-            panic!("post does not exist");
-        }
+        let post: Post = env
+            .storage()
+            .persistent()
+            .get(&post_key)
+            .unwrap_or_else(|| panic!("post does not exist"));
+
+        assert!(reporter != post.author, "cannot report own post");
 
         let report_key = StorageKey::Report(post_id, reporter.clone());
         if env.storage().persistent().has(&report_key) {
@@ -1889,12 +1893,12 @@ impl LinkoraContract {
         Self::bump_instance(&env);
         assert!(verdict != ReportStatus::Pending, "invalid verdict");
 
-        let pool_key = StorageKey::Pool(ADMIN);
+        let pool_key = StorageKey::Pool(symbol_short!("mods"));
         let pool: Pool = env
             .storage()
             .persistent()
             .get(&pool_key)
-            .expect("pool not found");
+            .expect("moderator pool 'mods' not found");
 
         assert!(signers.len() >= pool.threshold, "insufficient signers");
         for signer in signers.iter() {
@@ -1951,10 +1955,23 @@ impl LinkoraContract {
                             let balance = token_client.balance(&author);
                             let slash_amount = (balance * slash_bps as i128) / 10_000;
                             if slash_amount > 0 {
-                                token_client.burn(&author, &slash_amount);
+                                // Creator tokens are deployed by the token factory contract.
+                                // Linkora contract has no burn authority by default.
+                                // We use burn_from, or gracefully skip if allowance/authority is missing.
+                                let current_allowance = token_client.allowance(&author, &env.current_contract_address());
+                                if current_allowance >= slash_amount {
+                                    token_client.burn_from(&env.current_contract_address(), &author, &slash_amount);
+                                } else {
+                                    // Gracefully skip the slash: insufficient burn allowance.
+                                    // The rest of the upheld flow (stake refund, post deletion) still completes.
+                                    // Authors must pre-approve the contract via token.approve() for slashing to take effect.
+                                }
                             }
                         }
                     }
+                } else {
+                    // Post has already been deleted between report submission and review_report.
+                    // Gracefully skip post deletion and slashing, but still refund the reporter's stake.
                 }
 
                 token::Client::new(&env, &report.token).transfer(
@@ -1988,7 +2005,9 @@ impl LinkoraContract {
                 }
                 .publish(&env);
             }
-            _ => {}
+            ReportStatus::Pending => {
+                panic!("invalid verdict");
+            }
         }
 
         report.status = verdict;

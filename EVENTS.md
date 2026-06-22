@@ -141,8 +141,53 @@ stellar events --topic-filter 'pool_id' --contract-id <contract-addr>
 
 ---
 
+## PostReportedEvent (v1)
+
+**Topics:**
+- `post_id: u64` (indexed)
+- `reporter: Address` (indexed)
+
+**Data:**
+- `stake_amount: i128` (stake locked by reporter in smallest token units)
+
+**Emitted by:** `report_post()`
+
+**Behavior:** Emitted on every successful report submission. Duplicate reports by the same reporter for the same post are rejected before this event fires.
+
+**Example filter:**
+```bash
+stellar events --topic-filter 'post_id,reporter' --contract-id <contract-addr>
+```
+
+---
+
+## PostRemovedByModerationEvent (v1)
+
+**Topics:**
+- `post_id: u64` (indexed)
+- `reporter: Address` (indexed)
+
+**Emitted by:** `review_report()` when `verdict = Upheld`
+
+**Behavior:** Emitted when moderators uphold a report and delete the post. The reporter's stake is refunded. If the post was already deleted before the review call, the event is still emitted and the stake is still refunded. The author's creator token balance is slashed only if the Linkora contract has a sufficient `burn_from` allowance (pre-approved by the author via `token.approve()`).
+
+---
+
+## ReportDismissedEvent (v1)
+
+**Topics:**
+- `post_id: u64` (indexed)
+- `reporter: Address` (indexed)
+
+**Emitted by:** `review_report()` when `verdict = Dismissed`
+
+**Behavior:** Emitted when moderators dismiss a report. The reporter's stake is forfeited and transferred to the protocol treasury.
+
+---
+
 ## Notes
 
 - All amounts are in the token's smallest unit (usually stroop for Stellar assets).
 - Topics enable efficient filtering and indexing; data fields are available but not indexed.
 - Indexers should track event versioning and handle schema migrations when major version bumps occur.
+- The moderation pool used by `review_report` is the pool with symbol ID `mods`. Indexers should be aware that `review_report` will not function unless this pool has been created via `create_pool`.
