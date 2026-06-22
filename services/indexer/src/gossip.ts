@@ -13,7 +13,7 @@
  */
 
 import { Pool as PgPool } from "pg";
-import { getStateRoot, saveStateRoot } from "./stateRoot";
+import { getStateRoot } from "./stateRoot";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -57,10 +57,13 @@ async function fetchPeerRoot(peerUrl: string, ledger: number): Promise<PeerState
 
 /**
  * Binary-search over [low, high] to find the first ledger where local and
- * peer roots diverge, then re-computes the state root from that ledger.
+ * peer roots diverge, then log the result for operator action.
  *
- * In a real system "replay from ledger" would re-index events; here we
- * re-compute and persist the current root so the operator can act on the log.
+ * NOTE: Automatic event replay is not yet implemented (tracked in issue #536).
+ * After identifying the first diverging ledger, this function logs
+ * RECONCILIATION_REQUIRES_REPLAY so that operators know the node must be
+ * manually re-synced from that ledger. The node remains fenced until an
+ * operator intervenes.
  */
 async function reconcile(
   pg: PgPool,
@@ -100,18 +103,16 @@ async function reconcile(
     }
   }
 
+  // Automatic replay from the diverging ledger is not yet implemented.
+  // Log the required action so the operator can trigger a manual re-sync.
+  // TODO(#536): implement event replay by re-fetching Soroban events from
+  // `firstDivergingLedger` via the RPC stream and re-indexing into PostgreSQL.
   console.log(
     JSON.stringify({
-      event: "RECONCILIATION_FIRST_DIVERGING_LEDGER",
+      event: "RECONCILIATION_REQUIRES_REPLAY",
       firstDivergingLedger: lo,
+      action: "Manual re-sync required: restart the indexer with REPLAY_FROM_LEDGER=" + lo,
     })
-  );
-
-  // Re-compute state root from current DB state (replay would re-index here).
-  await saveStateRoot(pg, lo);
-
-  console.log(
-    JSON.stringify({ event: "RECONCILIATION_COMPLETE", replayFromLedger: lo })
   );
 }
 
@@ -132,7 +133,10 @@ export async function startGossip(pg: PgPool, signal: AbortSignal): Promise<void
   while (!signal.aborted) {
     await new Promise<void>((resolve) => {
       const timer = setTimeout(resolve, GOSSIP_INTERVAL_MS);
-      signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); });
+      signal.addEventListener("abort", () => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
 
     if (signal.aborted || fenced) break;

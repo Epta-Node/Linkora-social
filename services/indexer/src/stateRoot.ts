@@ -16,7 +16,9 @@ import { Pool as PgPool } from "pg";
 
 /** Compute sha256 of a string and return a hex digest. */
 function sha256(data: string): string {
-  return createHash("sha256").update(String(data ?? "")).digest("hex");
+  return createHash("sha256")
+    .update(String(data ?? ""))
+    .digest("hex");
 }
 
 /**
@@ -50,8 +52,10 @@ export function merkleRoot(leaves: string[]): string {
 
 async function postsRoot(pg: PgPool): Promise<string> {
   const { rows } = await pg.query<{ h: string }>(`
-    SELECT md5(id::text || author || COALESCE(content,'') || tip_total::text
-               || like_count::text || COALESCE(deleted_at::text,'')) AS h
+    SELECT encode(
+      digest(id::text || author || COALESCE(content,'') || tip_total::text
+             || like_count::text || COALESCE(deleted_at::text,''), 'sha256'),
+      'hex') AS h
     FROM posts
     ORDER BY id
   `);
@@ -60,7 +64,7 @@ async function postsRoot(pg: PgPool): Promise<string> {
 
 async function followsRoot(pg: PgPool): Promise<string> {
   const { rows } = await pg.query<{ h: string }>(`
-    SELECT md5(follower || followee || created_at::text) AS h
+    SELECT encode(digest(follower || followee || created_at::text, 'sha256'), 'hex') AS h
     FROM follows
     ORDER BY follower, followee
   `);
@@ -69,7 +73,9 @@ async function followsRoot(pg: PgPool): Promise<string> {
 
 async function profilesRoot(pg: PgPool): Promise<string> {
   const { rows } = await pg.query<{ h: string }>(`
-    SELECT md5(address || username || creator_token || updated_ledger::text) AS h
+    SELECT encode(
+      digest(address || username || creator_token || updated_ledger::text, 'sha256'),
+      'hex') AS h
     FROM profiles
     ORDER BY address
   `);
@@ -78,8 +84,10 @@ async function profilesRoot(pg: PgPool): Promise<string> {
 
 async function poolsRoot(pg: PgPool): Promise<string> {
   const { rows } = await pg.query<{ h: string }>(`
-    SELECT md5(pool_id || token || balance::text || admins::text
-               || threshold::text || created_ledger::text || updated_ledger::text) AS h
+    SELECT encode(
+      digest(pool_id || token || balance::text || admins::text
+             || threshold::text || created_ledger::text || updated_ledger::text, 'sha256'),
+      'hex') AS h
     FROM pools
     ORDER BY pool_id
   `);
