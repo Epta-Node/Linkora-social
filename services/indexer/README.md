@@ -6,9 +6,50 @@ Event indexer for the Linkora Social contract on Stellar. Processes on-chain eve
 
 The indexer listens to Stellar contract events and processes them into a PostgreSQL database:
 
+```
+RPC getEvents → stream (rate-limited, adaptive, gap-aware)
+              → IngestPipeline (raw_events + domain write + cursor, one txn)
+              → EventBus → WebSocket fanout (/ws)
+```
+
 - **Event Handlers**: Process specific event types (PostCreated, TipEvent, LikeEvent, etc.)
 - **Database**: PostgreSQL with migrations for schema management
 - **Idempotency**: All handlers are idempotent using unique constraints and transaction hashes
+
+### Exactly-once ingestion
+
+Each batch is ingested inside a **single serialisable transaction**:
+
+1. Events are staged into `raw_events` (`ON CONFLICT (ledger_sequence, event_index) DO NOTHING`).
+2. They are projected into the domain tables (posts, follows, …) via the same transaction client.
+3. `indexer_state.processed_cursor` is advanced — the **last** statement before `COMMIT`.
+
+Because the raw ingest, domain write, and cursor advance commit atomically, a crash
+mid-batch rolls everything back. On restart the batch is replayed and the `ON CONFLICT`
+clause plus idempotent handlers guarantee **no duplicate domain rows**. See
+[`src/pipeline.ts`](src/pipeline.ts).
+
+### Backpressure & adaptive polling
+
+- A **token-bucket rate limiter** caps outbound RPC calls (default 10 req/s,
+  `RPC_RATE_LIMIT_PER_SEC`). See [`src/ratelimit.ts`](src/ratelimit.ts).
+- The **poll interval adapts** to load: it doubles (up to 5s) when a batch is empty
+  and halves (down to 100ms) on a full page. See [`src/poller.ts`](src/poller.ts).
+- `429` responses trigger **exponential backoff with retries**; the window is
+  re-fetched so no events are dropped.
+
+### Pub/sub fanout
+
+An in-process [`EventBus`](src/bus.ts) (Node `EventEmitter`) lets downstream consumers
+subscribe to typed event channels instead of polling the DB. The WebSocket handler
+(`/ws`) is the first consumer — see [`docs/indexer/WEBSOCKET_API.md`](../../docs/indexer/WEBSOCKET_API.md).
+
+### Gap detection
+
+After each batch the first event's ledger is compared to `cursor + 1`. A jump (e.g. from
+RPC node failover mid-sequence) emits a structured `gap_detected` log and triggers a
+**targeted backfill** of the missing range before the batch is processed. See
+[`src/gap.ts`](src/gap.ts).
 
 ## Event Handlers
 
@@ -114,7 +155,10 @@ See [`.env.example`](.env.example) for all required variables.
 | `STELLAR_RPC_URL` | Soroban RPC endpoint |
 | `CONTRACT_ID` | Deployed Linkora contract address |
 | `START_LEDGER` | Ledger sequence to start indexing from |
-| `PORT` | API port (default: `3000`) |
+| `PORT` | HTTP/WS port (default: `3000`) |
+| `RPC_RATE_LIMIT_PER_SEC` | Token-bucket RPC rate cap (default: `10`) |
+| `MIN_POLL_INTERVAL_MS` | Adaptive poll floor (default: `100`) |
+| `MAX_POLL_INTERVAL_MS` | Adaptive poll ceiling (default: `5000`) |
 
 ## Manual Setup
 
@@ -135,8 +179,10 @@ npm install
 # Apply migrations manually
 psql "$DATABASE_URL" -f migrations/001_profiles.sql
 psql "$DATABASE_URL" -f migrations/002_posts.sql
+psql "$DATABASE_URL" -f migrations/003_follows.sql
 psql "$DATABASE_URL" -f migrations/004_tips_likes.sql
 psql "$DATABASE_URL" -f migrations/005_pools.sql
+psql "$DATABASE_URL" -f migrations/006_raw_events.sql
 ```
 
 ### Configuration
