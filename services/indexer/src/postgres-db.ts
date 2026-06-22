@@ -48,12 +48,13 @@ export class PostgresDatabase implements Database {
     await this.pool.query(
       `
       INSERT INTO follows (follower, followee, created_at)
-      VALUES ($1, $2, $3)
+      VALUES ($1, $2, to_timestamp($3))
       ON CONFLICT (follower, followee) DO NOTHING
       `,
       [follow.follower, follow.followee, follow.ledger]
     );
   }
+
 
   async deleteFollow(follower: string, followee: string): Promise<void> {
     await this.pool.query(
@@ -118,15 +119,18 @@ export class PostgresDatabase implements Database {
   // ───────────────────────────────── Posts ────────────────────────────────────
 
   async insertPost(post: Post): Promise<void> {
+    const content = (post as any).content ?? '';
+
     await this.pool.query(
       `
       INSERT INTO posts (id, author, content, tip_total, like_count, created_at, deleted_at)
-      VALUES ($1, $2, '', $3, $4, to_timestamp($5), NULL)
+      VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NULL)
       ON CONFLICT (id) DO NOTHING
       `,
-      [post.id.toString(), post.author, post.tip_total.toString(), post.like_count.toString(), post.created_ledger]
+      [post.id.toString(), post.author, content, post.tip_total.toString(), post.like_count.toString(), post.created_ledger]
     );
   }
+
 
   async markPostDeleted(post_id: bigint, deleted_ledger: number): Promise<void> {
     await this.pool.query(
@@ -134,10 +138,12 @@ export class PostgresDatabase implements Database {
       UPDATE posts
       SET deleted_at = to_timestamp($2)
       WHERE id = $1 AND deleted_at IS NULL
+
       `,
       [post_id.toString(), deleted_ledger]
     );
   }
+
 
   async incrementPostLikeCount(post_id: bigint): Promise<void> {
     await this.pool.query(
@@ -256,6 +262,7 @@ export class PostgresDatabase implements Database {
   }
 
 
+
   // Note: Like handler in this repo uses the raw handlers (pg Pool directly),
   // and this method exists mainly to satisfy the Database interface.
 
@@ -369,29 +376,29 @@ export class PostgresDatabase implements Database {
       `
       UPDATE pools
       SET admins = (
-        SELECT ARRAY(
-          SELECT DISTINCT a
-          FROM unnest(admins || $1::text) AS a
-        )
-      ), updated_ledger = $2
+        SELECT jsonb_agg(DISTINCT elem)
+        FROM jsonb_array_elements_text(admins || to_jsonb(ARRAY[$1::text])) AS elem
+      ),
+      updated_ledger = $2
       WHERE pool_id = $3
       `,
       [admin, ledger, pool_id]
     );
   }
 
+
   async removePoolAdmin(pool_id: string, admin: string, ledger: number): Promise<void> {
     await this.pool.query(
       `
       UPDATE pools
       SET admins = (
-        SELECT ARRAY(
-          SELECT a
-          FROM unnest(admins) AS a
-          WHERE a <> $1
-        )
-      ), updated_ledger = $2
+        SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
+        FROM jsonb_array_elements_text(admins) AS elem
+        WHERE elem <> $1
+      ),
+      updated_ledger = $2
       WHERE pool_id = $3
+
       `,
       [admin, ledger, pool_id]
     );
