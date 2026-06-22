@@ -8,7 +8,7 @@ import {
   Keypair,
   xdr,
 } from "@stellar/stellar-sdk";
-import { Profile, Post, Pool } from "./types";
+import { Profile, Post, Pool, GovConfig, GovProposal, GovParameter } from "./types";
 import { mapError, NotFoundError } from "./errors";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
@@ -398,5 +398,72 @@ export class LinkoraClient {
 
   setTipCooldownWindow(cooldownLedgers: number): string {
     return this.buildTx("set_tip_cooldown_window", scvU32(cooldownLedgers));
+  }
+
+  // ── Governance Methods ──────────────────────────────────────────────────────
+
+  async govGetConfig(): Promise<GovConfig | null> {
+    try {
+      const retval = await this.simulateCall("gov_get_config");
+      if (!retval) return null;
+      const raw = scValToNative(retval);
+      if (raw == null) return null;
+      return raw as GovConfig;
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
+    }
+  }
+
+  async govGetProposal(proposalId: number): Promise<GovProposal | null> {
+    try {
+      const retval = await this.simulateCall("gov_get_proposal", scvU64(proposalId));
+      if (!retval) return null;
+      const raw = scValToNative(retval);
+      if (raw == null) return null;
+      return raw as GovProposal;
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
+    }
+  }
+
+  govPropose(
+    user: string,
+    parameter: GovParameter,
+    newValue: number,
+    newAddress?: string | null
+  ): string {
+    const scvParam = scvSymbol(parameter);
+    const scvAddr = newAddress ? scvAddress(newAddress) : xdr.ScVal.scvVoid();
+    return this.buildTx(
+      "gov_propose",
+      scvAddress(user),
+      scvParam,
+      scvU64(newValue),
+      scvAddr
+    );
+  }
+
+  govVote(user: string, proposalId: number, support: boolean): string {
+    return this.buildTx(
+      "gov_vote",
+      scvAddress(user),
+      scvU64(proposalId),
+      nativeToScVal(support, { type: "bool" })
+    );
+  }
+
+  govExecute(proposalId: number): string {
+    return this.buildTx("gov_execute", scvU64(proposalId));
+  }
+
+  govVeto(signers: string[], poolId: string, proposalId: number): string {
+    return this.buildTx(
+      "gov_veto",
+      scvAddressVec(signers),
+      scvSymbol(poolId),
+      scvU64(proposalId)
+    );
   }
 }

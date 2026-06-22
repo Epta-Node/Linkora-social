@@ -29,6 +29,9 @@ export function Navbar() {
           <Link href="/pools" style={styles.navLink}>
             Pools
           </Link>
+          <Link href="/governance" style={styles.navLink}>
+            Governance
+          </Link>
           <ConnectWallet />
         </div>
 
@@ -72,6 +75,9 @@ export function Navbar() {
           </Link>
           <Link href="/pools" style={styles.mobileNavLink} onClick={closeMenu}>
             Pools
+          </Link>
+          <Link href="/governance" style={styles.mobileNavLink} onClick={closeMenu}>
+            Governance
           </Link>
           <div style={styles.mobileWalletWrapper}>
             <ConnectWallet />

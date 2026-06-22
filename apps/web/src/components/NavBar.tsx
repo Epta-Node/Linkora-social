@@ -13,13 +13,27 @@ export function NavBar() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[var(--background)]/80 backdrop-blur-sm">
       <nav className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        {/* Brand */}
-        <a
-          href="/"
-          className="text-xl font-extrabold tracking-tight text-violet-500 hover:text-violet-400 transition-colors"
-        >
-          Linkora
-        </a>
+        {/* Brand & Links */}
+        <div className="flex items-center gap-6">
+          <a
+            href="/"
+            className="text-xl font-extrabold tracking-tight text-violet-500 hover:text-violet-400 transition-colors"
+          >
+            Linkora
+          </a>
+          <a
+            href="/explore"
+            className="text-sm font-semibold text-[var(--foreground)] hover:text-violet-400 transition-colors"
+          >
+            Explore
+          </a>
+          <a
+            href="/governance"
+            className="text-sm font-semibold text-[var(--foreground)] hover:text-violet-400 transition-colors"
+          >
+            Governance
+          </a>
+        </div>
 
         {/* Right side */}
         <div className="flex items-center gap-3">

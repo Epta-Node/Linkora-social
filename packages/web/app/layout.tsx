@@ -65,6 +65,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
                   <a href="/pools" style={navLink}>
                     Pools
                   </a>
+                  <a href="/governance" style={navLink}>
+                    Governance
+                  </a>
                   <ConnectWallet />
                 </div>
               </div>
