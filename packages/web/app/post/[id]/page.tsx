@@ -1,427 +1,151 @@
-"use client";
+'use client';
 
-import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
-import { useWallet } from "../../components/WalletProvider";
-import { TipModal } from "../../components/TipModal";
+import { useEffect, useState, useCallback } from 'react';
+import { useParams } from 'next/navigation';
+import { useWallet } from '../../components/WalletProvider';
+import { TipModal } from '../../components/TipModal';
+import { useLike } from '../../hooks/useLike';
+import Link from 'next/link';
 
-interface Post {
+interface PostData {
   id: number;
   author: string;
-  username?: string;
   content: string;
-  tip_total: number;
-  timestamp: number;
-  like_count: number;
+  tipTotal: bigint;
+  likeCount: number;
+  timestamp: bigint;
+  hasLiked: boolean;
 }
 
-async function getPost(id: number): Promise<Post | null> {
-  // Mock for now: replace with contract call get_post(id).
-  await new Promise((resolve) => setTimeout(resolve, 450));
-
-  if (!id || id < 1) {
-    return null;
-  }
-
-  return {
-    id,
-    author: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF3",
-    username: "creator_alice",
-    content:
-      "Just deployed my first Soroban smart contract! The Stellar network's speed and low fees make it genuinely viable for creator economy applications. If you're building on-chain social, look no further. 🚀\n\nHere's what I learned from the experience…",
-    tip_total: 245_000_000,
-    timestamp: Math.floor(Date.now() / 1000) - 10800,
-    like_count: 47,
-  };
-}
-
-export default function PostPage() {
+export default function PostDetailPage() {
   const params = useParams();
-  const postId = Number(params?.id);
-  const { publicKey, isConnected } = useWallet();
+  const postId = Number(params.id);
+  const { publicKey } = useWallet();
 
-  const [post, setPost] = useState<Post | null>(null);
+  const [post, setPost] = useState<PostData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const [hasLiked, setHasLiked] = useState(false);
-  const [isLiking, setIsLiking] = useState(false);
-  const [tipToken, setTipToken] = useState("");
-  const [tipAmount, setTipAmount] = useState("");
-  const [isTipping, setIsTipping] = useState(false);
-  const [tipError, setTipError] = useState<string | null>(null);
-  const [deleted, setDeleted] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const { liked, likeCount, pending, error, like } = useLike({
+    postId,
+    initialHasLiked: post?.hasLiked ?? false,
+    initialLikeCount: post?.likeCount ?? 0,
+  });
 
   useEffect(() => {
-    let mounted = true;
-    setLoading(true);
-    setNotFound(false);
-    setDeleted(false);
-
-    getPost(postId)
-      .then((result) => {
-        if (!mounted) return;
-        if (!result) {
-          setNotFound(true);
-          return;
-        }
-        setPost(result);
-      })
-      .catch(() => {
-        if (!mounted) return;
+    async function fetchPost() {
+      try {
+        const res = await fetch('/api/posts/' + postId);
+        if (!res.ok) throw new Error('not found');
+        const data = await res.json();
+        setPost(data);
+      } catch {
         setNotFound(true);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
+      } finally {
+        setLoading(false);
+      }
+    }
+    if (postId) fetchPost();
   }, [postId]);
 
-  const handleLike = useCallback(async () => {
-    if (!isConnected || isLiking || !post) return;
-    setIsLiking(true);
-
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 650));
-      setHasLiked((prev) => !prev);
-      setPost((prev) =>
-        prev
-          ? { ...prev, like_count: prev.like_count + (hasLiked ? -1 : 1) }
-          : prev
-      );
-    } finally {
-      setIsLiking(false);
-    }
-  }, [isConnected, isLiking, hasLiked, post]);
-
-  const handleTip = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!isConnected) return;
-
-      const amount = Number(tipAmount);
-      if (!tipToken || amount <= 0) {
-        setTipError("Please enter a valid token address and positive amount");
-        return;
-      }
-
-      setIsTipping(true);
-      setTipError(null);
-
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        setPost((prev) =>
-          prev
-            ? { ...prev, tip_total: prev.tip_total + amount * 10_000_000 }
-            : prev
-        );
-        setTipToken("");
-        setTipAmount("");
-      } catch (err) {
-        setTipError(err instanceof Error ? err.message : "Failed to tip post");
-      } finally {
-        setIsTipping(false);
-      }
-    },
-    [isConnected, tipAmount, tipToken]
-  );
-
-  const handleDelete = useCallback(() => {
-    if (!window.confirm("Delete this post? This action cannot be undone.")) {
-      return;
-    }
-    setDeleted(true);
+  const handleShare = useCallback(async () => {
+    const url = window.location.href;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }, []);
-
-  const formatAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
-
-  const formatTimestamp = (ts: number) => {
-    const date = new Date(ts * 1000);
-    return date.toLocaleString();
-  };
-
-  const formatTipTotal = (amount: number) => (amount / 10_000_000).toFixed(2);
 
   if (loading) {
     return (
-      <main style={styles.main}>
-        <div style={styles.loading}>Loading post...</div>
-      </main>
+      <div style={{ maxWidth: '640px', margin: '0 auto', padding: '40px 20px' }}>
+        <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, animation: 'pulse 1.5s infinite' }}>
+          <div style={{ width: '60%', height: 20, background: '#334155', borderRadius: 4, marginBottom: 12 }} />
+          <div style={{ width: '100%', height: 16, background: '#334155', borderRadius: 4, marginBottom: 8 }} />
+          <div style={{ width: '80%', height: 16, background: '#334155', borderRadius: 4 }} />
+        </div>
+      </div>
     );
   }
 
-  if (notFound || deleted || !post) {
+  if (notFound || !post) {
     return (
-      <main style={styles.main}>
-        <div style={styles.notFound}>
-          <h1>Post not found</h1>
-          <p>
-            {deleted
-              ? "This post was deleted successfully."
-              : "The post you are looking for is missing or has been removed."}
-          </p>
-          <Link href="/feed" style={styles.backLink}>
-            Back to Feed
-          </Link>
-        </div>
-      </main>
+      <div style={{ maxWidth: '640px', margin: '80px auto', textAlign: 'center', padding: 40 }}>
+        <h1 style={{ fontSize: 48, marginBottom: 8 }}>404</h1>
+        <p style={{ color: '#94a3b8', fontSize: 18, marginBottom: 24 }}>This post has been deleted or does not exist.</p>
+        <Link href="/feed" style={{ color: '#7c3aed', textDecoration: 'none', fontWeight: 600 }}>
+          Back to Feed
+        </Link>
+      </div>
     );
   }
 
   return (
-    <main style={styles.main}>
-      <article style={styles.card}>
-        <Link href="/feed" style={styles.backLink}>
-          ← Back to Feed
-        </Link>
+    <div style={{ maxWidth: '640px', margin: '0 auto', padding: '40px 20px' }}>
+      <div style={{ background: '#1e293b', borderRadius: 16, padding: 24, border: '1px solid rgba(255,255,255,0.08)', marginBottom: 16 }}>
+        <p style={{ fontSize: 18, color: '#f8fafc', lineHeight: 1.6, margin: '0 0 20px 0' }}>{post.content}</p>
 
-        <div style={styles.header}>
-          <div style={styles.avatar}></div>
-          <div style={styles.authorInfo}>
-            <Link href={`/profile/${post.author}`} style={styles.username}>
-              {post.username || formatAddress(post.author)}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderTop: '1px solid rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.06)', marginBottom: 16 }}>
+          <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'linear-gradient(135deg, #7c3aed, #a855f7)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 18 }}>
+            {post.author.slice(0, 2).toUpperCase()}
+          </div>
+          <div style={{ flex: 1 }}>
+            <Link href={'/profile/' + post.author} style={{ color: '#f8fafc', fontWeight: 600, textDecoration: 'none' }}>
+              {post.author.slice(0, 8)}...{post.author.slice(-4)}
             </Link>
-            <div style={styles.timestamp}>{formatTimestamp(post.timestamp)}</div>
+            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
+              {new Date(Number(post.timestamp) * 1000).toLocaleDateString()}
+            </p>
           </div>
+          <button style={{ padding: '6px 14px', borderRadius: 20, background: '#7c3aed', color: '#fff', border: 'none', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            Follow
+          </button>
         </div>
 
-        <div style={styles.content}>{post.content}</div>
-
-        <div style={styles.stats}>
-          <div style={styles.stat}>
-            <span>❤️</span>
-            <span>{post.like_count}</span>
-          </div>
-          <div style={styles.stat}>
-            <span>💎</span>
-            <span>{formatTipTotal(post.tip_total)} XLM</span>
-          </div>
-        </div>
-
-        <div style={styles.actions}>
-          {isConnected ? (
-            <button
-              onClick={handleLike}
-              disabled={isLiking}
-              style={{
-                ...styles.actionButton,
-                ...(hasLiked ? styles.likedButton : {}),
-              }}
-            >
-              {hasLiked ? "❤️ Liked" : "🤍 Like"}
-            </button>
-          ) : (
-            <p style={styles.readOnlyText}>Connect wallet to like</p>
-          )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+          <button
+            onClick={like}
+            disabled={liked || pending}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '8px 16px', borderRadius: 20,
+              background: liked ? 'rgba(124,58,237,0.2)' : 'transparent',
+              border: '1px solid ' + (liked ? '#7c3aed' : 'rgba(255,255,255,0.1)'),
+              color: liked ? '#a78bfa' : '#94a3b8',
+              cursor: liked || pending ? 'default' : 'pointer',
+              fontSize: 14, fontWeight: 500,
+              opacity: pending ? 0.7 : 1,
+            }}
+          >
+            {liked ? '\u2665' : '\u2661'} {likeCount}
+          </button>
 
           <button
             onClick={() => setShowTipModal(true)}
-            style={styles.actionButton}
-            disabled={!isConnected}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: '#94a3b8', cursor: 'pointer', fontSize: 14, fontWeight: 500 }}
           >
-            💎 Tip
+            Tip
           </button>
 
-          {isConnected && publicKey === post.author && (
-            <button onClick={handleDelete} style={styles.deleteButton}>
-              🗑 Delete
-            </button>
-          )}
+          <button
+            onClick={handleShare}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 20, background: 'transparent', border: '1px solid rgba(255,255,255,0.1)', color: copied ? '#10b981' : '#94a3b8', cursor: 'pointer', fontSize: 14, fontWeight: 500 }}
+          >
+            {copied ? 'Copied' : 'Share'}
+          </button>
         </div>
 
-        {isConnected && (
-          <form onSubmit={handleTip} style={styles.tipForm}>
-            <h3 style={styles.tipTitle}>Tip the author</h3>
-            <div style={styles.tipInputs}>
-              <input
-                type="text"
-                value={tipToken}
-                onChange={(e) => setTipToken(e.target.value)}
-                placeholder="Token address (e.g., G...)"
-                style={styles.input}
-                disabled={isTipping}
-              />
-              <input
-                type="number"
-                value={tipAmount}
-                onChange={(e) => setTipAmount(e.target.value)}
-                placeholder="Amount"
-                min="1"
-                step="1"
-                style={styles.input}
-                disabled={isTipping}
-              />
-            </div>
-            {tipError && <p style={styles.error}>{tipError}</p>}
-            <button
-              type="submit"
-              disabled={isTipping || !tipToken || !tipAmount}
-              style={{
-                ...styles.tipButton,
-                ...(isTipping || !tipToken || !tipAmount ? styles.tipButtonDisabled : {}),
-              }}
-            >
-              {isTipping ? "Sending..." : "Send Tip"}
-            </button>
-          </form>
-        )}
-      </article>
+        {error && <p style={{ color: '#f87171', fontSize: 13, marginTop: 8 }}>{error}</p>}
+      </div>
 
       {showTipModal && (
         <TipModal
           postId={post.id}
-          authorName={post.username || formatAddress(post.author)}
+          authorName={post.author.slice(0, 8) + '...' + post.author.slice(-4)}
           onClose={() => setShowTipModal(false)}
         />
       )}
-    </main>
+    </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  main: {
-    minHeight: "100vh",
-    background: "var(--color-bg-secondary)",
-    padding: "var(--spacing-lg)",
-  },
-  loading: {
-    textAlign: "center",
-    padding: "var(--spacing-xl)",
-    color: "var(--color-text-secondary)",
-  },
-  notFound: {
-    textAlign: "center",
-    padding: "var(--spacing-xl)",
-    maxWidth: "400px",
-    margin: "0 auto",
-  },
-  backLink: {
-    display: "inline-block",
-    marginBottom: "var(--spacing-lg)",
-    color: "var(--color-primary)",
-    fontWeight: 500,
-  },
-  card: {
-    background: "var(--color-bg)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "12px",
-    padding: "var(--spacing-xl)",
-    maxWidth: "600px",
-    margin: "0 auto",
-  },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--spacing-md)",
-    marginBottom: "var(--spacing-lg)",
-  },
-  avatar: {
-    width: "48px",
-    height: "48px",
-    borderRadius: "50%",
-    background: "var(--color-bg-secondary)",
-  },
-  authorInfo: {
-    flex: 1,
-  },
-  username: {
-    fontWeight: 600,
-    fontSize: "1.1rem",
-    color: "var(--color-text)",
-  },
-  timestamp: {
-    fontSize: "0.9rem",
-    color: "var(--color-text-secondary)",
-  },
-  content: {
-    fontSize: "1.1rem",
-    lineHeight: 1.6,
-    marginBottom: "var(--spacing-lg)",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-  },
-  stats: {
-    display: "flex",
-    gap: "var(--spacing-lg)",
-    padding: "var(--spacing-md) 0",
-    borderTop: "1px solid var(--color-border)",
-    borderBottom: "1px solid var(--color-border)",
-    marginBottom: "var(--spacing-lg)",
-  },
-  stat: {
-    display: "flex",
-    alignItems: "center",
-    gap: "var(--spacing-xs)",
-    fontSize: "1rem",
-  },
-  actions: {
-    display: "flex",
-    gap: "var(--spacing-md)",
-    marginBottom: "var(--spacing-lg)",
-  },
-  actionButton: {
-    padding: "var(--spacing-sm) var(--spacing-lg)",
-    background: "var(--color-bg-secondary)",
-    borderRadius: "8px",
-    fontWeight: 500,
-    transition: "all 0.2s",
-    border: "1px solid var(--color-border)",
-  },
-  likedButton: {
-    background: "#fee2e2",
-  },
-  deleteButton: {
-    padding: "var(--spacing-sm) var(--spacing-lg)",
-    background: "#fecaca",
-    borderRadius: "8px",
-    color: "#991b1b",
-    fontWeight: 500,
-    border: "1px solid #fca5a5",
-    cursor: "pointer",
-  },
-  readOnlyText: {
-    color: "var(--color-text-secondary)",
-  },
-  tipForm: {
-    background: "var(--color-bg-secondary)",
-    borderRadius: "8px",
-    padding: "var(--spacing-lg)",
-  },
-  tipTitle: {
-    marginBottom: "var(--spacing-md)",
-    fontSize: "1rem",
-  },
-  tipInputs: {
-    display: "flex",
-    gap: "var(--spacing-sm)",
-    marginBottom: "var(--spacing-md)",
-  },
-  input: {
-    flex: 1,
-    padding: "var(--spacing-sm) var(--spacing-md)",
-    border: "1px solid var(--color-border)",
-    borderRadius: "8px",
-    fontSize: "0.95rem",
-  },
-  error: {
-    color: "var(--color-like)",
-    fontSize: "0.85rem",
-    marginBottom: "var(--spacing-sm)",
-  },
-  tipButton: {
-    width: "100%",
-    padding: "var(--spacing-md)",
-    background: "var(--color-primary)",
-    color: "white",
-    borderRadius: "8px",
-    fontWeight: 600,
-  },
-  tipButtonDisabled: {
-    opacity: 0.6,
-    cursor: "not-allowed",
-  },
-};
