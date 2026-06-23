@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useNotification } from "../context/NotificationContext";
+import { normalizeError } from "../lib/normalizeError";
 import { useRouter } from "next/navigation";
 import { useWallet } from "./WalletProvider";
 
@@ -36,6 +38,8 @@ export function PostComposeModal({
     errorMsg: "",
     postId: null,
   });
+
+  const { addNotification, updateNotification } = useNotification();
 
   const charCount = content.length;
   const isNearLimit = charCount >= WARNING_THRESHOLD && charCount <= MAX_CONTENT_LENGTH;
@@ -87,7 +91,7 @@ export function PostComposeModal({
     async (e: React.FormEvent) => {
       e.preventDefault();
       if (isDisabled || !publicKey) return;
-
+      const id = addNotification({ status: 'pending', message: 'Waiting for signature...' });
       setPublishState({ status: "awaiting_signature", errorMsg: "", postId: null });
 
       try {
@@ -96,12 +100,15 @@ export function PostComposeModal({
         await new Promise((resolve) => setTimeout(resolve, 1500));
 
         const newPostId = Math.floor(Math.random() * 10000) + 1;
+        const txHash = `mocktx_${Date.now().toString(36)}`;
 
         setPublishState({
           status: "success",
           errorMsg: "",
           postId: newPostId,
         });
+
+        updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
 
         if (onSuccess) {
           onSuccess(newPostId);
@@ -113,9 +120,10 @@ export function PostComposeModal({
           errorMsg: message,
           postId: null,
         });
+        updateNotification(id, { status: 'error', message: normalizeError(err) });
       }
     },
-    [isDisabled, publicKey, onSuccess]
+    [isDisabled, publicKey, onSuccess, addNotification, updateNotification]
   );
 
   const handleCloseSuccess = () => {

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useNotification } from "../../context/NotificationContext";
+import { normalizeError } from "../../lib/normalizeError";
 import { useParams } from "next/navigation";
 import { PostCard, Post } from "../../components/PostCard";
 import { TipModal } from "../../components/TipModal";
@@ -224,15 +226,37 @@ export default function ProfilePage() {
     }, 400);
   }, [address]);
 
+  const { addNotification, updateNotification } = useNotification();
+
   const handleFollow = useCallback(() => {
     setFollowState("loading");
-    setTimeout(() => setFollowState("following"), 600);
-  }, []);
+    const id = addNotification({ status: 'pending', message: 'Waiting for signature...' });
+    setTimeout(() => {
+      try {
+        const txHash = `mocktx_${Date.now().toString(36)}`;
+        setFollowState("following");
+        updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
+      } catch (err) {
+        updateNotification(id, { status: 'error', message: normalizeError(err) });
+        setFollowState("not_following");
+      }
+    }, 600);
+  }, [addNotification, updateNotification]);
 
   const handleUnfollow = useCallback(() => {
     setFollowState("loading");
-    setTimeout(() => setFollowState("not_following"), 600);
-  }, []);
+    const id = addNotification({ status: 'pending', message: 'Waiting for signature...' });
+    setTimeout(() => {
+      try {
+        const txHash = `mocktx_${Date.now().toString(36)}`;
+        setFollowState("not_following");
+        updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
+      } catch (err) {
+        updateNotification(id, { status: 'error', message: normalizeError(err) });
+        setFollowState("following");
+      }
+    }, 600);
+  }, [addNotification, updateNotification]);
 
   const handleLike = useCallback(
     (postId: number) => {

@@ -4,6 +4,8 @@ import { useState, useCallback, type CSSProperties } from "react";
 import type { PoolData, TokenMeta } from "../../hooks/usePools";
 import { formatTokenAmount, parseTokenAmount } from "../../hooks/usePools";
 import { useDeposit } from "../../hooks/usePoolContract";
+import { useNotification } from "../../context/NotificationContext";
+import { normalizeError } from "../../lib/normalizeError";
 import { TxStatusBanner } from "./TxStatusBanner";
 
 interface DepositTabProps {
@@ -62,7 +64,15 @@ export function DepositTab({
         return;
       }
       setAmountError(null);
-      await deposit(currentUser, pool.pool_id, pool.token, amount, decimals, contractAddress);
+      const { addNotification, updateNotification } = useNotification();
+      const id = addNotification({ status: 'pending', message: 'Waiting for signature...' });
+      try {
+        const tx = await deposit(currentUser, pool.pool_id, pool.token, amount, decimals, contractAddress);
+        const txHash = tx?.hash;
+        updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
+      } catch (err) {
+        updateNotification(id, { status: 'error', message: normalizeError(err) });
+      }
     },
     [amount, validateAmount, deposit, currentUser, pool, decimals, contractAddress]
   );

@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useEffect, useState } from "react";
 import type { Notification } from "../context/NotificationContext";
+import { normalizeError } from "../lib/normalizeError";
 
 interface TxNotificationProps {
   notification: Notification;
@@ -13,12 +14,30 @@ export function TxNotification({ notification, onClose }: TxNotificationProps) {
   const isSuccess = notification.status === "success";
   const isError = notification.status === "error";
 
+  const [pendingStage, setPendingStage] = useState<'waiting' | 'submitting'>('waiting');
+
+  useEffect(() => {
+    let t: number | undefined;
+    if (isPending) {
+      // show "Waiting for signature..." first, then "Submitting..." if still pending
+      t = window.setTimeout(() => setPendingStage('submitting'), 2500);
+    }
+    return () => {
+      if (t) clearTimeout(t);
+      setPendingStage('waiting');
+    };
+  }, [isPending]);
+
   const getStellarExpertLink = (hash: string) => {
     return `https://stellar.expert/explorer/testnet/tx/${hash}`;
   };
 
+  const role = isError ? 'alert' : 'status';
+
   return (
     <div
+      role={role}
+      aria-live={isError ? 'assertive' : 'polite'}
       style={{
         background: "var(--color-bg)",
         border: `1px solid ${
@@ -38,9 +57,9 @@ export function TxNotification({ notification, onClose }: TxNotificationProps) {
           {isPending && <span style={styles.spinner} aria-hidden="true" />}
           {isSuccess && <span aria-hidden="true" style={{ color: "var(--color-success)" }}>✅</span>}
           {isError && <span aria-hidden="true" style={{ color: "var(--color-like)" }}>❌</span>}
-          
+
           <strong style={{ fontSize: "1rem" }}>
-            {isPending ? "Transaction submitted..." : isSuccess ? "Success" : "Error"}
+            {isPending ? (pendingStage === 'waiting' ? 'Waiting for signature...' : 'Submitting...') : isSuccess ? 'Transaction confirmed' : 'Transaction failed'}
           </strong>
         </div>
         <button
@@ -59,7 +78,7 @@ export function TxNotification({ notification, onClose }: TxNotificationProps) {
       </div>
 
       <p style={{ margin: 0, fontSize: "0.9rem", color: "var(--color-text-secondary)" }}>
-        {notification.message}
+        {isError ? normalizeError(notification.message) : notification.message}
       </p>
 
       {isSuccess && notification.txHash && (
@@ -79,7 +98,7 @@ export function TxNotification({ notification, onClose }: TxNotificationProps) {
 
       {isError && (
         <p style={{ margin: 0, fontSize: "0.85rem", color: "var(--color-text-secondary)" }}>
-          Please try again.
+          Please review the error and try again.
         </p>
       )}
     </div>

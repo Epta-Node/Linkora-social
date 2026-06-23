@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useWallet } from "../../components/WalletProvider";
+import { useNotification } from "../../context/NotificationContext";
+import { normalizeError } from "../../lib/normalizeError";
 import { TipModal } from "../../components/TipModal";
 
 interface Post {
@@ -85,14 +87,21 @@ export default function PostPage() {
     if (!isConnected || isLiking || !post) return;
     setIsLiking(true);
 
+    const { addNotification, updateNotification } = useNotification();
+    const id = addNotification({ status: 'pending', message: 'Waiting for signature...' });
     try {
       await new Promise((resolve) => setTimeout(resolve, 650));
+      // Mock tx hash for demo purposes
+      const txHash = `mocktx_${Date.now().toString(36)}`;
       setHasLiked((prev) => !prev);
       setPost((prev) =>
         prev
           ? { ...prev, like_count: prev.like_count + (hasLiked ? -1 : 1) }
           : prev
       );
+      updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
+    } catch (err) {
+      updateNotification(id, { status: 'error', message: normalizeError(err) });
     } finally {
       setIsLiking(false);
     }
@@ -111,9 +120,12 @@ export default function PostPage() {
 
       setIsTipping(true);
       setTipError(null);
-
+      const { addNotification, updateNotification } = useNotification();
+      const id = addNotification({ status: 'pending', message: 'Waiting for signature...' });
       try {
         await new Promise((resolve) => setTimeout(resolve, 1200));
+        // Mock tx hash for demo purposes
+        const txHash = `mocktx_${Date.now().toString(36)}`;
         setPost((prev) =>
           prev
             ? { ...prev, tip_total: prev.tip_total + amount * 10_000_000 }
@@ -121,8 +133,10 @@ export default function PostPage() {
         );
         setTipToken("");
         setTipAmount("");
+        updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
       } catch (err) {
         setTipError(err instanceof Error ? err.message : "Failed to tip post");
+        updateNotification(id, { status: 'error', message: normalizeError(err) });
       } finally {
         setIsTipping(false);
       }

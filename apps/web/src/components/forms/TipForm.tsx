@@ -1,8 +1,10 @@
-'use client';
+ 'use client';
 
 import { useState } from 'react';
 import { validateAmount, validateStellarAddress } from '@/lib/validate';
 import { FieldError } from './FieldError';
+import { useNotification } from '@/components/NotificationContext';
+import { normalizeError } from '@/lib/normalizeError';
 
 export interface TipFormValues {
   tokenAddress: string;
@@ -43,9 +45,15 @@ export function TipForm({ postId, onSubmit, disabled = false }: TipFormProps) {
       return;
     }
     setSubmitting(true);
+    const { addNotification, updateNotification } = useNotification();
+    const id = addNotification({ status: 'pending', message: 'Preparing transaction...' });
     try {
-      await onSubmit({ tokenAddress: tokenAddress.trim(), amount: amount.trim() });
+      const res = await onSubmit({ tokenAddress: tokenAddress.trim(), amount: amount.trim() });
+      const txHash = (res && typeof res === 'object' && 'txHash' in res) ? (res as any).txHash : undefined;
+      updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
       setAmount('');
+    } catch (err) {
+      updateNotification(id, { status: 'error', message: normalizeError(err) });
     } finally {
       setSubmitting(false);
     }

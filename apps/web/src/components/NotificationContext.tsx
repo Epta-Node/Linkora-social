@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, ReactNode } from "react";
-import { TxNotification } from "../components/TxNotification";
+import { TxNotification } from "./TxNotification";
 
 export type NotificationStatus = "pending" | "success" | "error";
 
@@ -31,42 +31,31 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   const addNotification = useCallback((notification: Omit<Notification, "id">) => {
     const id = Math.random().toString(36).substring(2, 9);
     setNotifications((prev) => [...prev, { ...notification, id }]);
-    // success toasts auto-dismiss after 4s; pending stays, errors persist until dismissed
     if (notification.status === "success") {
-      setTimeout(() => {
-        removeNotification(id);
-      }, 4000);
+      setTimeout(() => removeNotification(id), 4000);
     }
     return id;
   }, [removeNotification]);
 
   const updateNotification = useCallback((id: string, updates: Partial<Notification>) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, ...updates } : n))
-    );
-
-    // Only auto-dismiss on success; errors remain until user closes
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, ...updates } : n)));
     if (updates.status === "success") {
-      setTimeout(() => {
-        removeNotification(id);
-      }, 4000);
+      setTimeout(() => removeNotification(id), 4000);
     }
   }, [removeNotification]);
 
   return (
-    <NotificationContext.Provider
-      value={{ notifications, addNotification, removeNotification, updateNotification }}
-    >
+    <NotificationContext.Provider value={{ notifications, addNotification, removeNotification, updateNotification }}>
       {children}
       <div
         aria-live="polite"
         style={{
           position: "fixed",
-          bottom: "20px",
-          right: "20px",
+          bottom: 20,
+          right: 20,
           display: "flex",
           flexDirection: "column",
-          gap: "10px",
+          gap: 10,
           zIndex: 9999,
         }}
       >
@@ -80,8 +69,6 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
 export function useNotification() {
   const context = useContext(NotificationContext);
-  if (!context) {
-    throw new Error("useNotification must be used within a NotificationProvider");
-  }
+  if (!context) throw new Error("useNotification must be used within a NotificationProvider");
   return context;
 }

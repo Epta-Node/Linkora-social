@@ -1,8 +1,10 @@
-'use client';
+ 'use client';
 
 import { useState } from 'react';
 import { validatePostContent, sanitisePostContent, POST_MAX_CHARS } from '@/lib/validate';
 import { FieldError } from './FieldError';
+import { useNotification } from '@/components/NotificationContext';
+import { normalizeError } from '@/lib/normalizeError';
 
 interface PostFormProps {
   /** Called with sanitised content when the form is valid and submitted. */
@@ -33,10 +35,17 @@ export function PostForm({ onSubmit, disabled = false }: PostFormProps) {
       return;
     }
     setSubmitting(true);
+    const { addNotification, updateNotification } = useNotification();
+    const id = addNotification({ status: 'pending', message: 'Preparing transaction...' });
     try {
-      await onSubmit(sanitised);
+      const res = await onSubmit(sanitised);
+      // If caller returns txHash, include it
+      const txHash = (res && typeof res === 'object' && 'txHash' in res) ? (res as any).txHash : undefined;
+      updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
       setContent('');
       setError(undefined);
+    } catch (err) {
+      updateNotification(id, { status: 'error', message: normalizeError(err) });
     } finally {
       setSubmitting(false);
     }

@@ -114,6 +114,7 @@ export function useDeposit() {
         const tx = await callPoolDeposit(depositor, poolId, token, amount);
         setResult(tx);
         setStatus("success");
+        return tx;
       } catch (err) {
         setError(classifyError(err));
         setStatus("error");

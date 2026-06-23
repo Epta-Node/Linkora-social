@@ -1,8 +1,10 @@
-'use client';
+ 'use client';
 
 import { useState } from 'react';
 import { validateUsername, validateStellarAddress } from '@/lib/validate';
 import { FieldError } from './FieldError';
+import { useNotification } from '@/components/NotificationContext';
+import { normalizeError } from '@/lib/normalizeError';
 
 export interface ProfileFormValues {
   username: string;
@@ -47,8 +49,14 @@ export function ProfileForm({ onSubmit, initialValues = {}, disabled = false }: 
       return;
     }
     setSubmitting(true);
+    const { addNotification, updateNotification } = useNotification();
+    const id = addNotification({ status: 'pending', message: 'Preparing transaction...' });
     try {
-      await onSubmit({ username: username.trim(), creatorToken: creatorToken.trim() });
+      const res = await onSubmit({ username: username.trim(), creatorToken: creatorToken.trim() });
+      const txHash = (res && typeof res === 'object' && 'txHash' in res) ? (res as any).txHash : undefined;
+      updateNotification(id, { status: 'success', message: 'Transaction confirmed', txHash });
+    } catch (err) {
+      updateNotification(id, { status: 'error', message: normalizeError(err) });
     } finally {
       setSubmitting(false);
     }
