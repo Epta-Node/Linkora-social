@@ -8,7 +8,7 @@ module.exports = {
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
-    "^@linkora/sdk$": "<rootDir>/../../packages/sdk/src/index.ts",
+    "^linkora-sdk$": "<rootDir>/../../packages/sdk/src/index.ts",
   },
   transform: {
     "^.+\\.(ts|tsx)$": [

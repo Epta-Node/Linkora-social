@@ -52,7 +52,7 @@ jest.mock("next/navigation", () => ({
 }));
 
 // Mock LinkoraClient
-jest.mock("@linkora/sdk", () => ({
+jest.mock("linkora-sdk", () => ({
   LinkoraClient: jest.fn().mockImplementation(() => ({
     getProfile: jest.fn().mockResolvedValue({
       username: "testuser",

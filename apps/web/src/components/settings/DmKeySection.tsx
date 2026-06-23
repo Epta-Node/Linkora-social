@@ -1,8 +1,7 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { LinkoraClient } from '@linkora/sdk';
-import { generateDmKeypair } from '@linkora/sdk';
+import { useState, useEffect } from "react";
+import { LinkoraClient, generateDmKeypair } from "linkora-sdk";
 
 interface DmKeySectionProps {
   address: string;
@@ -12,20 +11,20 @@ export function DmKeySection({ address }: DmKeySectionProps) {
   const [hasKey, setHasKey] = useState(false);
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     async function checkDmKey() {
       try {
         const client = new LinkoraClient({
-          contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || '',
-          rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://soroban-testnet.stellar.org',
+          contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || "",
+          rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://soroban-testnet.stellar.org",
         });
         const dmKey = await client.getDmKey(address);
         setHasKey(!!dmKey);
       } catch (error) {
-        console.error('Failed to check DM key:', error);
+        console.error("Failed to check DM key:", error);
       } finally {
         setLoading(false);
       }
@@ -35,40 +34,43 @@ export function DmKeySection({ address }: DmKeySectionProps) {
 
   async function handlePublishKey() {
     setPublishing(true);
-    setErrorMessage('');
-    setSuccessMessage('');
+    setErrorMessage("");
+    setSuccessMessage("");
 
     try {
       // Generate new X25519 keypair
       const keypair = generateDmKeypair();
 
       const client = new LinkoraClient({
-        contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || '',
-        rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || 'https://soroban-testnet.stellar.org',
+        contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || "",
+        rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://soroban-testnet.stellar.org",
       });
 
       // Build transaction XDR
       const txXdr = client.publishDmKey(address, keypair.publicKey);
 
       // TODO: Sign and submit transaction using wallet
-      console.log('DM Key Transaction XDR:', txXdr);
+      console.log("DM Key Transaction XDR:", txXdr);
 
       // Store private key securely (in a real app, this should be encrypted and stored securely)
-      localStorage.setItem(`dm_private_key_${address}`, Buffer.from(keypair.privateKey).toString('base64'));
+      localStorage.setItem(
+        `dm_private_key_${address}`,
+        Buffer.from(keypair.privateKey).toString("base64")
+      );
 
       setHasKey(true);
-      setSuccessMessage('DM key published successfully! You can now receive encrypted messages.');
-      setTimeout(() => setSuccessMessage(''), 5000);
+      setSuccessMessage("DM key published successfully! You can now receive encrypted messages.");
+      setTimeout(() => setSuccessMessage(""), 5000);
     } catch (error) {
-      console.error('Failed to publish DM key:', error);
-      setErrorMessage('Failed to publish DM key. Please try again.');
+      console.error("Failed to publish DM key:", error);
+      setErrorMessage("Failed to publish DM key. Please try again.");
     } finally {
       setPublishing(false);
     }
   }
 
   async function handleRotateKey() {
-    if (!confirm('Rotating your DM key will invalidate all existing message threads. Continue?')) {
+    if (!confirm("Rotating your DM key will invalidate all existing message threads. Continue?")) {
       return;
     }
     await handlePublishKey();
@@ -129,14 +131,14 @@ export function DmKeySection({ address }: DmKeySectionProps) {
               disabled={publishing}
               className="px-4 py-2 bg-amber-100 text-amber-800 text-sm font-medium rounded-lg hover:bg-amber-200 border border-amber-300 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {publishing ? 'Rotating Key...' : 'Rotate Key'}
+              {publishing ? "Rotating Key..." : "Rotate Key"}
             </button>
           </>
         ) : (
           <>
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-sm text-blue-800">
-                You haven't published a DM key yet. Publish one to enable encrypted direct
+                You haven&apos;t published a DM key yet. Publish one to enable encrypted direct
                 messages.
               </p>
             </div>
@@ -145,7 +147,7 @@ export function DmKeySection({ address }: DmKeySectionProps) {
               disabled={publishing}
               className="px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {publishing ? 'Publishing Key...' : 'Publish DM Key'}
+              {publishing ? "Publishing Key..." : "Publish DM Key"}
             </button>
           </>
         )}

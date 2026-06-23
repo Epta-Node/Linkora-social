@@ -25,9 +25,7 @@ describe("DmKeySection", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Publish DM Key")).toBeInTheDocument();
-      expect(
-        screen.getByText(/You haven't published a DM key yet/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/You haven't published a DM key yet/)).toBeInTheDocument();
     });
   });
 
@@ -48,7 +46,7 @@ describe("DmKeySection", () => {
 
   it("should show rotate option when key exists", async () => {
     // Mock getDmKey to return a key
-    const { LinkoraClient } = require("@linkora/sdk");
+    const { LinkoraClient } = require("linkora-sdk");
     LinkoraClient.mockImplementation(() => ({
       getDmKey: jest.fn().mockResolvedValue("existingKey"),
     }));
