@@ -1,6 +1,8 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
+import SearchBar from "@/components/SearchBar";
 
 /** Truncates a Stellar address to G…XXXX format */
 function truncateAddress(address: string): string {
@@ -8,11 +10,12 @@ function truncateAddress(address: string): string {
 }
 
 export function NavBar() {
+  const router = useRouter();
   const { address, connected, network, connect, disconnect } = useWallet();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-[var(--border)] bg-[var(--background)]/80 backdrop-blur-sm">
-      <nav className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+      <nav className="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Brand */}
         <a
           href="/"
@@ -20,6 +23,12 @@ export function NavBar() {
         >
           Linkora
         </a>
+
+        <SearchBar
+          onSearch={(query) => router.push(`/search?q=${encodeURIComponent(query)}`)}
+          placeholder="Search posts and profiles"
+          className="w-full max-w-xl sm:flex-1"
+        />
 
         {/* Right side */}
         <div className="flex items-center gap-3">
