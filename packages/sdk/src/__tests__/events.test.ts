@@ -222,8 +222,8 @@ describe("parseContractEvent", () => {
 
   it("decodes DmKeyPublishedEvent", () => {
     const raw = rawEvent({
-      topics: [enc("dm_key_published")],
-      data: enc({ user: "GUSER", key: "BASE64_PUBKEY==" }),
+      topics: [enc("dm_key_published"), enc("GUSER")],
+      data: enc({ public_key: "BASE64_PUBKEY==" }),
     });
     const evt = parseContractEvent(raw) as Extract<LinkoraEvent, { type: "dm_key_published" }>;
     expect(evt).not.toBeNull();

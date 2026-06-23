@@ -278,7 +278,7 @@ export class LinkoraClient {
     if (x25519PubKey.length !== 32) {
       throw new Error("X25519 public key must be exactly 32 bytes");
     }
-    return this.buildTx("publish_dm_key", scvAddress(user), nativeToScVal(Array.from(x25519PubKey), { type: "bytes" }));
+    return this.buildTx("publish_dm_key", scvAddress(user), nativeToScVal(x25519PubKey, { type: "bytes" }));
   }
 
   createPost(author: string, content: string): string {

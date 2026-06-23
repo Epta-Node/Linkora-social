@@ -122,52 +122,212 @@ export interface EmergencyBypassEvent extends BaseLinkoraEvent {
   action: string;
 }
 
+export interface ProfileSetEvent extends BaseLinkoraEvent {
+  type: "profile_set";
+  user: string;
+  username: string;
+}
+
+export interface BlockEvent extends BaseLinkoraEvent {
+  type: "block";
+  blocker: string;
+  blocked: string;
+}
+
+export interface UnblockEvent extends BaseLinkoraEvent {
+  type: "unblock";
+  blocker: string;
+  blocked: string;
+}
+
+export interface PoolCreatedEvent extends BaseLinkoraEvent {
+  type: "pool_created";
+  pool_id: string;
+  token: string;
+  admins: string[];
+  threshold: number;
+}
+
+export interface PoolAdminAddedEvent extends BaseLinkoraEvent {
+  type: "pool_admin_added";
+  pool_id: string;
+  new_admin: string;
+}
+
+export interface PoolAdminRemovedEvent extends BaseLinkoraEvent {
+  type: "pool_admin_removed";
+  pool_id: string;
+  admin: string;
+}
+
+export interface PoolThresholdUpdatedEvent extends BaseLinkoraEvent {
+  type: "pool_threshold_updated";
+  pool_id: string;
+  old_threshold: number;
+  new_threshold: number;
+}
+
+export interface ProposalCreatedEvent extends BaseLinkoraEvent {
+  type: "proposal_created";
+  pool_id: string;
+  proposal_id: number;
+  proposer: string;
+  amount: bigint;
+  recipient: string;
+}
+
+export interface ProposalSignedEvent extends BaseLinkoraEvent {
+  type: "proposal_signed";
+  pool_id: string;
+  proposal_id: number;
+  signer: string;
+}
+
+export interface ProposalExecutedEvent extends BaseLinkoraEvent {
+  type: "proposal_executed";
+  pool_id: string;
+  proposal_id: number;
+  amount: bigint;
+  recipient: string;
+}
+
+export interface GovProposalVetoedEvent extends BaseLinkoraEvent {
+  type: "gov_proposal_vetoed";
+  proposal_id: number;
+}
+
+export interface FeeUpdatedEvent extends BaseLinkoraEvent {
+  type: "fee_updated";
+  old_fee_bps: number;
+  new_fee_bps: number;
+}
+
+export interface TreasuryUpdatedEvent extends BaseLinkoraEvent {
+  type: "treasury_updated";
+  old_treasury: string;
+  new_treasury: string;
+}
+
+export interface ContractUpgradedEvent extends BaseLinkoraEvent {
+  type: "contract_upgraded";
+  new_wasm_hash: string;
+}
+
 export type LinkoraEvent =
+  | ProfileSetEvent
   | PostCreatedEvent
   | PostDeletedEvent
   | LikeEvent
   | FollowEvent
   | UnfollowEvent
+  | BlockEvent
+  | UnblockEvent
   | TipEvent
+  | PoolCreatedEvent
   | PoolDepositEvent
   | PoolWithdrawEvent
+  | PoolAdminAddedEvent
+  | PoolAdminRemovedEvent
+  | PoolThresholdUpdatedEvent
+  | ProposalCreatedEvent
+  | ProposalSignedEvent
+  | ProposalExecutedEvent
   | GovProposalCreatedEvent
   | GovVoteEvent
   | GovProposalExecutedEvent
+  | GovProposalVetoedEvent
+  | FeeUpdatedEvent
+  | TreasuryUpdatedEvent
+  | ContractUpgradedEvent
   | DmKeyPublishedEvent
   | EmergencyBypassEvent;
 
 const EVENT_NAMES: Record<string, LinkoraEvent["type"]> = {
+  profile_set: "profile_set",
+  ProfileSetEvent: "profile_set",
   post: "post_created",
   post_created: "post_created",
-  PostCreated: "post_created",
+  PostCreatedEvent: "post_created",
   post_del: "post_deleted",
   post_deleted: "post_deleted",
   PostDeleted: "post_deleted",
   like: "like",
-  Like: "like",
+  LikePostEvent: "like",
   follow: "follow",
-  Follow: "follow",
+  FollowEvent: "follow",
   unfollow: "unfollow",
-  Unfollow: "unfollow",
+  UnfollowEvent: "unfollow",
+  block: "block",
+  BlockEvent: "block",
+  unblock: "unblock",
+  UnblockEvent: "unblock",
   tip: "tip",
-  Tip: "tip",
+  TipEvent: "tip",
   deposit: "pool_deposit",
   pool_deposit: "pool_deposit",
-  PoolDeposit: "pool_deposit",
+  PoolDepositEvent: "pool_deposit",
   withdraw: "pool_withdraw",
   pool_withdraw: "pool_withdraw",
-  PoolWithdraw: "pool_withdraw",
+  PoolWithdrawEvent: "pool_withdraw",
+  pool_created: "pool_created",
+  PoolCreatedEvent: "pool_created",
+  pool_admin_added: "pool_admin_added",
+  PoolAdminAddedEvent: "pool_admin_added",
+  pool_admin_removed: "pool_admin_removed",
+  PoolAdminRemovedEvent: "pool_admin_removed",
+  pool_threshold_updated: "pool_threshold_updated",
+  PoolThresholdUpdatedEvent: "pool_threshold_updated",
+  proposal_created: "proposal_created",
+  ProposalCreatedEvent: "proposal_created",
+  proposal_signed: "proposal_signed",
+  ProposalSignedEvent: "proposal_signed",
+  proposal_executed: "proposal_executed",
+  ProposalExecutedEvent: "proposal_executed",
   gov_proposal_created: "gov_proposal_created",
-  GovProposalCreated: "gov_proposal_created",
+  GovProposalCreatedEvent: "gov_proposal_created",
   gov_vote: "gov_vote",
-  GovVote: "gov_vote",
+  GovVoteEvent: "gov_vote",
   gov_proposal_executed: "gov_proposal_executed",
-  GovProposalExecuted: "gov_proposal_executed",
+  GovProposalExecutedEvent: "gov_proposal_executed",
+  gov_proposal_vetoed: "gov_proposal_vetoed",
+  GovProposalVetoedEvent: "gov_proposal_vetoed",
+  fee_updated: "fee_updated",
+  FeeUpdatedEvent: "fee_updated",
+  treasury_updated: "treasury_updated",
+  TreasuryUpdatedEvent: "treasury_updated",
+  contract_upgraded: "contract_upgraded",
+  ContractUpgraded: "contract_upgraded",
   dm_key_published: "dm_key_published",
-  DmKeyPublished: "dm_key_published",
+  DmKeyPublishedEvent: "dm_key_published",
   emergency_bypass: "emergency_bypass",
-  EmergencyBypass: "emergency_bypass",
+  EmergencyBypassEvent: "emergency_bypass",
+};
+
+const EVENT_TOPIC_FIELDS: Record<string, string[]> = {
+  profile_set: ["user", "username"],
+  post_created: ["id", "author"],
+  post_deleted: ["post_id", "author"],
+  like: ["user", "post_id"],
+  follow: ["follower", "followee"],
+  unfollow: ["follower", "followee"],
+  block: ["blocker", "blocked"],
+  unblock: ["blocker", "blocked"],
+  tip: ["tipper", "post_id"],
+  pool_deposit: ["depositor", "pool_id"],
+  pool_withdraw: ["recipient", "pool_id"],
+  pool_created: ["pool_id"],
+  pool_admin_added: ["pool_id"],
+  pool_admin_removed: ["pool_id"],
+  pool_threshold_updated: ["pool_id"],
+  proposal_created: ["pool_id", "proposal_id"],
+  proposal_signed: ["pool_id", "proposal_id"],
+  proposal_executed: ["pool_id", "proposal_id"],
+  gov_proposal_created: ["proposal_id"],
+  gov_vote: ["proposal_id", "voter"],
+  gov_proposal_executed: ["proposal_id"],
+  gov_proposal_vetoed: ["proposal_id"],
+  dm_key_published: ["user"],
+  emergency_bypass: ["action"],
 };
 
 function decodeScVal(encoded: string): unknown {
@@ -201,13 +361,30 @@ function findEventType(topics: unknown[]): LinkoraEvent["type"] | null {
   return null;
 }
 
-function payloadFrom(topics: unknown[], data: Record<string, unknown>): Record<string, unknown> {
+function payloadFrom(
+  eventType: LinkoraEvent["type"],
+  topics: unknown[],
+  data: Record<string, unknown>
+): Record<string, unknown> {
   const payload = { ...data };
+  const topicFields = EVENT_TOPIC_FIELDS[eventType] || [];
+
+  // The first topic (index 0) is usually the event name.
+  // Subsequent topics are our fields.
+  for (let i = 0; i < topicFields.length; i++) {
+    const topicIdx = i + 1;
+    if (topicIdx < topics.length) {
+      payload[topicFields[i]] = topics[topicIdx];
+    }
+  }
+
+  // Also merge any objects in topics (legacy or complex structs)
   for (const topic of topics) {
     if (topic && typeof topic === "object" && !Array.isArray(topic)) {
       Object.assign(payload, topic);
     }
   }
+
   return payload;
 }
 
@@ -235,6 +412,11 @@ function big(value: unknown): bigint {
   return typeof value === "bigint" ? value : BigInt(String(value));
 }
 
+function strVec(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(str);
+  return [];
+}
+
 /**
  * Decode a raw Soroban RPC event into the Linkora event union.
  *
@@ -247,10 +429,17 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
     const eventType = findEventType(topics);
     if (!eventType) return null;
 
-    const payload = payloadFrom(topics, decodeData(raw.data ?? raw.value));
+    const payload = payloadFrom(eventType, topics, decodeData(raw.data ?? raw.value));
     const eventMeta = meta(raw);
 
     switch (eventType) {
+      case "profile_set":
+        return {
+          type: eventType,
+          user: str(payload.user),
+          username: str(payload.username),
+          meta: eventMeta,
+        };
       case "post_created":
         return {
           type: eventType,
@@ -286,6 +475,20 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           followee: str(payload.followee),
           meta: eventMeta,
         };
+      case "block":
+        return {
+          type: eventType,
+          blocker: str(payload.blocker),
+          blocked: str(payload.blocked),
+          meta: eventMeta,
+        };
+      case "unblock":
+        return {
+          type: eventType,
+          blocker: str(payload.blocker),
+          blocked: str(payload.blocked),
+          meta: eventMeta,
+        };
       case "tip":
         return {
           type: eventType,
@@ -293,6 +496,15 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           post_id: num(payload.post_id),
           amount: big(payload.amount),
           fee: big(payload.fee),
+          meta: eventMeta,
+        };
+      case "pool_created":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          token: str(payload.token),
+          admins: strVec(payload.admins),
+          threshold: num(payload.threshold),
           meta: eventMeta,
         };
       case "pool_deposit":
@@ -309,6 +521,55 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           recipient: str(payload.recipient),
           pool_id: str(payload.pool_id),
           amount: big(payload.amount),
+          meta: eventMeta,
+        };
+      case "pool_admin_added":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          new_admin: str(payload.new_admin),
+          meta: eventMeta,
+        };
+      case "pool_admin_removed":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          admin: str(payload.admin),
+          meta: eventMeta,
+        };
+      case "pool_threshold_updated":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          old_threshold: num(payload.old_threshold),
+          new_threshold: num(payload.new_threshold),
+          meta: eventMeta,
+        };
+      case "proposal_created":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          proposal_id: num(payload.proposal_id),
+          proposer: str(payload.proposer),
+          amount: big(payload.amount),
+          recipient: str(payload.recipient),
+          meta: eventMeta,
+        };
+      case "proposal_signed":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          proposal_id: num(payload.proposal_id),
+          signer: str(payload.signer),
+          meta: eventMeta,
+        };
+      case "proposal_executed":
+        return {
+          type: eventType,
+          pool_id: str(payload.pool_id),
+          proposal_id: num(payload.proposal_id),
+          amount: big(payload.amount),
+          recipient: str(payload.recipient),
           meta: eventMeta,
         };
       case "gov_proposal_created":
@@ -336,11 +597,37 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           new_value: num(payload.new_value),
           meta: eventMeta,
         };
+      case "gov_proposal_vetoed":
+        return {
+          type: eventType,
+          proposal_id: num(payload.proposal_id),
+          meta: eventMeta,
+        };
+      case "fee_updated":
+        return {
+          type: eventType,
+          old_fee_bps: num(payload.old_fee_bps),
+          new_fee_bps: num(payload.new_fee_bps),
+          meta: eventMeta,
+        };
+      case "treasury_updated":
+        return {
+          type: eventType,
+          old_treasury: str(payload.old_treasury),
+          new_treasury: str(payload.new_treasury),
+          meta: eventMeta,
+        };
+      case "contract_upgraded":
+        return {
+          type: eventType,
+          new_wasm_hash: str(payload.new_wasm_hash),
+          meta: eventMeta,
+        };
       case "dm_key_published":
         return {
           type: eventType,
           user: str(payload.user),
-          key: str(payload.key),
+          key: str(payload.public_key),
           meta: eventMeta,
         };
       case "emergency_bypass":

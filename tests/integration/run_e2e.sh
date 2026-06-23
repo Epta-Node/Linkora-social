@@ -82,7 +82,12 @@ echo "[3/8] Building and deploying Linkora contract..."
   cd "$CONTRACT_DIR"
   stellar --config-dir "$CFG_DIR" contract build >/dev/null
 )
-WASM_PATH="$CONTRACT_DIR/target/wasm32v1-none/release/linkora_contracts.wasm"
+# The target directory is at the workspace root (packages/contracts/target)
+WASM_PATH="$ROOT_DIR/packages/contracts/target/wasm32-unknown-unknown/release/linkora_contracts.wasm"
+# Use wasm32v1-none if the specific stellar-cli version requires it
+if [[ ! -f "$WASM_PATH" ]]; then
+  WASM_PATH="$ROOT_DIR/packages/contracts/target/wasm32v1-none/release/linkora_contracts.wasm"
+fi
 if [[ ! -f "$WASM_PATH" ]]; then
   echo "error: wasm artifact not found at $WASM_PATH" >&2
   exit 1

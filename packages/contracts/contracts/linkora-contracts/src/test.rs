@@ -2336,7 +2336,7 @@ fn test_tip_cooldown_allows_after_window() {
 // ── Issue #321: profile_count decrement on profile deletion ───────────────────
 
 #[test]
-fn test_profile_count_decrements_on_delete() {
+fn test_profile_count_persists_on_delete() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _, _) = setup_contract(&env);
@@ -2354,8 +2354,8 @@ fn test_profile_count_decrements_on_delete() {
     client.delete_profile(&user);
     assert_eq!(
         client.get_profile_count(),
-        0,
-        "count must decrement to 0 after profile deletion"
+        1,
+        "count must NOT decrement to 0 after profile deletion (tracks total ever created)"
     );
     assert!(
         client.get_profile(&user).is_none(),
@@ -2689,7 +2689,7 @@ fn test_gov_quorum_decay_proposal_fails_below_floor() {
 }
 
 #[test]
-#[should_panic(expected = "quorum not met")]
+#[should_panic(expected = "insufficient approval percentage")]
 fn test_gov_quorum_not_met_fails() {
     let env = Env::default();
     env.mock_all_auths();
@@ -2714,7 +2714,7 @@ fn test_gov_quorum_not_met_fails() {
         li.sequence_number += 200 + 100;
     });
 
-    // 20% < 30% (floor) → quorum not met
+    // 20% < 30% (floor) → insufficient approval percentage
     client.gov_execute(&proposal_id);
 }
 

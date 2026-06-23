@@ -581,16 +581,8 @@ impl LinkoraContract {
             .remove(&StorageKey::UsernameIndex(profile.username));
         env.storage().persistent().remove(&key);
 
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&PROFILE_CREATED_CT)
-            .unwrap_or(0);
-        if count > 0 {
-            env.storage()
-                .instance()
-                .set(&PROFILE_CREATED_CT, &(count - 1));
-        }
+        // Note: PROFILE_CREATED_CT is NOT decremented here as it tracks the total
+        // number of unique addresses that have EVER registered a profile.
     }
 
     pub fn get_address_by_username(env: Env, username: String) -> Option<Address> {
@@ -1635,8 +1627,8 @@ impl LinkoraContract {
         assert!(total_votes > 0, "no votes cast");
 
         let approval_pct = (proposal.votes_for as u64 * 100) / total_votes as u64;
-        let eff_quorum = Self::effective_quorum(env.clone(), proposal_id) as u64;
-        assert!(approval_pct >= eff_quorum, "quorum not met");
+        let required_approval = Self::effective_quorum(env.clone(), proposal_id) as u64;
+        assert!(approval_pct >= required_approval, "insufficient approval percentage");
 
         match proposal.parameter {
             GovParameter::FeeBps => {
