@@ -1,6 +1,4 @@
 {
-  "installCommand": "cd ../.. && pnpm install --frozen-lockfile",
-  "buildCommand": "next build",
-  "outputDirectory": ".next",
-  "framework": "nextjs"
+  "buildCommand": "cd ../.. && pnpm run build --filter=linkora-sdk && turbo run build --filter=apps-web",
+  "installCommand": "pnpm install"
 }
