@@ -58,22 +58,6 @@ async function installMockWallet(page: Page, publicKey = MOCK_WALLET_ADDRESS): P
   }, scriptArg);
 }
 
-async function getVisibleConnectWalletButton(page: Page) {
-  const connectButtons = page.getByRole('button', { name: /connect wallet/i });
-  const firstButton = connectButtons.first();
-
-  if (await firstButton.isVisible().catch(() => false)) {
-    return firstButton;
-  }
-
-  const navToggle = page.getByRole('button', { name: /toggle navigation menu/i });
-  if (await navToggle.isVisible().catch(() => false)) {
-    await navToggle.click();
-  }
-
-  return page.getByRole('button', { name: /connect wallet/i }).last();
-}
-
 /**
  * Wait for wallet to be connected and return the connected address
  */
@@ -101,13 +85,12 @@ export async function waitForWalletConnection(page: Page, timeout = 10000): Prom
 }
 
 /**
- * Connect wallet by clicking Connect Wallet button
+ * Connect wallet using the mocked Freighter state and reload to hydrate providers.
  */
 export async function connectWallet(page: Page): Promise<void> {
   await installMockWallet(page);
-
-  const connectButton = await getVisibleConnectWalletButton(page);
-  await connectButton.click();
+  await page.reload();
+  await page.waitForLoadState('networkidle');
 
   // Wait for wallet to be connected
   await waitForWalletConnection(page);

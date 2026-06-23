@@ -97,7 +97,7 @@ test.describe('Governance Flow', () => {
     await page.click('button:has-text("Submit Proposal")');
 
     // Check loading overlay text
-    await expect(page.getByText('Propose parameter change in Freighter...')).toBeVisible();
+    await expect(page.getByText('Proposing parameter change in Freighter...')).toBeVisible();
 
     // Wait for transaction processing to finish
     await page.waitForTimeout(2000);
@@ -110,3 +110,4 @@ test.describe('Governance Flow', () => {
     await expect(newProposalCard.getByText('2500')).toBeVisible();
   });
 });
+

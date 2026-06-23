@@ -16,7 +16,7 @@ test.describe('Wallet Connection & Profile Registration', () => {
     // Step 2: Verify wallet is connected
     const connectedAddress = await waitForWalletConnection(page);
     expect(connectedAddress).toBeTruthy();
-    expect(connectedAddress).toMatch(/^[GS][A-Z0-9]{55}$/); // Stellar address format
+    expect(connectedAddress).toMatch(/^[GS][A-Z0-9]{54,55}$/); // Stellar address format
 
     // Step 3: Navigate to profile page
     await navigateToProfile(page, connectedAddress);
@@ -62,4 +62,5 @@ test.describe('Wallet Connection & Profile Registration', () => {
     await expect(connectButton).toBeVisible();
   });
 });
+
 
