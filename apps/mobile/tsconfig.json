@@ -25,6 +25,8 @@
     "hooks/**/*.ts",
     "hooks/**/*.tsx",
     "mini-apps/**/*.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     "types/**/*.d.ts",
     "utils/**/*.ts"
   ],
