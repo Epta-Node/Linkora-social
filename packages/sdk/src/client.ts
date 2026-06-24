@@ -450,6 +450,11 @@ export class LinkoraClient {
   ): { deployTx: string; setProfileTxBuilder: (tokenAddress: string) => string } {
     const deployTx = this.deployCreatorToken(tokenParams);
 
+    // IMPORTANT: setProfileTxBuilder must only be called after the deploy
+    // transaction has been signed, submitted, and confirmed on-chain.  The
+    // token address is not known until the deploy transaction result is
+    // inspected — passing a speculative or incorrect address here will
+    // silently link the wrong contract to the profile.
     const setProfileTxBuilder = (tokenAddress: string): string =>
       this.setProfile(tokenParams.deployer, username, tokenAddress);
 

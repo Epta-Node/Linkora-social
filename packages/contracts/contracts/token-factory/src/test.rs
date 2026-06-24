@@ -132,6 +132,16 @@ fn test_negative_supply_panics() {
     );
 }
 
+// ── Note on end-to-end deploy tests ──────────────────────────────────────────
+//
+// Unit tests that call deploy_creator_token() require a real SEP-41 token WASM
+// with a matching __constructor(admin, decimals, name, symbol) signature.  The
+// empty-bytes WASM used in setup_factory() does not satisfy this requirement
+// because the Soroban host executes the constructor when deploy_v2() is called
+// with constructor args.  Full deploy tests (token address returned, two deploys
+// produce distinct addresses, emitted event carries the correct symbol) live in
+// the integration test suite at packages/contracts/tests/.
+
 // ── Salt Uniqueness (unit-level, no WASM required) ────────────────────────────
 //
 // The salt is derived from the ledger sequence number. We verify that two calls
