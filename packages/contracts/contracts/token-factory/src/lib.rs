@@ -166,7 +166,6 @@ impl TokenFactory {
         // factory involvement.
         token_client.set_admin(&deployer);
 
-
         // ── Emit event ────────────────────────────────────────────────────────
         CreatorTokenDeployedEvent {
             deployer: deployer.clone(),
