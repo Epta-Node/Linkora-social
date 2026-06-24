@@ -6,3 +6,4 @@ target/
 *.env
 .env.*
 !.env.example
+apps/mobile/coverage/

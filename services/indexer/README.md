@@ -149,16 +149,16 @@ docker compose down -v
 
 See [`.env.example`](.env.example) for all required variables.
 
-| Variable | Description |
-|----------|-------------|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `STELLAR_RPC_URL` | Soroban RPC endpoint |
-| `CONTRACT_ID` | Deployed Linkora contract address |
-| `START_LEDGER` | Ledger sequence to start indexing from |
-| `PORT` | HTTP/WS port (default: `3000`) |
+| Variable                 | Description                               |
+| ------------------------ | ----------------------------------------- |
+| `DATABASE_URL`           | PostgreSQL connection string              |
+| `STELLAR_RPC_URL`        | Soroban RPC endpoint                      |
+| `CONTRACT_ID`            | Deployed Linkora contract address         |
+| `START_LEDGER`           | Ledger sequence to start indexing from    |
+| `PORT`                   | HTTP/WS port (default: `3000`)            |
 | `RPC_RATE_LIMIT_PER_SEC` | Token-bucket RPC rate cap (default: `10`) |
-| `MIN_POLL_INTERVAL_MS` | Adaptive poll floor (default: `100`) |
-| `MAX_POLL_INTERVAL_MS` | Adaptive poll ceiling (default: `5000`) |
+| `MIN_POLL_INTERVAL_MS`   | Adaptive poll floor (default: `100`)      |
+| `MAX_POLL_INTERVAL_MS`   | Adaptive poll ceiling (default: `5000`)   |
 
 ## Manual Setup
 
@@ -183,6 +183,7 @@ psql "$DATABASE_URL" -f migrations/003_follows.sql
 psql "$DATABASE_URL" -f migrations/004_tips_likes.sql
 psql "$DATABASE_URL" -f migrations/005_pools.sql
 psql "$DATABASE_URL" -f migrations/006_raw_events.sql
+psql "$DATABASE_URL" -f migrations/007_device_tokens.sql
 ```
 
 ### Configuration

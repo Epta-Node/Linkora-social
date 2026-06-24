@@ -4,7 +4,24 @@ import { Platform } from "react-native";
 
 const SECURE_STORE_PUSH_TOKEN_KEY = "linkora_push_token";
 
-export async function registerForPushNotificationsAsync(): Promise<string | null> {
+async function registerTokenWithIndexer(address: string, token: string, platform: string) {
+  const indexerUrl = process.env.EXPO_PUBLIC_INDEXER_URL;
+  if (!indexerUrl || !address) {
+    return;
+  }
+
+  await fetch(`${indexerUrl.replace(/\/$/, "")}/api/notifications/register`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ address, token, platform }),
+  });
+}
+
+export async function registerForPushNotificationsAsync(
+  address?: string | null
+): Promise<string | null> {
   let token: string | null = null;
 
   if (Platform.OS === "android") {
@@ -33,6 +50,9 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     token = expoToken.data;
     if (token) {
       await SecureStore.setItemAsync(SECURE_STORE_PUSH_TOKEN_KEY, token);
+      if (address) {
+        await registerTokenWithIndexer(address, token, Platform.OS);
+      }
     }
   } catch (error) {
     console.error("Error getting or storing push token", error);

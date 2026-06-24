@@ -3,6 +3,7 @@
  */
 
 import { Database } from "../db";
+import { NotificationService } from "../notifications/service";
 
 export interface FollowEvent {
   follower: string;
@@ -23,7 +24,11 @@ export interface UnfollowEvent {
  * Idempotent: the underlying upsert on (follower, followee) is safe to
  * replay.
  */
-export async function handleFollow(db: Database, event: FollowEvent): Promise<void> {
+export async function handleFollow(
+  source: Database | { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  event: FollowEvent,
+  options?: { notificationService?: NotificationService }
+): Promise<void> {
   if (!event.follower) {
     throw new Error("Follow event missing required field: follower");
   }
@@ -31,11 +36,37 @@ export async function handleFollow(db: Database, event: FollowEvent): Promise<vo
     throw new Error("Follow event missing required field: followee");
   }
 
-  await db.insertFollow({
-    follower: event.follower,
-    followee: event.followee,
-    ledger: event.ledger,
-  });
+  if ("query" in source) {
+    await source.query(
+      `
+      INSERT INTO follows (follower, followee, created_at)
+      VALUES ($1, $2, to_timestamp($3))
+      ON CONFLICT (follower, followee) DO NOTHING
+      `,
+      [event.follower, event.followee, event.ledger]
+    );
+  } else {
+    await source.insertFollow({
+      follower: event.follower,
+      followee: event.followee,
+      ledger: event.ledger,
+    });
+  }
+
+  if (options?.notificationService) {
+    try {
+      await options.notificationService.dispatchEventNotification({
+        type: "FOLLOW",
+        recipient: event.followee,
+        payload: {
+          followerAddress: event.follower,
+          deepLink: `linkora://profile/${event.follower}`,
+        },
+      });
+    } catch (error) {
+      console.warn("Failed to dispatch follow notification:", error);
+    }
+  }
 }
 
 /**

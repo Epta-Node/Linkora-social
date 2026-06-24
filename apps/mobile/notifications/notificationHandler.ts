@@ -1,5 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
+import { parseDeepLink } from "../utils/deepLinks";
 
 // Configure how notifications are handled when the app is in the foreground
 Notifications.setNotificationHandler({
@@ -11,13 +12,39 @@ Notifications.setNotificationHandler({
 });
 
 export interface NotificationPayload {
-  type: "NEW_FOLLOWER" | "TIP_RECEIVED" | "POOL_ACTIVITY";
+  type: "NEW_FOLLOWER" | "TIP_RECEIVED" | "LIKE_RECEIVED" | "POOL_ACTIVITY";
   followerAddress?: string;
   senderAddress?: string;
   amount?: string;
   asset?: string;
   poolId?: string;
+  postId?: string;
   activityType?: string;
+  deepLink?: string;
+}
+
+function navigateToDeepLink(value?: string): boolean {
+  if (!value) {
+    return false;
+  }
+
+  if (
+    value.startsWith("/post/") ||
+    value.startsWith("/profile/") ||
+    value.startsWith("/pools/") ||
+    value.startsWith("/dm/")
+  ) {
+    router.push(value as Parameters<typeof router.push>[0]);
+    return true;
+  }
+
+  const parsed = parseDeepLink(value);
+  if (!parsed) {
+    return false;
+  }
+
+  router.push(parsed.path as Parameters<typeof router.push>[0]);
+  return true;
 }
 
 export function setupNotificationListeners() {
@@ -35,16 +62,32 @@ export function setupNotificationListeners() {
 
     switch (data.type) {
       case "NEW_FOLLOWER":
+        if (navigateToDeepLink(data.deepLink)) {
+          break;
+        }
         if (data.followerAddress) {
           router.push(`/profile/${data.followerAddress}` as Parameters<typeof router.push>[0]);
         }
         break;
       case "TIP_RECEIVED":
-        router.push("/wallet" as Parameters<typeof router.push>[0]);
+        if (navigateToDeepLink(data.deepLink)) {
+          break;
+        }
+        if (data.postId) {
+          router.push(`/post/${data.postId}` as Parameters<typeof router.push>[0]);
+        }
+        break;
+      case "LIKE_RECEIVED":
+        if (navigateToDeepLink(data.deepLink)) {
+          break;
+        }
+        if (data.postId) {
+          router.push(`/post/${data.postId}` as Parameters<typeof router.push>[0]);
+        }
         break;
       case "POOL_ACTIVITY":
         if (data.poolId) {
-          router.push(`/pool/${data.poolId}` as Parameters<typeof router.push>[0]);
+          router.push(`/pools/${data.poolId}` as Parameters<typeof router.push>[0]);
         }
         break;
       default:

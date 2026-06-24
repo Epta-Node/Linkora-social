@@ -13,6 +13,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@stellar/stellar-sdk": "^15.1.0",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
     "pg": "^8.12.0",

@@ -13,6 +13,17 @@ const nextConfig = {
   async headers() {
     return [
       {
+        // AASA must be served as application/json without redirects or a
+        // .json extension so iOS can validate universal links.
+        source: '/.well-known/apple-app-site-association',
+        headers: [
+          {
+            key: 'Content-Type',
+            value: 'application/json',
+          },
+        ],
+      },
+      {
         // Apply these headers to all routes in the application.
         source: '/(.*)',
         headers: [

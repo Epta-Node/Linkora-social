@@ -23,19 +23,19 @@ export interface LikeEventContext {
  * Idempotent: Uses (post_id, user_address) unique constraint and tx_hash
  */
 export async function handleLike(
-  pool: Pool,
+  poolOrClient: Pool,
   event: LikePostEvent,
-  context: LikeEventContext
+  context: LikeEventContext,
+  options?: { client?: Pool }
 ): Promise<void> {
+  const client = options?.client ?? (await poolOrClient.connect());
   const { user, post_id } = event;
   const { txHash, timestamp } = context;
-
-  const client = await pool.connect();
+  const release = options?.client === undefined;
 
   try {
     await client.query("BEGIN");
 
-    // Insert like record (idempotent via unique constraint on post_id + user_address)
     const insertLikeQuery = `
       INSERT INTO likes (post_id, user_address, created_at, tx_hash)
       VALUES ($1, $2, $3, $4)
@@ -43,31 +43,27 @@ export async function handleLike(
       RETURNING id
     `;
 
-    const insertValues = [post_id.toString(), user, timestamp, txHash];
+    const insertResult = await client.query(insertLikeQuery, [
+      post_id.toString(),
+      user,
+      timestamp,
+      txHash,
+    ]);
 
-    const insertResult = await client.query(insertLikeQuery, insertValues);
-
-    if (insertResult.rowCount === 0) {
+    if ((insertResult.rowCount ?? 0) === 0) {
       console.log(`Like already exists for user ${user} on post ${post_id} (idempotent skip)`);
       await client.query("COMMIT");
       return;
     }
 
-    // Increment like_count on post
     const updatePostQuery = `
       UPDATE posts
       SET like_count = like_count + 1
       WHERE id = $1 AND deleted_at IS NULL
     `;
 
-    const updateValues = [post_id.toString()];
-    const updateResult = await client.query(updatePostQuery, updateValues);
-
-    if (updateResult.rowCount === 0) {
-      console.warn(`Post ${post_id} not found or deleted, like recorded but post not updated`);
-    } else {
-      console.log(`Like from ${user} added to post ${post_id}`);
-    }
+    await client.query(updatePostQuery, [post_id.toString()]);
+    console.log(`Like from ${user} added to post ${post_id}`);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -75,7 +71,7 @@ export async function handleLike(
     console.error(`Error handling LikePostEvent for post ${post_id}:`, error);
     throw error;
   } finally {
-    client.release();
+    if (release) (client as import("pg").PoolClient).release();
   }
 }
 

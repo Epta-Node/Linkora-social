@@ -7,7 +7,14 @@ import { createPostsRouter } from "./routes/posts";
 import { createFollowsRouter } from "./routes/follows";
 import { createPoolsRouter } from "./routes/pools";
 import { createStateRootRouter } from "./routes/stateRoot";
+import { createNotificationsRouter } from "./routes/notifications";
 import { isFenced } from "../gossip";
+import {
+  defaultNotificationService,
+  NotificationService,
+  PostgresDeviceTokenStore,
+} from "../notifications/service";
+import { PostgresDatabase } from "../postgres-db";
 
 // ── Rate-limit configuration (all values are env-overridable) ────────────────
 
@@ -47,13 +54,19 @@ export function createApp(db: Database, pg?: PgPool): express.Application {
   const app = express();
   app.use(express.json());
 
+  app.get("/health", (_req: Request, res: Response): void => {
+    res.json({ status: "ok" });
+  });
+
   // Apply rate limiting to all /api routes.
   app.use("/api", apiLimiter);
 
   // Self-fencing middleware: stop serving when Byzantine majority detected.
   app.use("/api", (_req: Request, res: Response, next: NextFunction): void => {
     if (isFenced()) {
-      res.status(503).json({ error: "Node self-fenced: Byzantine divergence detected", code: "SELF_FENCED" });
+      res
+        .status(503)
+        .json({ error: "Node self-fenced: Byzantine divergence detected", code: "SELF_FENCED" });
       return;
     }
     next();
@@ -64,6 +77,11 @@ export function createApp(db: Database, pg?: PgPool): express.Application {
   app.use("/api/posts", createPostsRouter(db));
   app.use("/api/follows", createFollowsRouter(db));
   app.use("/api/pools", createPoolsRouter(db));
+
+  const notificationService = pg
+    ? new NotificationService({ deviceTokenStore: new PostgresDeviceTokenStore(pg) })
+    : defaultNotificationService;
+  app.use("/api/notifications", createNotificationsRouter(notificationService));
 
   // State root endpoint (requires pg pool).
   if (pg) {
@@ -165,7 +183,11 @@ export { apiLimiter };
 
 if (require.main === module) {
   const PORT = parseInt(process.env.PORT ?? "3001", 10);
-  app.listen(PORT, () => {
+  const databaseUrl = process.env.DATABASE_URL;
+  const pg = databaseUrl ? new PgPool({ connectionString: databaseUrl }) : undefined;
+  const apiApp = pg ? createApp(new PostgresDatabase(pg), pg) : app;
+
+  apiApp.listen(PORT, () => {
     console.log(`Indexer API listening on port ${PORT}`);
     console.log(
       `Rate limit: ${RATE_LIMIT_MAX} requests per ${RATE_LIMIT_WINDOW_MS / 1000}s per IP`

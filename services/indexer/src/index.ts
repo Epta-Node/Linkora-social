@@ -26,6 +26,11 @@ import { IngestPipeline, IngestEvent } from "./pipeline";
 import { bus } from "./bus";
 import { attachWebSocketServer } from "./ws";
 import { startGossip } from "./gossip";
+import { attachNotificationDispatcher } from "./notifications/events";
+import { NotificationService, PostgresDeviceTokenStore } from "./notifications/service";
+import { createApp } from "./api";
+import { createDomainProcessor } from "./domain-processor";
+import { PostgresDatabase } from "./postgres-db";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -49,6 +54,9 @@ const PORT = parseInt(process.env.PORT ?? "3000", 10);
 // ── Database ──────────────────────────────────────────────────────────────────
 
 const pgPool = new Pool({ connectionString: DATABASE_URL });
+const notificationService = new NotificationService({
+  deviceTokenStore: new PostgresDeviceTokenStore(pgPool),
+});
 
 /**
  * Idempotently ensure the staging table and cursor exist. Mirrors
@@ -82,6 +90,36 @@ async function ensureSchema(): Promise<void> {
       computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS device_tokens (
+      id         SERIAL      PRIMARY KEY,
+      address    TEXT        NOT NULL,
+      token      TEXT        NOT NULL,
+      platform   TEXT        NOT NULL CHECK (platform IN ('ios', 'android', 'web')),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (address, token)
+    )
+  `);
+  await pgPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_device_tokens_address_updated
+      ON device_tokens (address, updated_at DESC)
+  `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS sent_notifications (
+      id              BIGSERIAL    PRIMARY KEY,
+      event_id        BIGINT       NOT NULL,
+      event_type      TEXT         NOT NULL,
+      recipient       TEXT         NOT NULL,
+      dispatch_key    TEXT         NOT NULL,
+      dispatched_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      UNIQUE (dispatch_key)
+    )
+  `);
+  await pgPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_sent_notifications_recipient
+      ON sent_notifications (recipient, dispatched_at DESC)
+  `);
 }
 
 // ── Event normalisation ─────────────────────────────────────────────────────
@@ -105,17 +143,11 @@ function toIngestEvent(event: RawEvent): IngestEvent {
 
 // ── HTTP + WebSocket server ──────────────────────────────────────────────────
 
-const httpServer = http.createServer((req, res) => {
-  if (req.url === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok" }));
-    return;
-  }
-  res.writeHead(404, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ error: "not found" }));
-});
+const apiApp = createApp(new PostgresDatabase(pgPool), pgPool);
+const httpServer = http.createServer(apiApp);
 
 const wsHandle = attachWebSocketServer(httpServer, bus, { path: "/ws" });
+const detachNotificationDispatcher = attachNotificationDispatcher(bus, pgPool, notificationService);
 
 // ── Graceful shutdown ─────────────────────────────────────────────────────────
 
@@ -127,6 +159,7 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   console.log(`[indexer] Received ${signal}, shutting down…`);
   abortController.abort();
+  detachNotificationDispatcher();
   await wsHandle.close();
   httpServer.close();
   await pgPool.end();
@@ -149,8 +182,7 @@ async function main(): Promise<void> {
   const pipeline = new IngestPipeline(pgPool, {
     streamId: CONTRACT_ID,
     bus,
-    // domainProcessor: wire decoded handlers here. Until contract XDR decoding
-    // is implemented, events are staged + fanned out without domain projection.
+    domainProcessor: createDomainProcessor(pgPool, notificationService),
   });
 
   const processBatch: BatchProcessor = async (events) => {
@@ -185,6 +217,7 @@ async function main(): Promise<void> {
   );
 
   await wsHandle.close();
+  detachNotificationDispatcher();
   httpServer.close();
   await pgPool.end();
   console.log("[indexer] Shutdown complete.");
