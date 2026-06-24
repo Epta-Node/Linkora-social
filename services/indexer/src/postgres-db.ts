@@ -1,12 +1,7 @@
 import { Pool } from "pg";
 import { Database, Profile, Follow, Post, Like, Tip, Pool as PoolModel } from "./db";
 
-
-
-
-
 export class PostgresDatabase implements Database {
-
   private pool: Pool;
 
   constructor(pool: Pool) {
@@ -54,7 +49,6 @@ export class PostgresDatabase implements Database {
       [follow.follower, follow.followee, follow.ledger]
     );
   }
-
 
   async deleteFollow(follower: string, followee: string): Promise<void> {
     await this.pool.query(
@@ -119,7 +113,7 @@ export class PostgresDatabase implements Database {
   // ───────────────────────────────── Posts ────────────────────────────────────
 
   async insertPost(post: Post): Promise<void> {
-    const content = (post as any).content ?? '';
+    const content = (post as { content?: string }).content ?? "";
 
     await this.pool.query(
       `
@@ -127,10 +121,16 @@ export class PostgresDatabase implements Database {
       VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NULL)
       ON CONFLICT (id) DO NOTHING
       `,
-      [post.id.toString(), post.author, content, post.tip_total.toString(), post.like_count.toString(), post.created_ledger]
+      [
+        post.id.toString(),
+        post.author,
+        content,
+        post.tip_total.toString(),
+        post.like_count.toString(),
+        post.created_ledger,
+      ]
     );
   }
-
 
   async markPostDeleted(post_id: bigint, deleted_ledger: number): Promise<void> {
     await this.pool.query(
@@ -143,7 +143,6 @@ export class PostgresDatabase implements Database {
       [post_id.toString(), deleted_ledger]
     );
   }
-
 
   async incrementPostLikeCount(post_id: bigint): Promise<void> {
     await this.pool.query(
@@ -261,8 +260,6 @@ export class PostgresDatabase implements Database {
     return (res.rowCount ?? 0) > 0;
   }
 
-
-
   // Note: Like handler in this repo uses the raw handlers (pg Pool directly),
   // and this method exists mainly to satisfy the Database interface.
 
@@ -285,7 +282,6 @@ export class PostgresDatabase implements Database {
       ]
     );
   }
-
 
   // ───────────────────────────────── Pools ────────────────────────────────────
 
@@ -314,11 +310,7 @@ export class PostgresDatabase implements Database {
     );
   }
 
-  async adjustPoolBalance(
-    pool_id: string,
-    delta: bigint,
-    ledger: number
-  ): Promise<void> {
+  async adjustPoolBalance(pool_id: string, delta: bigint, ledger: number): Promise<void> {
     await this.pool.query(
       `
       UPDATE pools
@@ -386,7 +378,6 @@ export class PostgresDatabase implements Database {
     );
   }
 
-
   async removePoolAdmin(pool_id: string, admin: string, ledger: number): Promise<void> {
     await this.pool.query(
       `
@@ -404,4 +395,3 @@ export class PostgresDatabase implements Database {
     );
   }
 }
-
