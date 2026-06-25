@@ -8,6 +8,7 @@ import { useFeed } from "../../hooks/useFeed";
 import { useWallet } from "../../hooks/useWallet";
 import ProfileHeader from "../../components/ProfileHeader";
 import { PostCard } from "../../components/PostCard";
+import { AnalyticsCard } from "../../components/AnalyticsCard";
 
 type ProfileParams = {
   address: string;
@@ -49,17 +50,20 @@ export default function ProfileDetailScreen() {
   return (
     <View style={styles.container}>
       {profile && (
-        <ProfileHeader
-          profile={profile}
-          followerCount={followerCount}
-          followingCount={followingCount}
-          isFollowing={isFollowing}
-          isOwnProfile={me === address}
-          onFollowersPress={() => router.push(`/profile/followers?address=${address}` as Parameters<typeof router.push>[0])}
-          onFollowingPress={() => router.push(`/profile/following?address=${address}` as Parameters<typeof router.push>[0])}
-          onEditPress={() => router.push("/settings" as Parameters<typeof router.push>[0])}
-          onToggleFollow={toggleFollow}
-        />
+        <>
+          <ProfileHeader
+            profile={profile}
+            followerCount={followerCount}
+            followingCount={followingCount}
+            isFollowing={isFollowing}
+            isOwnProfile={me === address}
+            onFollowersPress={() => router.push(`/profile/followers?address=${address}` as Parameters<typeof router.push>[0])}
+            onFollowingPress={() => router.push(`/profile/following?address=${address}` as Parameters<typeof router.push>[0])}
+            onEditPress={() => router.push("/settings" as Parameters<typeof router.push>[0])}
+            onToggleFollow={toggleFollow}
+          />
+          <AnalyticsCard creatorAddress={address ?? ""} />
+        </>
       )}
 
       <FlatList

@@ -43,13 +43,15 @@ function FollowButton({
   state,
   onFollow,
   onUnfollow,
-}: {
+}: Pick<ProfileHeaderProps, "onFollow" | "onUnfollow"> & {
   state: ProfileHeaderProps["followState"];
-  onFollow: () => void;
-  onUnfollow: () => void;
 }) {
   if (state === "blocked") {
-    return <button disabled style={{ ...styles.followBtn, ...styles.blockedBtn }}>Blocked</button>;
+    return (
+      <button disabled style={{ ...styles.followBtn, ...styles.blockedBtn }}>
+        Blocked
+      </button>
+    );
   }
   if (state === "loading") {
     return (
@@ -70,7 +72,11 @@ function FollowButton({
       </button>
     );
   }
-  return <button onClick={onFollow} style={styles.followBtn}>Follow</button>;
+  return (
+    <button onClick={onFollow} style={styles.followBtn}>
+      Follow
+    </button>
+  );
 }
 
 export function ProfileHeader({
@@ -121,11 +127,7 @@ export function ProfileHeader({
 
       {!isOwnProfile && (
         <div style={styles.actions}>
-          <FollowButton
-            state={followState}
-            onFollow={onFollow}
-            onUnfollow={onUnfollow}
-          />
+          <FollowButton state={followState} onFollow={onFollow} onUnfollow={onUnfollow} />
         </div>
       )}
     </section>

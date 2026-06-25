@@ -18,19 +18,13 @@ interface UserRow {
 }
 
 const PAGE_SIZE = 20;
-const indexerUrl =
-  process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:3001";
+const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:3001";
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Component                                                                */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-export function FollowDrawer({
-  isOpen,
-  onClose,
-  type,
-  address,
-}: FollowDrawerProps) {
+export function FollowDrawer({ isOpen, onClose, type, address }: FollowDrawerProps) {
   const [users, setUsers] = useState<string[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -116,10 +110,7 @@ export function FollowDrawer({
         {/* Header */}
         <div className="p-4 border-b border-[var(--bg-tertiary)] flex justify-between items-center">
           <h2 className="text-lg font-semibold text-[var(--text-primary)] capitalize">
-            {type}{" "}
-            <span className="text-sm text-[var(--text-muted)] font-normal">
-              ({total})
-            </span>
+            {type} <span className="text-sm text-[var(--text-muted)] font-normal">({total})</span>
           </h2>
           <button
             onClick={onClose}
@@ -156,15 +147,11 @@ export function FollowDrawer({
           ))}
 
           {loading && (
-            <div className="text-center text-sm text-[var(--text-muted)] py-4">
-              Loading…
-            </div>
+            <div className="text-center text-sm text-[var(--text-muted)] py-4">Loading…</div>
           )}
 
           {!loading && users.length === 0 && (
-            <div className="text-center text-sm text-[var(--text-muted)] py-12">
-              No {type} yet.
-            </div>
+            <div className="text-center text-sm text-[var(--text-muted)] py-12">No {type} yet.</div>
           )}
         </div>
       </div>

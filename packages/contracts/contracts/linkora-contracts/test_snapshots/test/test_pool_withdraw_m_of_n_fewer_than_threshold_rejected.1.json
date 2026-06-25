@@ -381,6 +381,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "MOD_SL_B"
+                      },
+                      "val": {
+                        "u32": 0
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "TIP_CD_W"
                       },
                       "val": {

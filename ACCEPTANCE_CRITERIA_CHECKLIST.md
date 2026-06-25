@@ -1,6 +1,7 @@
 # Settings Page - Acceptance Criteria Checklist
 
 ## Requirements Overview
+
 Build a comprehensive settings page at `/settings` that groups all user-configurable options.
 
 ---
@@ -8,6 +9,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Route Implementation
 
 ### Location: `apps/web/src/app/settings/page.tsx`
+
 - [x] Created at correct path
 - [x] Replaces/extends existing `/profile/edit`
 - [x] Properly organized with all sections
@@ -17,6 +19,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Section 1: Profile
 
 ### Implementation: `ProfileSection.tsx`
+
 - [x] Username field with validation
 - [x] Creator token address display (read-only)
 - [x] Link to creator wizard for token management
@@ -26,6 +29,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - [x] Success message after save
 
 **Acceptance Criterion**: Profile form saves and confirms on-chain update
+
 - [x] ✅ PASSED - Transaction XDR generated correctly
 - [x] ✅ PASSED - Success message displays after submission
 - [x] ✅ PASSED - Profile data loads from contract
@@ -35,6 +39,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Section 2: Wallet
 
 ### Implementation: `WalletSection.tsx`
+
 - [x] Connected address display (truncated format)
 - [x] Copy address to clipboard functionality
 - [x] Network badge with visual indicator
@@ -43,6 +48,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - [x] Redirects to home (`/`) after disconnect
 
 **Acceptance Criterion**: Disconnect clears wallet state and redirects to home
+
 - [x] ✅ PASSED - Disconnect function called
 - [x] ✅ PASSED - Router pushes to "/"
 - [x] ✅ PASSED - Wallet state cleared
@@ -52,6 +58,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Section 3: DM Key
 
 ### Implementation: `DmKeySection.tsx`
+
 - [x] Publish X25519 public key functionality
 - [x] Rotate key option with confirmation
 - [x] Uses `generateDmKeypair()` from SDK
@@ -61,6 +68,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - [x] Success and error message display
 
 **Acceptance Criterion**: DM key publish submits transaction and shows confirmation
+
 - [x] ✅ PASSED - Keypair generated correctly
 - [x] ✅ PASSED - Transaction XDR built via LinkoraClient
 - [x] ✅ PASSED - Success message displayed
@@ -72,6 +80,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Section 4: Notifications
 
 ### Implementation: `NotificationsSection.tsx`
+
 - [x] Browser push notification toggle
 - [x] Permission request handling
 - [x] Configure notification types:
@@ -89,6 +98,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Section 5: Governance
 
 ### Implementation: `GovernanceSection.tsx`
+
 - [x] View active proposals
 - [x] Proposal status badges (active/passed/rejected)
 - [x] Vote counts (for/against)
@@ -103,6 +113,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Section 6: Danger Zone
 
 ### Implementation: `DangerZoneSection.tsx`
+
 - [x] Delete Profile button
 - [x] Confirmation dialog modal
 - [x] Typed address confirmation required
@@ -113,6 +124,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - [x] Visual warning styling (red theme)
 
 **Acceptance Criterion**: Delete profile requires confirmation dialog with typed address
+
 - [x] ✅ PASSED - Dialog appears on delete click
 - [x] ✅ PASSED - Input field for address confirmation
 - [x] ✅ PASSED - Must match exact address
@@ -125,6 +137,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 ## ✅ Accessibility Testing (jest-axe)
 
 ### Test Files Created
+
 - [x] `apps/web/src/app/settings/page.test.tsx`
 - [x] `apps/web/src/components/settings/ProfileSection.test.tsx`
 - [x] `apps/web/src/components/settings/WalletSection.test.tsx`
@@ -134,12 +147,14 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - [x] `apps/web/src/components/settings/DangerZoneSection.test.tsx`
 
 ### Test Infrastructure
+
 - [x] `apps/web/jest.config.js` created
 - [x] `apps/web/jest.setup.ts` created with jest-axe setup
 - [x] Dependencies added to `package.json`
 - [x] Test scripts configured (`test`, `test:watch`, `test:coverage`)
 
 ### Accessibility Checks in Each Test
+
 - [x] `toHaveNoViolations()` assertions
 - [x] ARIA attribute verification
 - [x] Heading hierarchy checks
@@ -149,6 +164,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - [x] Screen reader compatibility
 
 **Acceptance Criterion**: Zero jest-axe violations
+
 - [x] ✅ PASSED - All components tested
 - [x] ✅ PASSED - axe() checks included
 - [x] ✅ PASSED - toHaveNoViolations() asserted
@@ -169,6 +185,7 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 5. ✅ Zero jest-axe violations
 
 ### Additional Features Implemented
+
 - Loading states for async operations
 - Success and error messaging
 - Confirmation dialogs for critical actions
@@ -180,7 +197,9 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - Comprehensive test coverage
 
 ### Files Created/Modified
+
 **New Files**: 14 total
+
 - 1 main settings page
 - 6 section components (already existed)
 - 7 test files
@@ -188,10 +207,13 @@ Build a comprehensive settings page at `/settings` that groups all user-configur
 - 3 documentation files
 
 **Modified Files**: 1
+
 - `apps/web/package.json` (added test dependencies)
 
 ### Ready for Integration
+
 The UI and testing are complete. Transaction signing and submission require:
+
 1. Wallet integration (Freighter API)
 2. Transaction submission to Stellar network
 3. Status polling and confirmation
@@ -212,6 +234,7 @@ npm test
 All tests should pass with zero accessibility violations.
 
 **Build verification**:
+
 ```bash
 npm run build
 ```

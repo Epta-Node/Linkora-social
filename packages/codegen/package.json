@@ -1,0 +1,16 @@
+{
+  "name": "@linkora/codegen",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "tsx generate.ts && prettier --write \"$(cd ../../ && pwd)/packages/sdk/src/generated/*.ts\""
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^15.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.8.3"
+  }
+}

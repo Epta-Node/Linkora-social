@@ -78,14 +78,14 @@ describe("LinkoraClient read methods", () => {
 
   describe("getProfileCount", () => {
     it("returns count", async () => {
-      success(5);
-      expect(await client.getProfileCount()).toBe(5);
+      success(5n);
+      expect(await client.getProfileCount()).toBe(5n);
       expect(mockCall).toHaveBeenCalledWith("get_profile_count");
     });
 
     it("returns 0 when null", async () => {
       notFound();
-      expect(await client.getProfileCount()).toBe(0);
+      expect(await client.getProfileCount()).toBe(0n);
     });
   });
 
@@ -105,16 +105,16 @@ describe("LinkoraClient read methods", () => {
   describe("getPost", () => {
     it("returns a post", async () => {
       const post: Post = {
-        id: 1,
+        id: 1n,
         author: "GAUTHOR",
         content: "hi",
-        tip_total: 0,
-        timestamp: 123,
-        like_count: 0,
+        tip_total: 0n,
+        timestamp: 123n,
+        like_count: 0n,
       };
       success(post);
       expect(await client.getPost(1)).toEqual(post);
-      expect(mockCall).toHaveBeenCalledWith("get_post", val(1));
+      expect(mockCall).toHaveBeenCalledWith("get_post", val(1n));
     });
 
     it("returns null when null result", async () => {
@@ -130,12 +130,12 @@ describe("LinkoraClient read methods", () => {
 
   describe("getPostCount", () => {
     it("returns count", async () => {
-      success(10);
-      expect(await client.getPostCount()).toBe(10);
+      success(10n);
+      expect(await client.getPostCount()).toBe(10n);
     });
     it("returns 0 when null", async () => {
       notFound();
-      expect(await client.getPostCount()).toBe(0);
+      expect(await client.getPostCount()).toBe(0n);
     });
   });
 
@@ -143,7 +143,7 @@ describe("LinkoraClient read methods", () => {
     it("returns post IDs", async () => {
       success([1n, 2n, 3n]);
       const result = await client.getPostsByAuthor("GAUTHOR", 0, 10);
-      expect(result).toEqual([1, 2, 3]);
+      expect(result).toEqual([1n, 2n, 3n]);
       expect(mockCall).toHaveBeenCalledWith(
         "get_posts_by_author",
         addr("GAUTHOR"),
@@ -193,29 +193,28 @@ describe("LinkoraClient read methods", () => {
   describe("hasLiked", () => {
     it("returns true", async () => {
       success(true);
-      expect(await client.hasLiked("GUSER", 1)).toBe(true);
+      expect(await client.hasLiked("GUSER", 1n)).toBe(true);
     });
     it("returns false when null", async () => {
       notFound();
-      expect(await client.hasLiked("GUSER", 1)).toBe(false);
+      expect(await client.hasLiked("GUSER", 1n)).toBe(false);
     });
   });
 
   describe("getLikeCount", () => {
     it("returns count", async () => {
-      success(7);
-      expect(await client.getLikeCount(1)).toBe(7);
+      success(7n);
+      expect(await client.getLikeCount(1n)).toBe(7n);
     });
     it("returns 0 when null", async () => {
       notFound();
-      expect(await client.getLikeCount(1)).toBe(0);
+      expect(await client.getLikeCount(1n)).toBe(0n);
     });
   });
 
   describe("getPool", () => {
     it("returns a pool", async () => {
       const pool: Pool = {
-        pool_id: "p1",
         token: "GTOKEN",
         balance: 1000n,
         admins: ["GA"],

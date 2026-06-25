@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 
 interface NotificationSettings {
   browserPushEnabled: boolean;
@@ -23,22 +23,22 @@ export function NotificationsSection() {
     governanceUpdates: true,
   });
   const [pushSupported, setPushSupported] = useState(false);
-  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>("default");
 
   useEffect(() => {
     // Check if browser supports push notifications
-    if ('Notification' in window) {
+    if ("Notification" in window) {
       setPushSupported(true);
       setPushPermission(Notification.permission);
     }
 
     // Load saved settings from localStorage
-    const saved = localStorage.getItem('notification_settings');
+    const saved = localStorage.getItem("notification_settings");
     if (saved) {
       try {
         setSettings(JSON.parse(saved));
       } catch (error) {
-        console.error('Failed to parse notification settings:', error);
+        console.error("Failed to parse notification settings:", error);
       }
     }
   }, []);
@@ -46,15 +46,15 @@ export function NotificationsSection() {
   async function handleTogglePush() {
     if (!pushSupported) return;
 
-    if (pushPermission === 'granted') {
+    if (pushPermission === "granted") {
       // Disable push notifications
       setSettings((prev) => ({ ...prev, browserPushEnabled: false }));
-      setPushPermission('default');
+      setPushPermission("default");
     } else {
       // Request permission
       const permission = await Notification.requestPermission();
       setPushPermission(permission);
-      if (permission === 'granted') {
+      if (permission === "granted") {
         setSettings((prev) => ({ ...prev, browserPushEnabled: true }));
       }
     }
@@ -63,7 +63,7 @@ export function NotificationsSection() {
   function handleToggleSetting(key: keyof NotificationSettings) {
     setSettings((prev) => {
       const updated = { ...prev, [key]: !prev[key] };
-      localStorage.setItem('notification_settings', JSON.stringify(updated));
+      localStorage.setItem("notification_settings", JSON.stringify(updated));
       return updated;
     });
   }
@@ -89,14 +89,14 @@ export function NotificationsSection() {
               <button
                 onClick={handleTogglePush}
                 className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  settings.browserPushEnabled ? 'bg-violet-600' : 'bg-gray-200'
+                  settings.browserPushEnabled ? "bg-violet-600" : "bg-gray-200"
                 }`}
                 role="switch"
                 aria-checked={settings.browserPushEnabled}
               >
                 <span
                   className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                    settings.browserPushEnabled ? 'translate-x-6' : 'translate-x-1'
+                    settings.browserPushEnabled ? "translate-x-6" : "translate-x-1"
                   }`}
                 />
               </button>
@@ -110,37 +110,37 @@ export function NotificationsSection() {
             label="New Followers"
             description="When someone follows you"
             checked={settings.newFollowers}
-            onChange={() => handleToggleSetting('newFollowers')}
+            onChange={() => handleToggleSetting("newFollowers")}
           />
           <NotificationToggle
             label="New Likes"
             description="When someone likes your post"
             checked={settings.newLikes}
-            onChange={() => handleToggleSetting('newLikes')}
+            onChange={() => handleToggleSetting("newLikes")}
           />
           <NotificationToggle
             label="New Comments"
             description="When someone comments on your post"
             checked={settings.newComments}
-            onChange={() => handleToggleSetting('newComments')}
+            onChange={() => handleToggleSetting("newComments")}
           />
           <NotificationToggle
             label="Direct Messages"
             description="When you receive a new DM"
             checked={settings.directMessages}
-            onChange={() => handleToggleSetting('directMessages')}
+            onChange={() => handleToggleSetting("directMessages")}
           />
           <NotificationToggle
             label="Pool Activity"
             description="When there's activity in your pools"
             checked={settings.poolActivity}
-            onChange={() => handleToggleSetting('poolActivity')}
+            onChange={() => handleToggleSetting("poolActivity")}
           />
           <NotificationToggle
             label="Governance Updates"
             description="When there are new proposals or votes"
             checked={settings.governanceUpdates}
-            onChange={() => handleToggleSetting('governanceUpdates')}
+            onChange={() => handleToggleSetting("governanceUpdates")}
           />
         </div>
       </div>
@@ -165,7 +165,7 @@ function NotificationToggle({ label, description, checked, onChange }: Notificat
       <button
         onClick={onChange}
         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-          checked ? 'bg-violet-600' : 'bg-gray-200'
+          checked ? "bg-violet-600" : "bg-gray-200"
         }`}
         role="switch"
         aria-checked={checked}
@@ -173,7 +173,7 @@ function NotificationToggle({ label, description, checked, onChange }: Notificat
       >
         <span
           className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-6' : 'translate-x-1'
+            checked ? "translate-x-6" : "translate-x-1"
           }`}
         />
       </button>

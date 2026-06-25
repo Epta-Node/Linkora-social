@@ -26,10 +26,7 @@ const NO_GAP: GapResult = { hasGap: false };
  * @param batchFirstLedger ledger_sequence of the first event in the batch
  * @param lastCursor       last ledger we have fully processed (0 = nothing yet)
  */
-export function detectGap(
-  batchFirstLedger: number | undefined,
-  lastCursor: number
-): GapResult {
+export function detectGap(batchFirstLedger: number | undefined, lastCursor: number): GapResult {
   // Empty batch: nothing to compare.
   if (batchFirstLedger === undefined) return NO_GAP;
 

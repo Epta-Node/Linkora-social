@@ -132,6 +132,28 @@ describe("handleFollow", () => {
 
     await expect(handleFollow(db, event)).rejects.toThrow("DB write failed");
   });
+
+  it("dispatches a follow notification when a notification service is provided", async () => {
+    const notificationService = {
+      dispatchEventNotification: jest.fn().mockResolvedValue(true),
+    };
+    const event: FollowEvent = {
+      follower: "GABC123",
+      followee: "GXYZ789",
+      ledger: 100,
+    };
+
+    await handleFollow(db, event, { notificationService: notificationService as never });
+
+    expect(notificationService.dispatchEventNotification).toHaveBeenCalledWith({
+      type: "FOLLOW",
+      recipient: "GXYZ789",
+      payload: {
+        followerAddress: "GABC123",
+        deepLink: "linkora://profile/GABC123",
+      },
+    });
+  });
 });
 
 // ── handleUnfollow ────────────────────────────────────────────────────────────

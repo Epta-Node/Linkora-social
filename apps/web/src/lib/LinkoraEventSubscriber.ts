@@ -42,9 +42,7 @@ class LinkoraEventSubscriber {
     }
     this.listeners[eventName].push(callback as EventCallback<unknown>);
     return () => {
-      this.listeners[eventName] = this.listeners[eventName].filter(
-        (cb) => cb !== callback
-      );
+      this.listeners[eventName] = this.listeners[eventName].filter((cb) => cb !== callback);
     };
   }
 
@@ -56,8 +54,7 @@ class LinkoraEventSubscriber {
 
   private pollIntervalMs = 10_000;
   private pollTimerId: ReturnType<typeof setInterval> | null = null;
-  private watching: Map<string, { lastFollowers: number; lastTips: number }> =
-    new Map();
+  private watching: Map<string, { lastFollowers: number; lastTips: number }> = new Map();
 
   /**
    * Start watching an address for follow / tip changes.
@@ -84,9 +81,7 @@ class LinkoraEventSubscriber {
     this.pollTimerId = setInterval(async () => {
       for (const [addr, last] of this.watching.entries()) {
         try {
-          const res = await fetch(
-            `${indexerUrl}/api/follows/${addr}/followers?limit=1`
-          );
+          const res = await fetch(`${indexerUrl}/api/follows/${addr}/followers?limit=1`);
           if (!res.ok) continue;
           const data = await res.json();
           const total = data.total ?? 0;
@@ -137,10 +132,7 @@ if (typeof window !== "undefined") {
 /**
  * Subscribe to a named event for the lifetime of the component.
  */
-export function useLinkoraEvent<T = unknown>(
-  eventName: string,
-  callback: EventCallback<T>
-) {
+export function useLinkoraEvent<T = unknown>(eventName: string, callback: EventCallback<T>) {
   // Stable ref so the latest callback is always called without re-subscribing.
   const cbRef = useRef(callback);
   cbRef.current = callback;

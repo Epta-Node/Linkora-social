@@ -1,14 +1,14 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useWallet } from '@/hooks/useWallet';
-import { useRouter } from 'next/navigation';
-import { ProfileSection } from '@/components/settings/ProfileSection';
-import { WalletSection } from '@/components/settings/WalletSection';
-import { DmKeySection } from '@/components/settings/DmKeySection';
-import { NotificationsSection } from '@/components/settings/NotificationsSection';
-import { GovernanceSection } from '@/components/settings/GovernanceSection';
-import { DangerZoneSection } from '@/components/settings/DangerZoneSection';
+import { useState } from "react";
+import { useWallet } from "@/hooks/useWallet";
+import { useRouter } from "next/navigation";
+import { ProfileSection } from "@/components/settings/ProfileSection";
+import { WalletSection } from "@/components/settings/WalletSection";
+import { DmKeySection } from "@/components/settings/DmKeySection";
+import { NotificationsSection } from "@/components/settings/NotificationsSection";
+import { GovernanceSection } from "@/components/settings/GovernanceSection";
+import { DangerZoneSection } from "@/components/settings/DangerZoneSection";
 
 export default function SettingsPage() {
   const { address, connected } = useWallet();

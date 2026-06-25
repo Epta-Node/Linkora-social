@@ -21,7 +21,9 @@ describe("ProfileSection", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Profile")).toBeInTheDocument();
-      expect(screen.getByText("Update your username and creator token settings.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Update your username and creator token settings.")
+      ).toBeInTheDocument();
     });
   });
 

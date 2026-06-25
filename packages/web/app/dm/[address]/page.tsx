@@ -1,38 +1,10 @@
-'use client';
+"use client";
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
-import { useWallet } from '../../components/WalletProvider';
-import { useNotification } from '../../context/NotificationContext';
-import { DmService, type ConversationMessage } from '../../../../sdk/src/dm';
-
-function EmptyState({ icon, title, subtitle }: { icon?: string; title: string; subtitle?: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      {icon && <div className="text-4xl mb-2">{icon}</div>}
-      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
-      {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
-    </div>
-  );
-}
-
-function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
-  return (
-    <div className="flex flex-col items-center justify-center p-6 text-center bg-red-50 rounded-lg border border-red-200">
-      <div className="text-2xl text-red-500 mb-2">⚠️</div>
-      <h3 className="text-lg font-semibold text-red-800">Something went wrong</h3>
-      <p className="text-sm text-red-600 mt-1 max-w-md">{message}</p>
-      {onRetry && (
-        <button
-          onClick={onRetry}
-          className="mt-4 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-md hover:bg-red-700 transition"
-        >
-          Try Again
-        </button>
-      )}
-    </div>
-  );
-}
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useWallet } from "../../components/WalletProvider";
+import { useNotification } from "../../context/NotificationContext";
+import { DmService, type ConversationMessage } from "../../../../sdk/src/dm";
 
 interface DirectMessagePageProps {
   params: {
@@ -43,30 +15,39 @@ interface DirectMessagePageProps {
 export default function DirectMessagePage({ params }: DirectMessagePageProps) {
   const router = useRouter();
   const { address } = params;
-  const { publicKey } = useWallet();
-  const wallet = useMemo(() => publicKey ? { publicKey, address: publicKey } : null, [publicKey]);
+  const walletCtx = useWallet();
+  const wallet = useMemo(
+    () => (walletCtx.publicKey ? { publicKey: walletCtx.publicKey } : null),
+    [walletCtx.publicKey]
+  );
   const { addNotification } = useNotification();
-  const showToast = useCallback((message: string, status: 'success' | 'error') => {
-    addNotification({ status, message });
-  }, [addNotification]);
+  const showToast = useCallback(
+    (msg: string, status: "success" | "error") => {
+      addNotification({ status, message: msg });
+    },
+    [addNotification]
+  );
 
   const [messages, setMessages] = useState<Array<ConversationMessage & { content: string }>>([]);
-  const [newMessage, setNewMessage] = useState('');
+  const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dmService, setDmService] = useState<DmService | null>(null);
   const [showKeyPrompt, setShowKeyPrompt] = useState(false);
 
-  const loadMessages = useCallback(async (service?: DmService) => {
-    const activeService = service || dmService;
-    if (!activeService || !address) return;
-    try {
-      const msgs = await activeService.getMessages(address);
-      setMessages(msgs);
-    } catch (err) {
-      setError(`Failed to load messages: ${err}`);
-    }
-  }, [dmService, address]);
+  const loadMessages = useCallback(
+    async (service?: DmService) => {
+      const activeService = service || dmService;
+      if (!activeService || !address) return;
+      try {
+        const msgs = await activeService.getMessages(address);
+        setMessages(msgs);
+      } catch (err) {
+        setError(`Failed to load messages: ${err}`);
+      }
+    },
+    [dmService, address]
+  );
 
   // Initialize DM service and check if keys need to be generated
   useEffect(() => {
@@ -75,8 +56,8 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     const initializeDm = async () => {
       try {
         setLoading(true);
-        const service = new DmService(wallet, 'https://dm-relay.linkora.app');
-        
+        const service = new DmService(wallet, "https://dm-relay.linkora.app");
+
         // Check if user has DM keys, if not prompt to generate
         const hasKeys = await service.hasLocalKeys();
         if (!hasKeys) {
@@ -84,7 +65,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
           setLoading(false);
           return;
         }
-        
+
         setDmService(service);
         await loadMessages(service);
       } catch (err) {
@@ -102,9 +83,9 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
 
     try {
       setLoading(true);
-      const service = new DmService(wallet, 'https://dm-relay.linkora.app');
+      const service = new DmService(wallet, "https://dm-relay.linkora.app");
       await service.generateAndPublishKeys();
-      showToast('Encryption keys generated successfully', 'success');
+      showToast("Encryption keys generated successfully", "success");
       setShowKeyPrompt(false);
       setDmService(service);
       await loadMessages(service);
@@ -115,26 +96,29 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     }
   };
 
-  const sendMessage = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!dmService || !newMessage.trim() || !address) return;
+  const sendMessage = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!dmService || !newMessage.trim() || !address) return;
 
-    try {
-      setLoading(true);
-      await dmService.sendMessage(address, newMessage.trim());
-      setNewMessage('');
-      await loadMessages();
-      showToast('Message sent', 'success');
-    } catch (err) {
-      setError(`Failed to send message: ${err}`);
-      showToast('Failed to send message', 'error');
-    } finally {
-      setLoading(false);
-    }
-  }, [dmService, newMessage, address, loadMessages, showToast]);
+      try {
+        setLoading(true);
+        await dmService.sendMessage(address, newMessage.trim());
+        setNewMessage("");
+        await loadMessages();
+        showToast("Message sent", "success");
+      } catch (err) {
+        setError(`Failed to send message: ${err}`);
+        showToast("Failed to send message", "error");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [dmService, newMessage, address, loadMessages, showToast]
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       const formEvent = { preventDefault: () => {} } as React.FormEvent;
       sendMessage(formEvent);
@@ -149,7 +133,8 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
             <div className="mb-2 text-4xl">🔐</div>
             <h2 className="text-xl font-semibold text-gray-900">Enable Direct Messages</h2>
             <p className="mt-2 text-sm text-gray-600">
-              To send encrypted messages, you need to generate encryption keys. This only needs to be done once and your keys are stored securely in your browser.
+              To send encrypted messages, you need to generate encryption keys. This only needs to
+              be done once and your keys are stored securely in your browser.
             </p>
           </div>
           <div className="flex gap-3">
@@ -164,7 +149,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
               disabled={loading}
               className="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {loading ? 'Generating...' : 'Generate Keys'}
+              {loading ? "Generating..." : "Generate Keys"}
             </button>
           </div>
         </div>
@@ -190,10 +175,7 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
     <div className="flex h-screen flex-col bg-white">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-        <button
-          onClick={() => router.back()}
-          className="text-blue-600 hover:text-blue-800"
-        >
+        <button onClick={() => router.back()} className="text-blue-600 hover:text-blue-800">
           ← Back
         </button>
         <h1 className="text-lg font-semibold text-gray-900">Direct Message</h1>
@@ -215,20 +197,16 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
               return (
                 <div
                   key={`${message.id}-${index}`}
-                  className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}
+                  className={`flex ${isMyMessage ? "justify-end" : "justify-start"}`}
                 >
                   <div
                     className={`max-w-xs rounded-lg px-4 py-2 lg:max-w-md ${
-                      isMyMessage
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-900'
+                      isMyMessage ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-900"
                     }`}
                   >
                     <p className="text-sm">{message.content}</p>
                     <p
-                      className={`mt-1 text-xs ${
-                        isMyMessage ? 'text-blue-100' : 'text-gray-500'
-                      }`}
+                      className={`mt-1 text-xs ${isMyMessage ? "text-blue-100" : "text-gray-500"}`}
                     >
                       {new Date(message.timestamp * 1000).toLocaleTimeString()}
                     </p>
@@ -262,6 +240,39 @@ export default function DirectMessagePage({ params }: DirectMessagePageProps) {
           </button>
         </form>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({ icon, title, subtitle }: { icon: string; title: string; subtitle: string }) {
+  return (
+    <div style={{ textAlign: "center", padding: "40px 20px" }}>
+      <div style={{ fontSize: "48px", marginBottom: "16px" }}>{icon}</div>
+      <h3 style={{ fontSize: "20px", fontWeight: 600, margin: "0 0 8px 0" }}>{title}</h3>
+      <p style={{ color: "var(--color-text-secondary)", margin: 0 }}>{subtitle}</p>
+    </div>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div style={{ textAlign: "center", padding: "40px 20px", color: "var(--color-error)" }}>
+      <div style={{ fontSize: "48px", marginBottom: "16px" }}>⚠️</div>
+      <h3 style={{ fontSize: "20px", fontWeight: 600, margin: "0 0 8px 0" }}>Error</h3>
+      <p style={{ margin: "0 0 16px 0" }}>{message}</p>
+      <button
+        onClick={onRetry}
+        style={{
+          padding: "8px 16px",
+          background: "var(--color-primary)",
+          color: "white",
+          border: "none",
+          borderRadius: "8px",
+          cursor: "pointer",
+        }}
+      >
+        Retry
+      </button>
     </div>
   );
 }

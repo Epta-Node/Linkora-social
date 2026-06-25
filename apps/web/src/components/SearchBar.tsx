@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { FormEvent, useEffect, useState } from 'react';
-import { validateSearchQuery } from '@/lib/validate';
+import { FormEvent, useEffect, useState } from "react";
+import { validateSearchQuery } from "@/lib/validate";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;

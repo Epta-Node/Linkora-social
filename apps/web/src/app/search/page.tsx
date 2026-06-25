@@ -10,7 +10,9 @@ const SuspenseBoundary = Suspense as unknown as (props: BoundaryProps) => JSX.El
 
 export default function SearchPage() {
   return (
-    <SuspenseBoundary fallback={<div className="mx-auto max-w-5xl px-4 py-10">Loading search...</div>}>
+    <SuspenseBoundary
+      fallback={<div className="mx-auto max-w-5xl px-4 py-10">Loading search...</div>}
+    >
       <SearchPageClient />
     </SuspenseBoundary>
   );

@@ -20,8 +20,7 @@ import { LinkoraClient } from "../../../../../../packages/sdk/src/client";
 /* ────────────────────────────────────────────────────────────────────────── */
 
 /** Deterministic blockie URL (Effigy service, returns Ethereum-style identicons). */
-const blockieUrl = (address: string) =>
-  `https://effigy.im/a/${address}.svg`;
+const blockieUrl = (address: string) => `https://effigy.im/a/${address}.svg`;
 
 /** Truncate an address to first 5 and last 4 characters. */
 const truncate = (addr: string) =>
@@ -42,31 +41,19 @@ export default function ProfilePage() {
   const params = useParams();
   const address = params?.address as string;
   const { address: currentUserAddress } = useWallet();
-  const { state, refetch, fetchMorePosts } = useProfile(
-    address,
-    currentUserAddress
-  );
+  const { state, refetch, fetchMorePosts } = useProfile(address, currentUserAddress);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerType, setDrawerType] = useState<"followers" | "following">(
-    "followers"
-  );
+  const [drawerType, setDrawerType] = useState<"followers" | "following">("followers");
   const [copyFeedback, setCopyFeedback] = useState(false);
 
   /* ── Optimistic follow state ────────────────────────────────────────── */
 
-  const followState = useOptimisticFollow(
-    currentUserAddress,
-    address,
-    {
-      isFollowing:
-        state.status === "success" ? state.data.isFollowing : false,
-      followersCount:
-        state.status === "success" ? state.data.followersCount : 0,
-      followingCount:
-        state.status === "success" ? state.data.followingCount : 0,
-    }
-  );
+  const followState = useOptimisticFollow(currentUserAddress, address, {
+    isFollowing: state.status === "success" ? state.data.isFollowing : false,
+    followersCount: state.status === "success" ? state.data.followersCount : 0,
+    followingCount: state.status === "success" ? state.data.followingCount : 0,
+  });
 
   /* ── Live event subscriptions ───────────────────────────────────────── */
 
@@ -99,17 +86,14 @@ export default function ProfilePage() {
     // Optimistic UI
     OptimisticStore.setFollowState(key, {
       isFollowing: newIsFollowing,
-      followersCount:
-        followState.followersCount + (newIsFollowing ? 1 : -1),
+      followersCount: followState.followersCount + (newIsFollowing ? 1 : -1),
       followingCount: followState.followingCount,
     });
 
     try {
       const client = new LinkoraClient({
         contractId: process.env.NEXT_PUBLIC_CONTRACT_ID || "CDUMMY",
-        rpcUrl:
-          process.env.NEXT_PUBLIC_RPC_URL ||
-          "https://soroban-testnet.stellar.org",
+        rpcUrl: process.env.NEXT_PUBLIC_RPC_URL || "https://soroban-testnet.stellar.org",
       });
 
       // These methods return transaction XDR envelopes.
@@ -206,8 +190,7 @@ export default function ProfilePage() {
     );
   }
 
-  const { profile, posts, postsHasMore, creatorTokenBalance, totalTipsReceived } =
-    state.data;
+  const { profile, posts, postsHasMore, creatorTokenBalance, totalTipsReceived } = state.data;
   const isSelf = currentUserAddress === address;
 
   return (
@@ -246,10 +229,7 @@ export default function ProfilePage() {
             </p>
 
             {profile.bio && (
-              <p
-                id="profile-bio"
-                className="mt-3 text-[var(--text-primary)] leading-relaxed"
-              >
+              <p id="profile-bio" className="mt-3 text-[var(--text-primary)] leading-relaxed">
                 {profile.bio}
               </p>
             )}
@@ -308,11 +288,7 @@ export default function ProfilePage() {
         {/* ── Content grid ─────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-8">
           {/* Posts feed */}
-          <section
-            className="md:col-span-2"
-            aria-label="User posts"
-            id="posts-section"
-          >
+          <section className="md:col-span-2" aria-label="User posts" id="posts-section">
             <div className="border-b border-[var(--bg-tertiary)] mb-4">
               <h2 className="text-xl font-semibold pb-2 border-b-2 border-[var(--accent-coral)] inline-block">
                 Posts
@@ -376,23 +352,15 @@ function PostCard({ post }: { post: IndexerPost }) {
       aria-label={`Post ${post.id}`}
     >
       <div className="flex items-center gap-3 mb-3">
-        <img
-          src={blockieUrl(post.author)}
-          alt=""
-          className="w-8 h-8 rounded-full"
-        />
-        <span className="font-mono text-sm text-[var(--text-muted)]">
-          {truncate(post.author)}
-        </span>
+        <img src={blockieUrl(post.author)} alt="" className="w-8 h-8 rounded-full" />
+        <span className="font-mono text-sm text-[var(--text-muted)]">{truncate(post.author)}</span>
         <span className="text-xs text-[var(--text-muted)] ml-auto">
           {ledgerToRelative(post.created_ledger)}
         </span>
       </div>
 
       <div className="flex items-center gap-4 text-sm text-[var(--text-muted)] mt-3 pt-3 border-t border-[var(--bg-tertiary)]">
-        <span aria-label={`${post.like_count} likes`}>
-          ❤️ {post.like_count}
-        </span>
+        <span aria-label={`${post.like_count} likes`}>❤️ {post.like_count}</span>
         <span aria-label={`${post.tip_total} tips`}>
           💰 {Number(post.tip_total).toLocaleString()}
         </span>

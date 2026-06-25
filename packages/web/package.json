@@ -24,6 +24,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.45.0",
+    "@stellar/freighter-api": "^2.0.0",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.1.2",
     "@types/jest": "^29.5.11",

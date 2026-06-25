@@ -103,9 +103,7 @@ test.beforeEach(async ({ page }) => {
 /* ────────────────────────────────────────────────────────────────────────── */
 
 test.describe("Profile Page", () => {
-  test("renders all three data sections with correct values", async ({
-    page,
-  }) => {
+  test("renders all three data sections with correct values", async ({ page }) => {
     await page.goto(`/profile/${TEST_ADDRESS}`);
 
     // Profile header section should exist
@@ -127,9 +125,7 @@ test.describe("Profile Page", () => {
     await expect(page.locator("#creator-token-panel")).toContainText("1,500");
   });
 
-  test("Follow button click causes immediate optimistic state update", async ({
-    page,
-  }) => {
+  test("Follow button click causes immediate optimistic state update", async ({ page }) => {
     await page.goto(`/profile/${TEST_ADDRESS}`);
 
     const followBtn = page.locator("#follow-btn");
@@ -147,9 +143,7 @@ test.describe("Profile Page", () => {
     await expect(page.locator("#followers-count")).toContainText("121");
   });
 
-  test("follower count updates live when a FollowEvent is emitted", async ({
-    page,
-  }) => {
+  test("follower count updates live when a FollowEvent is emitted", async ({ page }) => {
     await page.goto(`/profile/${TEST_ADDRESS}`);
 
     // Current count should be 120

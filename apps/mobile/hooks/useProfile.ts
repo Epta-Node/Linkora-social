@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { LinkoraClient } from "../../../packages/sdk/src/client";
+import { LinkoraClient } from "linkora-sdk";
 
 import { useNetwork } from "./useNetwork";
 import { useFollowers } from "./useFollowers";

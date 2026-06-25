@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Pool } from "../../../packages/sdk/src/types";
+import type { Pool } from "@linkora/types";
 
 const MOCK_POOLS: Pool[] = [
   {

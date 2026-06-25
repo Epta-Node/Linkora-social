@@ -95,9 +95,7 @@ export class TokenBucket {
  *   RPC_RATE_LIMIT_BURST    — burst capacity (default = rate)
  */
 export function rateLimiterFromEnv(env: NodeJS.ProcessEnv = process.env): TokenBucket {
-  const ratePerSec = env.RPC_RATE_LIMIT_PER_SEC
-    ? Number(env.RPC_RATE_LIMIT_PER_SEC)
-    : 10;
+  const ratePerSec = env.RPC_RATE_LIMIT_PER_SEC ? Number(env.RPC_RATE_LIMIT_PER_SEC) : 10;
   const burst = env.RPC_RATE_LIMIT_BURST ? Number(env.RPC_RATE_LIMIT_BURST) : undefined;
   return new TokenBucket({ ratePerSec, burst });
 }

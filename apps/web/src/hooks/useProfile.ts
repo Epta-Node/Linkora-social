@@ -42,10 +42,8 @@ export type ProfileState =
 /* ────────────────────────────────────────────────────────────────────────── */
 
 const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDUMMY";
-const rpcUrl =
-  process.env.NEXT_PUBLIC_RPC_URL || "https://soroban-testnet.stellar.org";
-const indexerUrl =
-  process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:3001";
+const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || "https://soroban-testnet.stellar.org";
+const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:3001";
 const POSTS_PAGE_SIZE = 20;
 
 /* ────────────────────────────────────────────────────────────────────────── */
@@ -130,10 +128,7 @@ export function useProfile(address: string, currentUserAddress?: string | null) 
           posts = data.posts ?? [];
           postsTotal = data.total ?? 0;
           postsHasMore = data.has_more ?? false;
-          totalTipsReceived = posts.reduce(
-            (acc, p) => acc + Number(p.tip_total || 0),
-            0
-          );
+          totalTipsReceived = posts.reduce((acc, p) => acc + Number(p.tip_total || 0), 0);
         }
       } catch (err) {
         console.warn("Indexer posts fetch failed", err);

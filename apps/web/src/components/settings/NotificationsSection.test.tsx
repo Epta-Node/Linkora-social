@@ -30,7 +30,7 @@ describe("NotificationsSection", () => {
     render(<NotificationsSection />);
 
     const newFollowersToggle = screen.getByLabelText("Toggle New Followers");
-    
+
     // Initially enabled
     expect(newFollowersToggle).toHaveAttribute("aria-checked", "true");
 
@@ -51,7 +51,7 @@ describe("NotificationsSection", () => {
 
     const savedSettings = localStorage.getItem("notification_settings");
     expect(savedSettings).toBeTruthy();
-    
+
     const parsed = JSON.parse(savedSettings!);
     expect(parsed.newLikes).toBe(false);
   });

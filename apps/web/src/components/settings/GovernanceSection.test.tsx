@@ -21,9 +21,7 @@ describe("GovernanceSection", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Governance")).toBeInTheDocument();
-      expect(
-        screen.getByText(/View and participate in active proposals/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/View and participate in active proposals/)).toBeInTheDocument();
     });
   });
 
@@ -31,12 +29,8 @@ describe("GovernanceSection", () => {
     render(<GovernanceSection address={mockAddress} />);
 
     await waitFor(() => {
-      expect(
-        screen.getByText("Reduce platform fee from 2.5% to 2%")
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText("Add support for custom tokens in pools")
-      ).toBeInTheDocument();
+      expect(screen.getByText("Reduce platform fee from 2.5% to 2%")).toBeInTheDocument();
+      expect(screen.getByText("Add support for custom tokens in pools")).toBeInTheDocument();
     });
   });
 

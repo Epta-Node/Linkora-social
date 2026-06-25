@@ -1,6 +1,10 @@
 // Jest setup file for DOM and React testing utilities
 import "@testing-library/jest-dom";
 
+process.env.NEXT_PUBLIC_SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org";
+process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+process.env.NEXT_PUBLIC_CONTRACT_ID = "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+
 // Mock window.matchMedia
 Object.defineProperty(window, "matchMedia", {
   writable: true,

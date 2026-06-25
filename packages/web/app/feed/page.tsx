@@ -1,36 +1,27 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import { Feed } from "../components/Feed";
-
 import { CreatePost } from "../components/CreatePost";
 import { useFollowingFeed } from "../hooks/useFollowingFeed";
 import { TipModal } from "../components/TipModal";
+import { useWallet } from "../components/WalletProvider";
 
 export default function FeedPage() {
-  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const { publicKey: walletAddress, connect: handleConnectWallet } = useWallet();
   const [likedPosts, setLikedPosts] = useState<Set<number>>(new Set());
   const [tippingPost, setTippingPost] = useState<{ id: number; author: string } | null>(null);
-  const { posts, loading, error, hasMore, loadMore } = useFollowingFeed(walletAddress);
+  const { posts, setPosts, loading, error, hasMore, loadMore } = useFollowingFeed(walletAddress);
 
   useEffect(() => {
-    // Check for wallet connection
-    const checkWallet = async () => {
-      try {
-        // @ts-expect-error - Freighter API
-        if (window.freighter) {
-          // @ts-expect-error - Freighter not in global types
-          const address = await window.freighter.getPublicKey();
-          setWalletAddress(address);
-        }
-      } catch (err) {
-        console.error("Failed to connect wallet:", err);
-      }
+    const handlePostCreated = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const newPost = customEvent.detail;
+      setPosts((prev) => [newPost, ...prev]);
     };
-
-    checkWallet();
-  }, []);
+    window.addEventListener("post-created", handlePostCreated);
+    return () => window.removeEventListener("post-created", handlePostCreated);
+  }, [setPosts]);
 
   const handleLike = async (postId: number) => {
     setLikedPosts((prev) => {
@@ -50,19 +41,6 @@ export default function FeedPage() {
     const post = posts.find((p) => p.id === postId);
     if (post) {
       setTippingPost({ id: post.id, author: post.username || post.author });
-    }
-  };
-
-  const handleConnectWallet = async () => {
-    try {
-      // @ts-expect-error - Freighter API
-      if (window.freighter) {
-        // @ts-expect-error - Freighter not in global types
-        const address = await window.freighter.getPublicKey();
-        setWalletAddress(address);
-      }
-    } catch (err) {
-      console.error("Failed to connect wallet:", err);
     }
   };
 
@@ -89,9 +67,13 @@ export default function FeedPage() {
     <main style={styles.main}>
       <header style={styles.header}>
         <h1 style={styles.title}>Following Feed</h1>
-        <Link href="/new" style={styles.newPostButton} aria-label="Create new post">
+        <button
+          onClick={() => window.dispatchEvent(new Event("open-compose"))}
+          style={styles.newPostButton}
+          aria-label="Create new post"
+        >
           + New Post
-        </Link>
+        </button>
       </header>
 
       <div style={styles.content}>
@@ -142,6 +124,13 @@ export default function FeedPage() {
           />
         )}
       </div>
+      <button
+        onClick={() => window.dispatchEvent(new Event("open-compose"))}
+        style={styles.floatingButton}
+        aria-label="Compose post"
+      >
+        +
+      </button>
     </main>
   );
 }
@@ -266,5 +255,24 @@ const styles: Record<string, React.CSSProperties> = {
   },
   emptyText: {
     margin: 0,
+  },
+  floatingButton: {
+    position: "fixed",
+    bottom: "24px",
+    right: "24px",
+    width: "56px",
+    height: "56px",
+    borderRadius: "50%",
+    background: "var(--color-primary)",
+    color: "white",
+    fontSize: "2rem",
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 4px 14px rgba(0, 0, 0, 0.25)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 50,
+    transition: "transform 0.2s, background-color 0.2s",
   },
 };

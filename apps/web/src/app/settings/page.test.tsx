@@ -81,9 +81,7 @@ describe("SettingsPage", () => {
       });
 
       render(<SettingsPage />);
-      expect(
-        screen.getByText("Connect your wallet to access settings.")
-      ).toBeInTheDocument();
+      expect(screen.getByText("Connect your wallet to access settings.")).toBeInTheDocument();
     });
 
     it("should not render settings sections when not connected", () => {

@@ -1,13 +1,15 @@
-const required = (key: string): string => {
-  const value = process.env[key];
+const getEnv = (value: string | undefined, name: string): string => {
   if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`);
+    throw new Error(`Missing required environment variable: ${name}`);
   }
   return value;
 };
 
 export const config = {
-  sorobanRpcUrl: required("NEXT_PUBLIC_SOROBAN_RPC_URL"),
-  networkPassphrase: required("NEXT_PUBLIC_NETWORK_PASSPHRASE"),
-  contractId: required("NEXT_PUBLIC_CONTRACT_ID"),
+  sorobanRpcUrl: getEnv(process.env.NEXT_PUBLIC_SOROBAN_RPC_URL, "NEXT_PUBLIC_SOROBAN_RPC_URL"),
+  networkPassphrase: getEnv(
+    process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE,
+    "NEXT_PUBLIC_NETWORK_PASSPHRASE"
+  ),
+  contractId: getEnv(process.env.NEXT_PUBLIC_CONTRACT_ID, "NEXT_PUBLIC_CONTRACT_ID"),
 } as const;

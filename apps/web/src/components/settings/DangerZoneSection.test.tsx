@@ -38,9 +38,7 @@ describe("DangerZoneSection", () => {
     fireEvent.click(deleteButton);
 
     expect(screen.getByText("Delete Profile?")).toBeInTheDocument();
-    expect(
-      screen.getByText(/This will permanently delete your profile/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/This will permanently delete your profile/)).toBeInTheDocument();
   });
 
   it("should have no accessibility violations in confirmation dialog", async () => {
@@ -91,9 +89,7 @@ describe("DangerZoneSection", () => {
     fireEvent.click(confirmButton);
 
     await waitFor(() => {
-      expect(
-        screen.getByText(/Address does not match/)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Address does not match/)).toBeInTheDocument();
     });
   });
 

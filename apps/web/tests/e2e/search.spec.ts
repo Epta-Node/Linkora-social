@@ -47,7 +47,12 @@ test("search renders post and profile results from the NavBar", async ({ page })
 
   await expect(page).toHaveURL(/\/search\?q=stellar/);
   await expect(page.getByText("A stellar builders update from last month.")).toBeVisible();
-  await expect(page.locator("mark").filter({ hasText: /stellar/i }).first()).toBeVisible();
+  await expect(
+    page
+      .locator("mark")
+      .filter({ hasText: /stellar/i })
+      .first()
+  ).toBeVisible();
 
   await page.getByLabel("Sort").selectOption("most_tipped");
   await expect(page).toHaveURL(/sort=most_tipped/);

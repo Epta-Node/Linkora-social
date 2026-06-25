@@ -1,29 +1,31 @@
 /**
- * Types representing the data structures returned by the smart contracts
+ * Types representing the data structures returned by the smart contracts.
+ *
+ * These types are auto-generated from the contract ABI and re-exported here.
+ * Run `pnpm codegen` to regenerate from the compiled contract WASM.
  */
 
-export interface Profile {
-  address: string;
-  username: string;
-  creator_token: string;
-  bio?: string | null;
-}
+// Re-export all generated contract types (Profile, Post, Pool, GovParameter, etc.)
+export * from "./generated/types";
 
-export interface Post {
-  id: number;
-  author: string;
-  content: string;
-  tip_total: number;
-  timestamp: number;
-  like_count: number;
-}
-
-export interface Pool {
-  pool_id: string;
-  token: string;
-  balance: bigint;
-  admins: string[];
-  threshold: number;
+/** Analytics attestation returned by the oracle service REST API. */
+export interface AnalyticsAttestation {
+  oracleName: string;
+  reportHash: string;
+  reportCbor: string;
+  signature: string;
+  txHash: string;
+  submittedAt: number;
+  report: {
+    version: number;
+    creator: string;
+    windowStart: string;
+    windowEnd: string;
+    totalTips: string;
+    postCount: string;
+    followerDelta: string;
+    uniqueTippers: number;
+  };
 }
 
 export type GovParameter =

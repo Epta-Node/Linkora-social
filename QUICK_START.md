@@ -3,6 +3,7 @@
 ## What Was Built
 
 A complete settings page at `/settings` with:
+
 - ✅ Profile editing (username, creator token)
 - ✅ Wallet management (disconnect, address display)
 - ✅ DM key publishing (X25519 encryption)
@@ -16,12 +17,14 @@ A complete settings page at `/settings` with:
 ## Installation & Testing
 
 ### 1. Install Dependencies
+
 ```bash
 cd apps/web
 npm install
 ```
 
 ### 2. Run Tests
+
 ```bash
 npm test
 ```
@@ -29,14 +32,17 @@ npm test
 **Expected Output**: All tests pass ✅, zero accessibility violations
 
 ### 3. Run with Coverage
+
 ```bash
 npm run test:coverage
 ```
 
 ### 4. Development Server
+
 ```bash
 npm run dev
 ```
+
 Navigate to: `http://localhost:3000/settings`
 
 ---
@@ -44,23 +50,27 @@ Navigate to: `http://localhost:3000/settings`
 ## What Each Section Does
 
 ### 📝 Profile Section
+
 - Edit username
 - View creator token address
 - Link to creator wizard
 - Save changes on-chain
 
 ### 💼 Wallet Section
+
 - View connected address
 - Copy address to clipboard
 - See network status
 - Disconnect wallet
 
 ### 🔐 DM Key Section
+
 - Publish encryption key for direct messages
 - Rotate key if needed
 - View key status
 
 ### 🔔 Notifications Section
+
 - Toggle browser push notifications
 - Configure 6 notification types:
   - New followers
@@ -70,12 +80,14 @@ Navigate to: `http://localhost:3000/settings`
   - Governance updates
 
 ### 🏛️ Governance Section
+
 - View active proposals
 - See vote counts
 - Time remaining on proposals
 - Links to vote
 
 ### ⚠️ Danger Zone
+
 - Delete profile permanently
 - Requires typing full address to confirm
 - Cannot be undone
@@ -113,15 +125,18 @@ Accessibility Violations       |   0   |  PASS
 ## Files Created
 
 **Main Implementation** (Already existed, verified working):
+
 - `apps/web/src/app/settings/page.tsx`
 - 6 section components in `apps/web/src/components/settings/`
 
 **Testing Infrastructure** (New):
+
 - `apps/web/jest.config.js`
 - `apps/web/jest.setup.ts`
 - 7 test files (`*.test.tsx`)
 
 **Documentation** (New):
+
 - `TASK_COMPLETION_REPORT.md`
 - `ACCEPTANCE_CRITERIA_CHECKLIST.md`
 - `IMPLEMENTATION_SUMMARY.md`
@@ -189,6 +204,7 @@ Settings Page
 ## Next Steps (Optional Enhancements)
 
 While the implementation is complete, these could be added:
+
 - [ ] Real-time transaction status updates
 - [ ] Email notification preferences
 - [ ] Export account data

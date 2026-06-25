@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 const LS_KEY = "linkora_wallet_address";
 const LS_NETWORK_KEY = "linkora_wallet_network";
@@ -47,9 +41,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     // Silently verify the saved session is still valid
     (async () => {
       try {
-        const { isConnected, getPublicKey, getNetwork } = await import(
-          "@stellar/freighter-api"
-        );
+        const { isConnected, getPublicKey, getNetwork } = await import("@stellar/freighter-api");
         const still = await isConnected();
         if (!still) {
           // Freighter was disconnected externally — clear persisted state
@@ -75,9 +67,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   const connect = useCallback(async () => {
     try {
-      const { requestAccess, getPublicKey, getNetwork } = await import(
-        "@stellar/freighter-api"
-      );
+      const { requestAccess, getPublicKey, getNetwork } = await import("@stellar/freighter-api");
       await requestAccess();
       const [pub, net] = await Promise.all([getPublicKey(), getNetwork()]);
       if (pub) {

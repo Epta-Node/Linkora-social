@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Post, PostCard, PostCardSkeleton, getPostDate, getPostTipTotal } from "@/components/PostCard";
+import {
+  Post,
+  PostCard,
+  PostCardSkeleton,
+  getPostDate,
+  getPostTipTotal,
+} from "@/components/PostCard";
 import { Profile, ProfileCard } from "@/components/ProfileCard";
 import SearchBar from "@/components/SearchBar";
 
@@ -42,7 +48,11 @@ function readPosts(data: unknown): Post[] {
 
 function readProfiles(data: unknown): Profile[] {
   if (Array.isArray(data)) return data as Profile[];
-  if (data && typeof data === "object" && Array.isArray((data as { profiles?: unknown }).profiles)) {
+  if (
+    data &&
+    typeof data === "object" &&
+    Array.isArray((data as { profiles?: unknown }).profiles)
+  ) {
     return (data as { profiles: Profile[] }).profiles;
   }
   return [];
@@ -137,7 +147,9 @@ export function SearchPageClient() {
     });
 
     if (sort === "recent") {
-      return [...filtered].sort((a, b) => (getPostDate(b)?.getTime() ?? 0) - (getPostDate(a)?.getTime() ?? 0));
+      return [...filtered].sort(
+        (a, b) => (getPostDate(b)?.getTime() ?? 0) - (getPostDate(a)?.getTime() ?? 0)
+      );
     }
 
     if (sort === "most_tipped") {
@@ -232,12 +244,13 @@ export function SearchPageClient() {
       {hasQuery && activeTab === "posts" && (
         <div className="space-y-4" aria-live="polite">
           {loading && Array.from({ length: 5 }, (_, index) => <PostCardSkeleton key={index} />)}
-          {!loading && !error && hasPostResults && visiblePosts.map((post) => (
-            <PostCard key={post.id} post={post} query={query} />
-          ))}
+          {!loading &&
+            !error &&
+            hasPostResults &&
+            visiblePosts.map((post) => <PostCard key={post.id} post={post} query={query} />)}
           {!loading && !error && !hasPostResults && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-8 text-center text-[var(--text-muted)]">
-              No posts found for "{query}".
+              No posts found for &quot;{query}&quot;.
             </div>
           )}
         </div>
@@ -250,12 +263,13 @@ export function SearchPageClient() {
               Loading profiles...
             </div>
           )}
-          {!loading && !error && hasProfileResults && profiles.map((profile) => (
-            <ProfileCard key={profile.address} profile={profile} />
-          ))}
+          {!loading &&
+            !error &&
+            hasProfileResults &&
+            profiles.map((profile) => <ProfileCard key={profile.address} profile={profile} />)}
           {!loading && !error && !hasProfileResults && (
             <div className="rounded-lg border border-[var(--border)] bg-[var(--muted)] p-8 text-center text-[var(--text-muted)]">
-              No profiles found for "{query}".
+              No profiles found for &quot;{query}&quot;.
             </div>
           )}
         </div>

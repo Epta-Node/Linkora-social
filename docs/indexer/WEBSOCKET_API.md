@@ -60,14 +60,14 @@ Emitted for each committed contract event. `type` is the contract event type
 }
 ```
 
-| Field                    | Type       | Description                                          |
-| ------------------------ | ---------- | ---------------------------------------------------- |
-| `payload.type`           | `string`   | Contract event type (same as the frame `type`).      |
-| `payload.ledgerSequence` | `number`   | Ledger the event was emitted in.                     |
-| `payload.eventIndex`     | `number`   | Index of the event within its ledger.                |
-| `payload.contractId`     | `string`   | Contract that emitted the event.                     |
-| `payload.topic`          | `string[]` | Raw event topic array.                               |
-| `payload.data`           | `object`   | Event body (decoded/raw fields).                     |
+| Field                    | Type       | Description                                     |
+| ------------------------ | ---------- | ----------------------------------------------- |
+| `payload.type`           | `string`   | Contract event type (same as the frame `type`). |
+| `payload.ledgerSequence` | `number`   | Ledger the event was emitted in.                |
+| `payload.eventIndex`     | `number`   | Index of the event within its ledger.           |
+| `payload.contractId`     | `string`   | Contract that emitted the event.                |
+| `payload.topic`          | `string[]` | Raw event topic array.                          |
+| `payload.data`           | `object`   | Event body (decoded/raw fields).                |
 
 The pair `(ledgerSequence, eventIndex)` uniquely identifies an event and can be
 used by clients to deduplicate if they reconnect.
@@ -103,10 +103,10 @@ previous subscription for the connection.
 { "action": "subscribe", "types": ["PostCreated", "Follow"] }
 ```
 
-| Field    | Type       | Description                                                            |
-| -------- | ---------- | --------------------------------------------------------------------- |
-| `action` | `string`   | Must be `"subscribe"`.                                                 |
-| `types`  | `string[]` | Event types to receive. Empty array or `["*"]` subscribes to all.     |
+| Field    | Type       | Description                                                       |
+| -------- | ---------- | ----------------------------------------------------------------- |
+| `action` | `string`   | Must be `"subscribe"`.                                            |
+| `types`  | `string[]` | Event types to receive. Empty array or `["*"]` subscribes to all. |
 
 Unknown actions, non-JSON frames, or an invalid `types` field produce an
 `error` frame; the connection stays open.
@@ -117,18 +117,18 @@ Unknown actions, non-JSON frames, or an invalid `types` field produce an
 
 Event types correspond to contract events. Current types include:
 
-| Type             | Description                          |
-| ---------------- | ------------------------------------ |
-| `PostCreated`    | A post was created.                  |
-| `PostDeleted`    | A post was soft-deleted.             |
-| `Follow`         | A follow edge was created.           |
-| `Unfollow`       | A follow edge was removed.           |
-| `ProfileSet`     | A profile was created/updated.       |
-| `Tip`            | A post was tipped.                   |
-| `LikePost`       | A post was liked.                    |
-| `PoolCreated`    | A pool was created.                  |
-| `PoolDeposit`    | A deposit was made to a pool.        |
-| `PoolWithdraw`   | A withdrawal was made from a pool.   |
+| Type           | Description                        |
+| -------------- | ---------------------------------- |
+| `PostCreated`  | A post was created.                |
+| `PostDeleted`  | A post was soft-deleted.           |
+| `Follow`       | A follow edge was created.         |
+| `Unfollow`     | A follow edge was removed.         |
+| `ProfileSet`   | A profile was created/updated.     |
+| `Tip`          | A post was tipped.                 |
+| `LikePost`     | A post was liked.                  |
+| `PoolCreated`  | A pool was created.                |
+| `PoolDeposit`  | A deposit was made to a pool.      |
+| `PoolWithdraw` | A withdrawal was made from a pool. |
 
 `*` is a reserved meta-type meaning "all events" and is only valid in
 `subscribe` frames — it is never used as the `type` of an event frame.

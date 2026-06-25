@@ -9,6 +9,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:integration": "pnpm --filter contracts test:integration",
+    "codegen": "pnpm build:contracts && pnpm --filter @linkora/codegen generate",
+    "codegen:check": "pnpm codegen && git diff --exit-code packages/sdk/src/generated/",
     "format": "turbo run format",
     "prepare": "husky"
   },

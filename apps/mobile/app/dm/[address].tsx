@@ -3,7 +3,9 @@ import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet } 
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useWalletContext } from "../../context/WalletContext";
 import { useToast } from "../../context/ToastContext";
-import { DmService, type ConversationMessage } from "../../../../packages/sdk/src/dm";
+import { dm } from "linkora-sdk";
+const { DmService } = dm;
+import type { ConversationMessage } from "linkora-sdk";
 import { EmptyState, ErrorState } from "../../components/states";
 
 export default function DirectMessageScreen() {

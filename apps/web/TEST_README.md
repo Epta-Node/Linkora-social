@@ -1,11 +1,13 @@
 # Settings Page Testing Guide
 
 ## Overview
+
 Comprehensive test suite for the settings page with full accessibility testing using jest-axe.
 
 ## Setup
 
 Install dependencies:
+
 ```bash
 npm install
 ```
@@ -13,16 +15,19 @@ npm install
 ## Running Tests
 
 ### Run all tests once
+
 ```bash
 npm test
 ```
 
 ### Watch mode (re-run on file changes)
+
 ```bash
 npm run test:watch
 ```
 
 ### With coverage report
+
 ```bash
 npm run test:coverage
 ```
@@ -30,6 +35,7 @@ npm run test:coverage
 ## Test Coverage
 
 ### Components Tested
+
 1. **Settings Page** (`page.test.tsx`)
    - Wallet connection state handling
    - All sections rendering
@@ -90,6 +96,7 @@ expect(results).toHaveNoViolations();
 ```
 
 ### What jest-axe checks:
+
 - Color contrast ratios
 - Proper ARIA attributes
 - Form label associations
@@ -109,6 +116,7 @@ expect(results).toHaveNoViolations();
 ## Mocked Dependencies
 
 The test setup includes mocks for:
+
 - `next/navigation` (useRouter, usePathname, useSearchParams)
 - `@/hooks/useWallet` (wallet connection state)
 - `@linkora/sdk` (LinkoraClient and DM key generation)
@@ -126,24 +134,30 @@ All tests should pass with:
 ## Troubleshooting
 
 ### Tests fail with module not found
+
 Make sure all dependencies are installed:
+
 ```bash
 npm install
 ```
 
 ### Accessibility violations found
+
 Review the axe-core output to identify specific issues:
+
 - Check ARIA attributes
 - Verify heading hierarchy
 - Ensure form labels are associated
 - Confirm proper semantic HTML
 
 ### Mock errors
+
 If mocks aren't working, check `jest.setup.ts` to ensure all necessary mocks are configured.
 
 ## CI/CD Integration
 
 Add to your CI pipeline:
+
 ```yaml
 - name: Run tests
   run: |

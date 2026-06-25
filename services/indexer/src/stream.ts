@@ -76,7 +76,10 @@ const defaultSleep = (ms: number): Promise<void> =>
 
 /** Error carrying the HTTP status of a failed RPC call (e.g. 429). */
 export class RpcError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
     super(message);
     this.name = "RpcError";
   }
@@ -184,10 +187,7 @@ async function fetchEventsResilient(
       attempt += 1;
       if (attempt > cfg.maxRetries) throw err;
 
-      const backoff = Math.min(
-        cfg.backoffMaxMs,
-        cfg.backoffBaseMs * 2 ** (attempt - 1)
-      );
+      const backoff = Math.min(cfg.backoffMaxMs, cfg.backoffBaseMs * 2 ** (attempt - 1));
       if (status === 429) {
         console.warn(
           `[stream] 429 rate-limited (attempt ${attempt}/${cfg.maxRetries}), backing off ${backoff}ms`
@@ -259,6 +259,8 @@ function waitWithAbort(ms: number, signal: AbortSignal): Promise<void> {
     );
   });
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Stream Soroban contract events, invoking `processBatch` for each batch.

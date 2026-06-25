@@ -9,9 +9,9 @@ export function ConnectWallet() {
     return (
       <div style={styles.container}>
         <div style={styles.addressBadge}>
-          <span style={styles.address}>{formatAddress(publicKey)}</span>
+          <span style={styles.address} data-testid="wallet-address">{formatAddress(publicKey)}</span>
         </div>
-        <button onClick={disconnect} style={styles.disconnectButton}>
+        <button onClick={disconnect} style={styles.disconnectButton} data-testid="disconnect-wallet">
           Disconnect
         </button>
       </div>
@@ -24,6 +24,7 @@ export function ConnectWallet() {
         onClick={connect}
         disabled={isConnecting}
         style={styles.connectButton}
+        data-testid="connect-wallet"
       >
         {isConnecting ? "Connecting..." : "Connect Wallet"}
       </button>

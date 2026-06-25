@@ -17,11 +17,7 @@ export interface Post {
 // ── Mock contract calls ───────────────────────────────────────────────────────
 // Replace with real SDK calls once the generated client is available.
 
-async function getFollowing(
-  userAddress: string,
-  offset: number,
-  limit: number
-): Promise<string[]> {
+async function getFollowing(userAddress: string, offset: number, limit: number): Promise<string[]> {
   // TODO: Replace with actual contract call using SDK
   // For now, return mock data
   const allFollowing = [
@@ -110,14 +106,8 @@ async function getPost(postId: number): Promise<Post | null> {
 async function getProfile(userAddress: string): Promise<{ username: string } | null> {
   // TODO: Replace with actual contract call using SDK
   const mockProfiles: Map<string, { username: string }> = new Map([
-    [
-      "GABCD1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-      { username: "stellar_dev" },
-    ],
-    [
-      "GXYZ9876543210ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-      { username: "crypto_enthusiast" },
-    ],
+    ["GABCD1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ", { username: "stellar_dev" }],
+    ["GXYZ9876543210ABCDEFGHIJKLMNOPQRSTUVWXYZ", { username: "crypto_enthusiast" }],
   ]);
   return mockProfiles.get(userAddress) || null;
 }
@@ -194,6 +184,7 @@ export function useFollowingFeed(walletAddress: string | null) {
 
   return {
     posts,
+    setPosts,
     loading,
     error,
     hasMore,

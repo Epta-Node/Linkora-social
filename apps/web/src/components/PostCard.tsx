@@ -73,9 +73,7 @@ export function PostCard({ post, query }: PostCardProps) {
         {highlightText(post.content, query)}
       </p>
 
-      <div className="mt-4 text-sm font-medium text-violet-300">
-        Tips: {getPostTipTotal(post)}
-      </div>
+      <div className="mt-4 text-sm font-medium text-violet-300">Tips: {getPostTipTotal(post)}</div>
     </article>
   );
 }

@@ -45,6 +45,7 @@ describe("useFollowingFeed", () => {
         hasMore: true,
         loadMore: expect.any(Function),
         refresh: expect.any(Function),
+        setPosts: expect.any(Function),
       });
     });
 
@@ -152,7 +153,7 @@ describe("useFollowingFeed", () => {
         ({ walletAddress }: { walletAddress: string | null }) => useFollowingFeed(walletAddress),
         {
           initialProps: { walletAddress: null },
-        },
+        }
       );
 
       await waitFor(() => {
@@ -173,7 +174,7 @@ describe("useFollowingFeed", () => {
         ({ walletAddress }: { walletAddress: string | null }) => useFollowingFeed(walletAddress),
         {
           initialProps: { walletAddress: mockWalletAddress },
-        },
+        }
       );
 
       await waitFor(() => {
@@ -227,7 +228,7 @@ describe("useFollowingFeed", () => {
       if (result.current.posts.length > 1) {
         for (let i = 0; i < result.current.posts.length - 1; i++) {
           expect(result.current.posts[i].timestamp).toBeGreaterThanOrEqual(
-            result.current.posts[i + 1].timestamp,
+            result.current.posts[i + 1].timestamp
           );
         }
       }

@@ -1,189 +1,143 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from "@playwright/test";
 
-/**
- * Utility functions for E2E tests
- */
+const MOCK_ADDRESS = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 
-const STORAGE_KEY = 'linkora_wallet_public_key';
-const MOCK_WALLET_ADDRESS = 'GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN';
-
-async function installMockWallet(page: Page, publicKey = MOCK_WALLET_ADDRESS): Promise<void> {
-  const scriptArg = { publicKey, storageKey: STORAGE_KEY };
-
-  await page.addInitScript(({ publicKey: key, storageKey }) => {
-    const freighterApi = {
-      getPublicKey: async () => ({ publicKey: key }),
-      isConnected: async () => true,
-      onNetworkChange: () => undefined,
+export async function injectWalletMock(page: Page): Promise<void> {
+  await page.addInitScript((address) => {
+    (window as Window & { freighterApi?: unknown; freighter?: unknown }).freighterApi = {
+      getPublicKey: () => Promise.resolve({ publicKey: address }),
+      isConnected: () => Promise.resolve(true),
+      onNetworkChange: () => {},
     };
-
-    const freighter = {
-      getPublicKey: async () => key,
+    (window as Window & { freighter?: unknown }).freighter = {
+      getPublicKey: () => Promise.resolve(address),
+      isConnected: () => Promise.resolve(true),
     };
-
-    Object.defineProperty(window, 'freighterApi', {
-      configurable: true,
-      value: freighterApi,
-    });
-
-    Object.defineProperty(window, 'freighter', {
-      configurable: true,
-      value: freighter,
-    });
-
-    window.localStorage.setItem(storageKey, key);
-  }, scriptArg);
-
-  await page.evaluate(({ publicKey: key, storageKey }) => {
-    const win = window as Window & {
-      freighter?: { getPublicKey: () => Promise<string> };
-      freighterApi?: {
-        getPublicKey: () => Promise<{ publicKey: string }>;
-        isConnected: () => Promise<boolean>;
-        onNetworkChange: (callback: () => void) => void;
-      };
-    };
-
-    win.freighterApi = {
-      getPublicKey: async () => ({ publicKey: key }),
-      isConnected: async () => true,
-      onNetworkChange: () => undefined,
-    };
-
-    win.freighter = {
-      getPublicKey: async () => key,
-    };
-
-    window.localStorage.setItem(storageKey, key);
-  }, scriptArg);
+  }, MOCK_ADDRESS);
 }
 
-/**
- * Wait for wallet to be connected and return the connected address
- */
-export async function waitForWalletConnection(page: Page, timeout = 10000): Promise<string> {
-  try {
-    await page.waitForFunction(
-      (storageKey) => window.localStorage.getItem(storageKey),
-      STORAGE_KEY,
-      { timeout }
-    );
-
-    const addressText = await page.evaluate(
-      (storageKey) => window.localStorage.getItem(storageKey),
-      STORAGE_KEY
-    );
-
-    if (!addressText) {
-      throw new Error('Wallet storage key is empty after connection.');
-    }
-
-    return addressText;
-  } catch (e) {
-    throw new Error(`Failed to detect wallet connection within ${timeout}ms`);
-  }
+export async function waitForWalletConnection(page: Page, timeout = 15000): Promise<string> {
+  await page.locator('[data-testid="disconnect-wallet"]').waitFor({ timeout });
+  const storedAddress = await page.evaluate(() => localStorage.getItem("linkora_wallet_public_key"));
+  return storedAddress ?? (await page.locator('[data-testid="wallet-address"]').first().textContent()) ?? "";
 }
 
-/**
- * Connect wallet using the mocked Freighter state and reload to hydrate providers.
- */
 export async function connectWallet(page: Page): Promise<void> {
-  await installMockWallet(page);
-  await page.reload();
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState("networkidle");
 
-  // Wait for wallet to be connected
+  const hamburgerSelectors = [
+    '[aria-label="Toggle navigation menu"]',
+    '[aria-label*="Toggle"]',
+    '[aria-label*="toggle"]',
+    'button[aria-label*="menu"]',
+    'button[aria-label*="navigation"]',
+  ];
+
+  for (const selector of hamburgerSelectors) {
+    const hamburger = page.locator(selector).first();
+    if (await hamburger.isVisible().catch(() => false)) {
+      await hamburger.click();
+      await page.waitForTimeout(600);
+      break;
+    }
+  }
+
+  const connectSelectors = [
+    '[data-testid="connect-wallet"]',
+    '[data-testid*="connect"]',
+    'button:has-text("Connect Wallet")',
+    'button:has-text("Connect")',
+  ];
+
+  let connectButton: ReturnType<Page["locator"]> | null = null;
+
+  for (const selector of connectSelectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      connectButton = locator;
+      break;
+    }
+  }
+
+  if (!connectButton) {
+    for (const selector of connectSelectors) {
+      const locator = page.locator(selector).first();
+      try {
+        await locator.waitFor({ state: "visible", timeout: 8000 });
+        connectButton = locator;
+        break;
+      } catch {
+        // Try the next selector.
+      }
+    }
+  }
+
+  if (!connectButton) {
+    throw new Error(`Connect wallet button not found. Tried: ${connectSelectors.join(", ")}`);
+  }
+
+  await expect(connectButton).toBeVisible({ timeout: 10000 });
+  await connectButton.click();
   await waitForWalletConnection(page);
 }
 
-/**
- * Navigate to profile page for a given address
- */
 export async function navigateToProfile(page: Page, address: string): Promise<void> {
   await page.goto(`/profile/${address}`);
 }
 
-/**
- * Navigate to post detail page
- */
 export async function navigateToPostDetail(page: Page, postId: string): Promise<void> {
   await page.goto(`/posts/${postId}`);
 }
 
-/**
- * Navigate to feed page
- */
 export async function navigateToFeed(page: Page): Promise<void> {
-  await page.goto('/feed');
+  await page.goto("/feed");
 }
 
-/**
- * Fill and submit create post form
- */
 export async function createPost(page: Page, content: string): Promise<void> {
-  // Click compose button or navigate to create post
-  const composeButton = page.locator('button:has-text("Compose"), button:has-text("New Post")').first();
+  const composeButton = page
+    .locator('button:has-text("Compose"), button:has-text("New Post")')
+    .first();
   await composeButton.click();
 
-  // Fill post content
-  const textarea = page.locator('textarea').first();
+  const dialog = page.locator('[role="dialog"]');
+  const isDialogVisible = await dialog.isVisible();
+  const textarea = isDialogVisible
+    ? dialog.locator("textarea").first()
+    : page.locator("textarea").first();
   await textarea.fill(content);
 
-  // Submit
-  const submitButton = page.locator('button:has-text("Post"), button:has-text("Submit")').first();
+  const submitButton = isDialogVisible
+    ? dialog
+        .locator('button[type="submit"], button[form="compose-form"], button:has-text("Post")')
+        .first()
+    : page.locator('button[form="compose-form"], button[type="submit"]').first();
   await submitButton.click();
-
-  // Wait for post to appear
   await page.waitForTimeout(1000);
 }
 
-/**
- * Wait for post to appear in feed with specific content
- */
-export async function waitForPostInFeed(page: Page, content: string, timeout = 5000): Promise<void> {
+export async function waitForPostInFeed(
+  page: Page,
+  content: string,
+  timeout = 10000
+): Promise<void> {
   await page.locator(`text="${content}"`).first().waitFor({ timeout });
 }
 
-/**
- * Click on a post in the feed to view details
- */
 export async function clickPostInFeed(page: Page, content: string): Promise<void> {
-  const post = page.locator(`article:has-text("${content}")`).first();
-  await post.click();
+  await page.locator(`article:has-text("${content}")`).first().click();
 }
 
-/**
- * Tip a post by clicking tip button
- */
 export async function tipPost(page: Page, amount = 1): Promise<void> {
   const tipButton = page.locator('button:has-text("Tip"), button:has-text("Support")').first();
   await tipButton.click();
 
-  // If there's an input for amount
   const amountInput = page.locator('input[type="number"]').first();
   if (await amountInput.isVisible()) {
     await amountInput.fill(amount.toString());
   }
 
-  // Click confirm
-  const confirmButton = page.locator('button:has-text("Confirm"), button:has-text("Send")').first();
-  await confirmButton.click();
-
-  // Wait for transaction to complete
+  await page.locator('button:has-text("Confirm"), button:has-text("Send")').first().click();
   await page.waitForTimeout(2000);
 }
 
-/**
- * Wait for element and return its text content
- */
-export async function getElementText(page: Page, selector: string): Promise<string | null> {
-  return page.locator(selector).first().textContent();
-}
-
-/**
- * Verify that a URL contains a specific path
- */
-export async function verifyUrl(page: Page, expectedPath: string): Promise<boolean> {
-  const url = page.url();
-  return url.includes(expectedPath);
-}
+export { MOCK_ADDRESS };

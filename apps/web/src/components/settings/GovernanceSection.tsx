@@ -1,11 +1,11 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
 
 interface Proposal {
   id: string;
   title: string;
-  status: 'active' | 'passed' | 'rejected';
+  status: "active" | "passed" | "rejected";
   votesFor: number;
   votesAgainst: number;
   endDate: Date;
@@ -26,17 +26,17 @@ export function GovernanceSection({ address }: GovernanceSectionProps) {
         // For now, using mock data
         const mockProposals: Proposal[] = [
           {
-            id: '1',
-            title: 'Reduce platform fee from 2.5% to 2%',
-            status: 'active',
+            id: "1",
+            title: "Reduce platform fee from 2.5% to 2%",
+            status: "active",
             votesFor: 1250,
             votesAgainst: 430,
             endDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
           },
           {
-            id: '2',
-            title: 'Add support for custom tokens in pools',
-            status: 'active',
+            id: "2",
+            title: "Add support for custom tokens in pools",
+            status: "active",
             votesFor: 980,
             votesAgainst: 120,
             endDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
@@ -44,7 +44,7 @@ export function GovernanceSection({ address }: GovernanceSectionProps) {
         ];
         setProposals(mockProposals);
       } catch (error) {
-        console.error('Failed to load proposals:', error);
+        console.error("Failed to load proposals:", error);
       } finally {
         setLoading(false);
       }
@@ -57,10 +57,10 @@ export function GovernanceSection({ address }: GovernanceSectionProps) {
     const diff = endDate.getTime() - now.getTime();
     const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-    
+
     if (days > 0) return `${days}d ${hours}h remaining`;
     if (hours > 0) return `${hours}h remaining`;
-    return 'Ending soon';
+    return "Ending soon";
   }
 
   if (loading) {
@@ -94,11 +94,11 @@ export function GovernanceSection({ address }: GovernanceSectionProps) {
                 <h3 className="text-sm font-medium text-gray-900">{proposal.title}</h3>
                 <span
                   className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                    proposal.status === 'active'
-                      ? 'bg-green-100 text-green-800'
-                      : proposal.status === 'passed'
-                        ? 'bg-blue-100 text-blue-800'
-                        : 'bg-red-100 text-red-800'
+                    proposal.status === "active"
+                      ? "bg-green-100 text-green-800"
+                      : proposal.status === "passed"
+                        ? "bg-blue-100 text-blue-800"
+                        : "bg-red-100 text-red-800"
                   }`}
                 >
                   {proposal.status}
@@ -139,10 +139,7 @@ export function GovernanceSection({ address }: GovernanceSectionProps) {
       )}
 
       <div className="mt-4 pt-4 border-t border-gray-200">
-        <a
-          href="/governance"
-          className="text-sm text-violet-600 hover:text-violet-700 font-medium"
-        >
+        <a href="/governance" className="text-sm text-violet-600 hover:text-violet-700 font-medium">
           View All Proposals →
         </a>
       </div>

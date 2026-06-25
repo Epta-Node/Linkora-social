@@ -53,10 +53,7 @@ export interface IngestEvent {
  * writes through the provided transaction client so they commit atomically
  * with the raw ingest and cursor advance. MUST be idempotent (safe to replay).
  */
-export type DomainProcessor = (
-  client: PgClientLike,
-  event: IngestEvent
-) => Promise<void>;
+export type DomainProcessor = (client: PgClientLike, event: IngestEvent) => Promise<void>;
 
 export interface IngestPipelineOptions {
   /** Stream identity for the cursor row (typically the contract id). */
@@ -94,10 +91,9 @@ export class IngestPipeline {
   async readCursor(): Promise<number> {
     const client = await this.pool.connect();
     try {
-      const res = await client.query(
-        "SELECT processed_cursor FROM indexer_state WHERE id = $1",
-        [this.streamId]
-      );
+      const res = await client.query("SELECT processed_cursor FROM indexer_state WHERE id = $1", [
+        this.streamId,
+      ]);
       const row = res.rows[0] as { processed_cursor?: number | string } | undefined;
       if (!row || row.processed_cursor === undefined) return 0;
       return Number(row.processed_cursor);

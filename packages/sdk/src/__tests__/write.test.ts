@@ -13,6 +13,7 @@ jest.mock("@stellar/stellar-sdk", () => ({
     Api: { isSimulationError: jest.fn(), isSimulationSuccess: jest.fn() },
   },
   Contract: jest.fn(() => ({ call: mockCall })),
+  Address: { fromString: jest.fn((v: string) => ({ toScVal: () => ({ _type: "scval", _val: v, _opts: { type: "address" } }) })) },
   nativeToScVal: jest.fn((val: unknown, opts?: unknown) => ({
     _type: "scval",
     _val: val,
@@ -65,7 +66,7 @@ describe("LinkoraClient write methods", () => {
 
   it("deletePost", () => {
     expect(client.deletePost("GAUTHOR", 5)).toBe(XDR);
-    expect(mockCall).toHaveBeenCalledWith("delete_post", addr("GAUTHOR"), val(5));
+    expect(mockCall).toHaveBeenCalledWith("delete_post", addr("GAUTHOR"), val(5n));
   });
 
   it("follow", () => {
@@ -90,12 +91,12 @@ describe("LinkoraClient write methods", () => {
 
   it("likePost", () => {
     expect(client.likePost("GUSER", 7)).toBe(XDR);
-    expect(mockCall).toHaveBeenCalledWith("like_post", addr("GUSER"), val(7));
+    expect(mockCall).toHaveBeenCalledWith("like_post", addr("GUSER"), val(7n));
   });
 
   it("tip includes token argument", () => {
     expect(client.tip("GSENDER", 3, "GTOKEN", 500)).toBe(XDR);
-    expect(mockCall).toHaveBeenCalledWith("tip", addr("GSENDER"), val(3), addr("GTOKEN"), val(500));
+    expect(mockCall).toHaveBeenCalledWith("tip", addr("GSENDER"), val(3n), addr("GTOKEN"), val(500n));
   });
 
   it("tip accepts bigint amount", () => {
@@ -103,7 +104,7 @@ describe("LinkoraClient write methods", () => {
     expect(mockCall).toHaveBeenCalledWith(
       "tip",
       addr("GSENDER"),
-      val(3),
+      val(3n),
       addr("GTOKEN"),
       val(1000n)
     );
@@ -116,7 +117,7 @@ describe("LinkoraClient write methods", () => {
       addr("GADMIN"),
       val("pool1"),
       addr("GTOKEN"),
-      expect.anything(), // vec of addresses
+      expect.anything(),
       val(2)
     );
   });
@@ -128,7 +129,7 @@ describe("LinkoraClient write methods", () => {
       addr("GDEPOSITOR"),
       val("pool1"),
       addr("GTOKEN"),
-      val(1000)
+      val(1000n)
     );
   });
 
@@ -136,9 +137,9 @@ describe("LinkoraClient write methods", () => {
     expect(client.poolWithdraw(["GA", "GB"], "pool1", 500, "GRECIPIENT")).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith(
       "pool_withdraw",
-      expect.anything(), // vec of signers
+      expect.anything(),
       val("pool1"),
-      val(500),
+      val(500n),
       addr("GRECIPIENT")
     );
   });
@@ -186,5 +187,30 @@ describe("LinkoraClient write methods", () => {
   it("setTipCooldownWindow", () => {
     expect(client.setTipCooldownWindow(17280)).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith("set_tip_cooldown_window", val(17280));
+  });
+
+  it("verifyAnalyticsAttestation builds tx with correct args", () => {
+    const reportCbor = new Uint8Array([1, 2, 3, 4]);
+    const signature = new Uint8Array(64).fill(0xab);
+
+    expect(
+      client.verifyAnalyticsAttestation(
+        "default",
+        reportCbor,
+        signature,
+        "GCREATOR",
+        1000,
+        2000
+      )
+    ).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "verify_analytics_attestation",
+      val("default"),
+      expect.objectContaining({ _val: expect.anything() }),
+      expect.objectContaining({ _val: expect.anything() }),
+      addr("GCREATOR"),
+      val(1000),
+      val(2000)
+    );
   });
 });
