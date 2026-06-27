@@ -22,6 +22,7 @@
 
 import http from "http";
 import { Pool } from "pg";
+import cron from "node-cron";
 import { streamEvents, RawEvent, BatchProcessor } from "./stream";
 import { IngestPipeline, IngestEvent } from "./pipeline";
 import { bus } from "./bus";
@@ -194,6 +195,13 @@ async function main(): Promise<void> {
 
   // Resume gap detection from the last committed cursor.
   const initialCursor = await pipeline.readCursor();
+
+  // Start cron job for materialized view
+  const dbForCron = new PostgresDatabase(pgPool);
+  cron.schedule("*/5 * * * *", () => {
+    console.log("[indexer] Refreshing post scores materialized view...");
+    dbForCron.refreshPostScores().catch(e => console.error("[indexer] Error refreshing post scores:", e));
+  });
 
   httpServer.listen(PORT, () => {
     console.log(`[indexer] HTTP + WS listening on :${PORT} (ws path /ws)`);
