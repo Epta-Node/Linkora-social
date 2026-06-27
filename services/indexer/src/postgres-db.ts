@@ -394,4 +394,115 @@ export class PostgresDatabase implements Database {
       [admin, ledger, pool_id]
     );
   }
+
+  // ───────────────────────────────── Feed ──────────────────────────────────────
+
+  async getExploreFeed(limit: number, cursor?: number): Promise<{ posts: Post[]; total: number; hasMore: boolean }> {
+    const offset = cursor ?? 0;
+    const totalRes = await this.pool.query(`SELECT COUNT(*)::int AS total FROM post_scores`);
+    const total = totalRes.rows[0]?.total ?? 0;
+
+    const res = await this.pool.query(
+      `
+      SELECT
+        p.id, p.author, p.content, p.deleted_at IS NOT NULL AS deleted,
+        p.tip_total, p.like_count,
+        extract(epoch from p.created_at)::bigint AS created_ledger,
+        CASE WHEN p.deleted_at IS NULL THEN NULL ELSE extract(epoch from p.deleted_at)::bigint END AS deleted_ledger
+      FROM post_scores s
+      JOIN posts p ON s.post_id = p.id
+      ORDER BY s.score DESC
+      OFFSET $1 LIMIT $2
+      `,
+      [offset, limit + 1]
+    );
+
+    const hasMore = res.rows.length > limit;
+    const rows = hasMore ? res.rows.slice(0, limit) : res.rows;
+
+    const posts: Post[] = rows.map((row) => ({
+      id: BigInt(row.id),
+      author: row.author,
+      content: row.content,
+      deleted: row.deleted,
+      tip_total: BigInt(row.tip_total),
+      like_count: BigInt(row.like_count),
+      created_ledger: Number(row.created_ledger),
+      deleted_ledger: row.deleted_ledger === null ? null : Number(row.deleted_ledger),
+    }));
+
+    return { posts, total, hasMore };
+  }
+
+  async getFollowingFeed(address: string, limit: number, cursor?: number): Promise<{ posts: Post[]; total: number; hasMore: boolean }> {
+    const totalRes = await this.pool.query(
+      `SELECT COUNT(*)::int AS total FROM posts p JOIN follows f ON p.author = f.followee WHERE f.follower = $1 AND p.deleted_at IS NULL`,
+      [address]
+    );
+    const total = totalRes.rows[0]?.total ?? 0;
+
+    let res;
+    if (cursor !== undefined) {
+      res = await this.pool.query(
+        `
+        SELECT
+          p.id, p.author, p.content, p.deleted_at IS NOT NULL AS deleted,
+          p.tip_total, p.like_count,
+          extract(epoch from p.created_at)::bigint AS created_ledger,
+          CASE WHEN p.deleted_at IS NULL THEN NULL ELSE extract(epoch from p.deleted_at)::bigint END AS deleted_ledger
+        FROM posts p
+        JOIN follows f ON p.author = f.followee
+        WHERE f.follower = $1 AND p.deleted_at IS NULL AND p.created_at < to_timestamp($2)
+        ORDER BY p.created_at DESC
+        LIMIT $3
+        `,
+        [address, cursor, limit + 1]
+      );
+    } else {
+      res = await this.pool.query(
+        `
+        SELECT
+          p.id, p.author, p.content, p.deleted_at IS NOT NULL AS deleted,
+          p.tip_total, p.like_count,
+          extract(epoch from p.created_at)::bigint AS created_ledger,
+          CASE WHEN p.deleted_at IS NULL THEN NULL ELSE extract(epoch from p.deleted_at)::bigint END AS deleted_ledger
+        FROM posts p
+        JOIN follows f ON p.author = f.followee
+        WHERE f.follower = $1 AND p.deleted_at IS NULL
+        ORDER BY p.created_at DESC
+        LIMIT $2
+        `,
+        [address, limit + 1]
+      );
+    }
+
+    const hasMore = res.rows.length > limit;
+    const rows = hasMore ? res.rows.slice(0, limit) : res.rows;
+
+    const posts: Post[] = rows.map((row) => ({
+      id: BigInt(row.id),
+      author: row.author,
+      content: row.content,
+      deleted: row.deleted,
+      tip_total: BigInt(row.tip_total),
+      like_count: BigInt(row.like_count),
+      created_ledger: Number(row.created_ledger),
+      deleted_ledger: row.deleted_ledger === null ? null : Number(row.deleted_ledger),
+    }));
+
+    return { posts, total, hasMore };
+  }
+
+  async refreshPostScores(): Promise<void> {
+    try {
+      await this.pool.query(`REFRESH MATERIALIZED VIEW CONCURRENTLY post_scores;`);
+    } catch (e: any) {
+      // If the materialized view hasn't been populated yet, CONCURRENTLY fails.
+      if (e.code === '55000') { // object_not_in_prerequisite_state
+        await this.pool.query(`REFRESH MATERIALIZED VIEW post_scores;`);
+      } else {
+        throw e;
+      }
+    }
+  }
 }

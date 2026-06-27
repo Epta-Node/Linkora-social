@@ -101,4 +101,9 @@ export interface Database {
     limit: number,
     offset: number
   ): Promise<{ following: string[]; total: number }>;
+
+  // Feed methods
+  getExploreFeed(limit: number, cursor?: number): Promise<{ posts: Post[]; total: number; hasMore: boolean }>;
+  getFollowingFeed(address: string, limit: number, cursor?: number): Promise<{ posts: Post[]; total: number; hasMore: boolean }>;
+  refreshPostScores(): Promise<void>;
 }
