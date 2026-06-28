@@ -11,6 +11,17 @@ import {
   GovernanceVote,
 } from "./db";
 
+function buildSearchTsQuery(query: string): string {
+  return query
+    .trim()
+    .replace(/[^\w\s]/gu, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => `${token}:*`)
+    .join(" & ");
+}
+
 export class PostgresDatabase implements Database {
   private pool: Pool;
 
@@ -45,6 +56,50 @@ export class PostgresDatabase implements Database {
       [address]
     );
     return res.rows[0] ?? null;
+  }
+
+  async searchProfiles(filters: {
+    q: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ profiles: Profile[]; total: number }> {
+    const { q, limit, offset } = filters;
+    const tsQuery = buildSearchTsQuery(q);
+
+    if (!tsQuery) {
+      return { profiles: [], total: 0 };
+    }
+
+    const totalRes = await this.pool.query(
+      `
+      SELECT COUNT(*)::int AS total
+      FROM profiles
+      WHERE profile_tsv @@ to_tsquery('english', $1)
+      `,
+      [tsQuery]
+    );
+    const total = totalRes.rows[0]?.total ?? 0;
+
+    const res = await this.pool.query(
+      `
+      SELECT address, username, creator_token, updated_ledger,
+             ts_rank(profile_tsv, to_tsquery('english', $1)) AS rank
+      FROM profiles
+      WHERE profile_tsv @@ to_tsquery('english', $1)
+      ORDER BY rank DESC, updated_ledger DESC, username ASC
+      OFFSET $2 LIMIT $3
+      `,
+      [tsQuery, offset, limit]
+    );
+
+    const profiles: Profile[] = res.rows.map((row) => ({
+      address: row.address,
+      username: row.username,
+      creator_token: row.creator_token,
+      updated_ledger: Number(row.updated_ledger),
+    }));
+
+    return { profiles, total };
   }
 
   // ───────────────────────────────── Follows ──────────────────────────────────
@@ -265,21 +320,11 @@ export class PostgresDatabase implements Database {
     offset: number;
   }): Promise<{ posts: Post[]; total: number }> {
     const { q, limit, offset } = filters;
+    const tsQuery = buildSearchTsQuery(q);
 
-    const sanitised = q
-      .trim()
-      .replace(/[^\w\s]/gu, " ")
-      .trim();
-
-    if (!sanitised) {
+    if (!tsQuery) {
       return { posts: [], total: 0 };
     }
-
-    const tsQuery = sanitised
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => `${t}:*`)
-      .join(" & ");
 
     const totalRes = await this.pool.query(
       `

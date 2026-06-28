@@ -46,7 +46,7 @@ export function useSearchSuggestions({
       try {
         // Fetch profiles
         const profilesResponse = await fetch(
-          `${INDEXER_API_URL}/api/profiles/search?q=${encodeURIComponent(trimmed)}&limit=${maxSuggestions}`,
+          `${INDEXER_API_URL}/api/profiles/search?q=${encodeURIComponent(trimmed)}&limit=${maxSuggestions}&offset=0`,
           { signal: abortControllerRef.current.signal }
         );
 

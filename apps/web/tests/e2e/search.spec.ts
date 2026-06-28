@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("search renders post and profile results from the NavBar", async ({ page }) => {
-  await page.route("**/api/search?**", async (route) => {
+  await page.route("**/api/search/posts?**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({

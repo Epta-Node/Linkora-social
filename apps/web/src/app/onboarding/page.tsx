@@ -1,33 +1,47 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { OnboardingWizard } from "@/components/onboarding/wizard/OnboardingWizard";
-import { useOnboarding } from "@/contexts/OnboardingContext";
 import { useWallet } from "@/hooks/useWallet";
+
+const ONBOARDING_STORAGE_KEY = "linkora_onboarding_state";
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { state, shouldShowOnboarding } = useOnboarding();
   const { connected } = useWallet();
+  const [isComplete, setIsComplete] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // Redirect if onboarding is complete
-    if (!shouldShowOnboarding()) {
+    try {
+      const stored = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+      if (!stored) {
+        setIsComplete(false);
+        return;
+      }
+
+      const parsed = JSON.parse(stored) as { isComplete?: boolean; skipped?: boolean };
+      setIsComplete(Boolean(parsed.isComplete || parsed.skipped));
+    } catch {
+      setIsComplete(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isComplete) {
       router.push("/feed");
     }
-  }, [state.isComplete, state.skipped, shouldShowOnboarding, router]);
+  }, [isComplete, router]);
 
-  // Redirect if not connected
   useEffect(() => {
-    if (!connected) {
+    if (isComplete === false && !connected) {
       router.push("/");
     }
-  }, [connected, router]);
+  }, [connected, isComplete, router]);
 
-  if (!shouldShowOnboarding() || !connected) {
+  if (isComplete === null || isComplete || !connected) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="animate-pulse text-[var(--text-muted)]">Loading...</div>
       </div>
     );

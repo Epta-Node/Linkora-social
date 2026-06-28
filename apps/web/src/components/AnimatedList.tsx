@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type AnimatedListState = "entering" | "present" | "exiting";
 
@@ -13,7 +13,7 @@ interface AnimatedListItem {
 interface AnimatedListProps {
   items: any[];
   getKey: (item: any) => string;
-  renderItem: (item: any, state: AnimatedListState) => ReactNode;
+  renderItem: (item: any, state: AnimatedListState) => JSX.Element;
   className?: string;
   durationMs?: number;
 }
@@ -116,7 +116,9 @@ export function AnimatedList({
 
   return (
     <div className={className}>
-      {renderedItems.map(({ key, item, state }) => renderItem(item, state))}
+      {renderedItems.map(({ key, item, state }) => (
+        <div key={key}>{renderItem(item, state)}</div>
+      ))}
     </div>
   );
 }

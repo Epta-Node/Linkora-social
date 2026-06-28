@@ -21,7 +21,7 @@ type Tab = "deposit" | "withdraw";
 
 export default function PoolDetailPage() {
   const params = useParams();
-  const poolId = typeof params.id === "string" ? params.id : null;
+  const poolId = typeof params?.id === "string" ? params.id : null;
   const { publicKey, isConnected } = useWallet();
   const { pool, state, error: _error, refresh } = usePool(poolId);
   const tokenMeta = useTokenMeta(pool?.token ?? null);

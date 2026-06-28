@@ -34,7 +34,7 @@ test.describe("Search Suggestions", () => {
     });
 
     // Mock the main search API
-    await page.route("**/api/search?**", async (route) => {
+    await page.route("**/api/search/posts?**", async (route) => {
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify({
@@ -54,9 +54,7 @@ test.describe("Search Suggestions", () => {
     await page.goto("/");
   });
 
-  test("shows recent searches when search bar is focused with empty query", async ({
-    page,
-  }) => {
+  test("shows recent searches when search bar is focused with empty query", async ({ page }) => {
     const searchBox = page.getByRole("search").first().getByRole("textbox");
     const searchButton = page.getByRole("search").first().getByRole("button", { name: "Search" });
 
@@ -194,7 +192,9 @@ test.describe("Search Suggestions", () => {
     await expect(page.getByText("test 1")).toBeVisible();
 
     // Remove first recent search
-    const removeButtons = page.locator('[aria-label*="Remove"][aria-label*="from recent searches"]');
+    const removeButtons = page.locator(
+      '[aria-label*="Remove"][aria-label*="from recent searches"]'
+    );
     await removeButtons.first().click();
 
     // First search should be removed

@@ -12,7 +12,14 @@ import {
 } from "@stellar/stellar-sdk";
 import { GeneratedLinkoraClient } from "./generated/client";
 import { Profile, Post, Pool, SimulationResult, LedgerFootprint } from "./types";
-import { mapError, NotFoundError, SimulationError, InvalidInputError } from "./errors";
+import {
+  mapError,
+  NotFoundError,
+  SimulationError,
+  InvalidInputError,
+  ValidationError,
+  NetworkError,
+} from "./errors";
 import { GovParameter } from "./generated/types";
 import type { GovProposal } from "./generated/types";
 import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health";

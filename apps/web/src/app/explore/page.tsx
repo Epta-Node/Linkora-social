@@ -2,102 +2,150 @@
 
 import { useState } from "react";
 import SearchBar from "../../components/SearchBar";
+import { PostCard } from "@/components/PostCard";
+import { ProfileCard } from "@/components/ProfileCard";
 
-interface Post {
-  id: string;
-  author: string;
-  content: string;
-  tip_total: string;
-  timestamp: string;
-}
+type Post = Parameters<typeof PostCard>[0]["post"];
+type Profile = Parameters<typeof ProfileCard>[0]["profile"];
 
-interface SearchResponse {
-  posts: Post[];
-  total: number;
-  has_more: boolean;
-}
+const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "http://localhost:3001";
 
 export default function ExplorePage() {
+  const [query, setQuery] = useState("");
   const [posts, setPosts] = useState<Post[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleSearch = async (query: string) => {
+  const handleSearch = async (nextQuery: string) => {
+    const trimmed = nextQuery.trim();
+    setQuery(trimmed);
     setLoading(true);
     setError(null);
 
     try {
-      // TODO: Replace with actual indexer API URL
-      const INDEXER_API_URL = "http://localhost:3001";
+      const [postsResponse, profilesResponse] = await Promise.all([
+        fetch(
+          `${INDEXER_API_URL}/api/search/posts?q=${encodeURIComponent(trimmed)}&limit=12&offset=0`
+        ),
+        fetch(
+          `${INDEXER_API_URL}/api/profiles/search?q=${encodeURIComponent(trimmed)}&limit=6&offset=0`
+        ),
+      ]);
 
-      const response = await fetch(`${INDEXER_API_URL}/api/search/posts`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query,
-          limit: 20,
-          offset: 0,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Search failed: ${response.statusText}`);
+      if (!postsResponse.ok || !profilesResponse.ok) {
+        throw new Error("Discovery request failed.");
       }
 
-      const data: SearchResponse = await response.json();
-      setPosts(data.posts);
+      const postsData = (await postsResponse.json()) as { posts?: Post[] };
+      const profilesData = (await profilesResponse.json()) as { profiles?: Profile[] };
+
+      setPosts(postsData.posts ?? []);
+      setProfiles(profilesData.profiles ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed");
+      setError(err instanceof Error ? err.message : "Discovery failed.");
       setPosts([]);
+      setProfiles([]);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Explore Posts</h1>
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      <div className="mb-10 rounded-3xl border border-[var(--border)] bg-[linear-gradient(135deg,rgba(124,58,237,0.18),rgba(6,182,212,0.10))] p-6 shadow-2xl shadow-violet-950/10">
+        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.3em] text-violet-300">
+          Explore
+        </p>
+        <h1 className="max-w-2xl text-4xl font-black tracking-tight text-[var(--foreground)] sm:text-5xl">
+          Discover posts and people with full-text search.
+        </h1>
+        <p className="mt-4 max-w-2xl text-base text-[var(--text-muted)]">
+          Search across post content and profile names, then jump straight into the most relevant
+          matches.
+        </p>
 
-      <div className="mb-8">
-        <SearchBar onSearch={handleSearch} />
+        <div className="mt-6 max-w-2xl">
+          <SearchBar
+            onSearch={handleSearch}
+            placeholder="Search posts, profiles, or topics"
+            className="w-full"
+          />
+        </div>
       </div>
 
-      {loading && (
-        <div className="text-center py-8" aria-live="polite">
-          <div className="text-gray-600">Searching posts...</div>
-        </div>
-      )}
-
       {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">
+        <div
+          className="mb-6 rounded-lg border border-red-500/40 bg-red-950/30 p-4 text-red-200"
+          role="alert"
+        >
           {error}
         </div>
       )}
 
-      {posts.length > 0 && (
-        <div className="space-y-4">
-          {posts.map((post) => (
-            <div
-              key={post.id}
-              className="bg-white border border-gray-200 rounded-lg p-4 md:p-6 shadow-sm"
-            >
-              <div className="flex justify-between items-start mb-2">
-                <div className="text-sm text-gray-600">By: {post.author}</div>
-                <div className="text-sm text-gray-500">
-                  {new Date(parseInt(post.timestamp) * 1000).toLocaleDateString()}
-                </div>
-              </div>
-              <div className="text-gray-900 mb-2">{post.content}</div>
-              <div className="text-sm text-gray-600">Tips: {post.tip_total}</div>
-            </div>
-          ))}
+      {!query && !loading && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-6">
+            <h2 className="text-lg font-semibold text-[var(--foreground)]">
+              Search what people are saying
+            </h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Find posts by keywords, phrases, and topic names. Full-text ranking brings the most
+              relevant matches to the top.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-6">
+            <h2 className="text-lg font-semibold text-[var(--foreground)]">Find creators faster</h2>
+            <p className="mt-2 text-sm text-[var(--text-muted)]">
+              Profile discovery now searches usernames and creator tokens, so people are easier to
+              find without memorizing addresses.
+            </p>
+          </div>
         </div>
       )}
 
-      {!loading && !error && posts.length === 0 && (
-        <div className="text-center py-8 text-gray-600">Enter a search query to find posts</div>
+      {loading && (
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-8 text-center text-[var(--text-muted)]">
+          Searching discovery index...
+        </div>
+      )}
+
+      {!loading && query && (
+        <div className="grid gap-8 lg:grid-cols-[1.5fr_1fr]">
+          <section>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-[var(--foreground)]">Top posts</h2>
+              <span className="text-sm text-[var(--text-muted)]">{posts.length} results</span>
+            </div>
+            <div className="space-y-4">
+              {posts.map((post) => (
+                <PostCard key={post.id} post={post} query={query} />
+              ))}
+              {!posts.length && (
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-8 text-center text-[var(--text-muted)]">
+                  No posts matched &quot;{query}&quot;.
+                </div>
+              )}
+            </div>
+          </section>
+
+          <aside>
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-[var(--foreground)]">People</h2>
+              <span className="text-sm text-[var(--text-muted)]">{profiles.length} results</span>
+            </div>
+            <div className="space-y-4">
+              {profiles.map((profile) => (
+                <ProfileCard key={profile.address} profile={profile} />
+              ))}
+              {!profiles.length && (
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)] p-8 text-center text-[var(--text-muted)]">
+                  No profiles matched &quot;{query}&quot;.
+                </div>
+              )}
+            </div>
+          </aside>
+        </div>
       )}
     </div>
   );

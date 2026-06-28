@@ -60,7 +60,7 @@ function readProfiles(data: unknown): Profile[] {
 
 export function SearchPageClient() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams() ?? new URLSearchParams();
 
   const query = searchParams.get("q") ?? "";
   const activeTab = readTab(searchParams.get("tab"));
@@ -103,7 +103,7 @@ export function SearchPageClient() {
     }
 
     const controller = new AbortController();
-    const path = activeTab === "profiles" ? "/api/profiles/search" : "/api/search";
+    const path = activeTab === "profiles" ? "/api/profiles/search" : "/api/search/posts";
 
     setLoading(true);
     setError(null);
@@ -232,7 +232,10 @@ export function SearchPageClient() {
       </div>
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-500/50 bg-red-950/40 p-4 text-red-200" role="alert">
+        <div
+          className="mb-6 rounded-lg border border-red-500/50 bg-red-950/40 p-4 text-red-200"
+          role="alert"
+        >
           {error}
         </div>
       )}

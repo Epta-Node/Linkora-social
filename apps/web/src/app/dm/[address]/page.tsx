@@ -25,7 +25,7 @@ interface DecryptedMessage extends RelayMessage {
 
 export default function DirectMessagePage() {
   const params = useParams<{ address: string }>();
-  const recipientAddress = params.address;
+  const recipientAddress = params?.address ?? "";
   const router = useRouter();
   const { address: myAddress, connected } = useWallet();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -220,7 +220,10 @@ export default function DirectMessagePage() {
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 text-sm text-red-400" role="alert">
+            <div
+              className="mb-4 rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 text-sm text-red-400"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -277,7 +280,10 @@ export default function DirectMessagePage() {
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="flex shrink-0 items-center justify-between border-b border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-400" role="alert">
+        <div
+          className="flex shrink-0 items-center justify-between border-b border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-400"
+          role="alert"
+        >
           <span>{error}</span>
           <button
             onClick={() => setError(null)}
