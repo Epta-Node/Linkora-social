@@ -144,6 +144,11 @@ export interface Database {
 
   // Query methods used by the REST API
   getProfile(address: string): Promise<Profile | null>;
+  searchProfiles(filters: {
+    q: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ profiles: Profile[]; total: number }>;
   listPosts(filters: {
     author?: string;
     limit: number;

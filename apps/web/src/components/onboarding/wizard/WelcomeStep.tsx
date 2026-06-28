@@ -19,7 +19,8 @@ export function WelcomeStep({ onNext, onSkip }: WelcomeStepProps) {
           Welcome to <span className="text-violet-500">Linkora</span>
         </h1>
         <p className="text-lg text-[var(--text-muted)] max-w-lg mx-auto">
-          Your decentralized social network on Stellar. Let's get you set up in just a few steps!
+          Your decentralized social network on Stellar. Let&apos;s get you set up in just a few
+          steps!
         </p>
       </div>
 
@@ -28,9 +29,7 @@ export function WelcomeStep({ onNext, onSkip }: WelcomeStepProps) {
         <div className="bg-[var(--muted)] p-4 rounded-lg border border-[var(--border)]">
           <div className="text-3xl mb-2">👤</div>
           <h3 className="font-semibold mb-1">Create Your Profile</h3>
-          <p className="text-sm text-[var(--text-muted)]">
-            Set up your identity and stand out
-          </p>
+          <p className="text-sm text-[var(--text-muted)]">Set up your identity and stand out</p>
         </div>
         <div className="bg-[var(--muted)] p-4 rounded-lg border border-[var(--border)]">
           <div className="text-3xl mb-2">🤝</div>
@@ -54,7 +53,7 @@ export function WelcomeStep({ onNext, onSkip }: WelcomeStepProps) {
           onClick={onNext}
           className="flex-1 px-6 py-3 bg-violet-600 text-white font-semibold rounded-lg hover:bg-violet-700 transition-colors shadow-lg"
         >
-          Let's Get Started
+          Let&apos;s Get Started
         </button>
         <button
           onClick={onSkip}

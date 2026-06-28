@@ -47,6 +47,13 @@ export interface SimulationResult {
   eventLog?: unknown;
 }
 
+export interface TransactionLike {
+  networkPassphrase: string;
+  toEnvelope(): {
+    toXDR(format: "base64"): string;
+  };
+}
+
 /**
  * Interface for transaction signers (e.g., Freighter, Ledger, etc.)
  */

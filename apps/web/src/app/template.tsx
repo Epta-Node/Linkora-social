@@ -1,9 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-export default function RootTemplate({ children }: { children: ReactNode }) {
+export default function RootTemplate({ children }: { children: unknown }) {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -16,7 +15,7 @@ export default function RootTemplate({ children }: { children: ReactNode }) {
 
   return (
     <div className={`page-transition-shell ${isVisible ? "page-transition-shell--visible" : ""}`}>
-      {children}
+      {children as any}
     </div>
   );
 }

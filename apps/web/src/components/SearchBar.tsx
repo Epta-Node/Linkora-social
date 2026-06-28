@@ -1,9 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState, useRef } from "react";
-import { FormEvent, useEffect, useState, forwardRef } from "react";
+import { FormEvent, KeyboardEvent, Ref, useEffect, useMemo, useRef, useState } from "react";
 import { validateSearchQuery } from "@/lib/validate";
-import { useSearchSuggestions, SearchSuggestion } from "@/hooks/useSearchSuggestions";
+import { SearchSuggestion, useSearchSuggestions } from "@/hooks/useSearchSuggestions";
 import { useRecentSearches } from "@/hooks/useRecentSearches";
 
 interface SearchBarProps {
@@ -13,13 +12,54 @@ interface SearchBarProps {
   className?: string;
   inputClassName?: string;
   buttonLabel?: string;
-  /** Optional ref forwarded to the underlying <input> for programmatic focus (e.g. keyboard shortcut). */
-  inputRef?: React.Ref<HTMLInputElement>;
+  inputRef?: Ref<HTMLInputElement>;
+}
+
+function mergeRefs<T>(...refs: Array<Ref<T> | undefined>) {
+  return (node: T | null) => {
+    for (const ref of refs) {
+      if (!ref) continue;
+      if (typeof ref === "function") {
+        ref(node);
+      } else {
+        try {
+          (ref as { current: T | null }).current = node;
+        } catch {
+          // Ignore readonly refs.
+        }
+      }
+    }
+  };
+}
+
+function highlightMatch(text: string, search: string) {
+  const trimmed = search.trim();
+  if (!trimmed) return text;
+
+  const pattern = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${pattern})`, "gi"));
+
+  return parts.map((part, index) =>
+    part.toLowerCase() === trimmed.toLowerCase() ? (
+      <mark
+        key={`${part}-${index}`}
+        className="rounded bg-violet-500/30 px-1 font-semibold text-white"
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    )
+  );
+}
+
+function getSuggestionLabel(suggestion: SearchSuggestion): string {
+  return suggestion.displayName || suggestion.value;
 }
 
 export default function SearchBar({
   onSearch,
-  placeholder = "Search posts...",
+  placeholder = "Search posts and profiles",
   initialValue = "",
   className = "w-full max-w-md",
   inputClassName = "",
@@ -27,11 +67,12 @@ export default function SearchBar({
   inputRef,
 }: SearchBarProps) {
   const [query, setQuery] = useState(initialValue);
-  const [isFocused, setIsFocused] = useState(false);
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const [focused, setFocused] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
-  const inputRef = useRef<HTMLInputElement>(null);
+  const localInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const mergedInputRef = useMemo(() => mergeRefs(localInputRef, inputRef), [inputRef]);
 
   const { suggestions, loading, fetchSuggestions, clearSuggestions } = useSearchSuggestions();
   const { recentSearches, addRecentSearch, clearRecentSearches, removeRecentSearch } =
@@ -41,30 +82,33 @@ export default function SearchBar({
     setQuery(initialValue);
   }, [initialValue]);
 
-  // Fetch suggestions when query changes and input is focused
   useEffect(() => {
-    if (!isFocused) {
+    if (!focused) {
       clearSuggestions();
+      setActiveIndex(-1);
       return;
     }
 
     if (!query.trim()) {
       clearSuggestions();
+      setActiveIndex(-1);
       return;
     }
 
+    setActiveIndex(-1);
     fetchSuggestions(query);
-  }, [query, isFocused, fetchSuggestions, clearSuggestions]);
+  }, [clearSuggestions, fetchSuggestions, focused, query]);
 
-  // Handle click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
       if (
         dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node) &&
-        !inputRef.current?.contains(event.target as Node)
+        !dropdownRef.current.contains(target) &&
+        !localInputRef.current?.contains(target)
       ) {
-        setIsFocused(false);
+        setFocused(false);
+        setActiveIndex(-1);
       }
     };
 
@@ -72,145 +116,114 @@ export default function SearchBar({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Handle keyboard navigation
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    const currentSuggestions = query.trim()
-      ? suggestions
-      : recentSearches.map((s: string) => ({ type: "recent" as const, value: s }));
+  const currentSuggestions = query.trim()
+    ? suggestions
+    : recentSearches.map((value) => ({ type: "recent" as const, value }));
 
-    if (!currentSuggestions.length) return;
+  const showDropdown = focused && (loading || currentSuggestions.length > 0);
 
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveSuggestionIndex((prev: number) =>
-        prev < currentSuggestions.length - 1 ? prev + 1 : prev
-      );
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveSuggestionIndex((prev: number) => (prev > 0 ? prev - 1 : -1));
-    } else if (e.key === "Enter") {
-      if (activeSuggestionIndex >= 0) {
-        e.preventDefault();
-        const selected = currentSuggestions[activeSuggestionIndex];
-        handleSuggestionClick(selected);
+  const submitSearch = (value: string) => {
+    const trimmed = value.trim();
+    if (!validateSearchQuery(trimmed).valid) return;
+
+    addRecentSearch(trimmed);
+    onSearch(trimmed);
+    setFocused(false);
+    setActiveIndex(-1);
+    clearSuggestions();
+  };
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    submitSearch(query);
+  };
+
+  const handleSuggestionSelect = (suggestion: SearchSuggestion) => {
+    const nextQuery = getSuggestionLabel(suggestion);
+    setQuery(nextQuery);
+    submitSearch(nextQuery);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!currentSuggestions.length) {
+      if (event.key === "Escape") {
+        setFocused(false);
       }
-    } else if (e.key === "Escape") {
-      setIsFocused(false);
-      setActiveSuggestionIndex(-1);
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.min(current + 1, currentSuggestions.length - 1));
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.max(current - 1, -1));
+      return;
+    }
+
+    if (event.key === "Enter" && activeIndex >= 0) {
+      event.preventDefault();
+      handleSuggestionSelect(currentSuggestions[activeIndex]);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      setFocused(false);
+      setActiveIndex(-1);
     }
   };
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const trimmed = query.trim();
-    if (!validateSearchQuery(trimmed).valid) return;
-    addRecentSearch(trimmed);
-    onSearch(trimmed);
-    setIsFocused(false);
-    setActiveSuggestionIndex(-1);
-  };
-
-  const handleSuggestionClick = (suggestion: SearchSuggestion) => {
-    const searchValue =
-      suggestion.type === "profile" ? suggestion.displayName || suggestion.value : suggestion.value;
-    setQuery(searchValue);
-    addRecentSearch(searchValue);
-    onSearch(searchValue);
-    setIsFocused(false);
-    setActiveSuggestionIndex(-1);
-  };
-
-  const handleRemoveRecent = (e: React.MouseEvent, searchQuery: string) => {
-    e.stopPropagation();
-    removeRecentSearch(searchQuery);
-  };
-
-  // Highlight matching text
-  const highlightMatch = (text: string, search: string) => {
-    if (!search.trim()) return text;
-
-    const regex = new RegExp(`(${search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
-    const parts = text.split(regex);
-
-    return parts.map((part, index) =>
-      regex.test(part) ? (
-        <mark key={index} className="bg-violet-500/30 text-[var(--foreground)] font-semibold">
-          {part}
-        </mark>
-      ) : (
-        part
-      )
-    );
-  };
-
-  const showDropdown =
-    isFocused && (query.trim() ? suggestions.length > 0 : recentSearches.length > 0);
-  const currentSuggestions = query.trim()
-    ? suggestions
-    : recentSearches.map((s: string) => ({ type: "recent" as const, value: s }));
+  const isQueryValid = validateSearchQuery(query).valid;
 
   return (
     <div className={`relative ${className}`}>
       <form onSubmit={handleSubmit} role="search">
         <div className="relative">
           <input
-            ref={inputRef}
+            ref={mergedInputRef}
             type="text"
+            role="combobox"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => setIsFocused(true)}
+            onChange={(event) => setQuery(event.target.value)}
+            onFocus={() => setFocused(true)}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             aria-label={placeholder}
             aria-expanded={showDropdown}
             aria-autocomplete="list"
             aria-controls="search-suggestions"
-            aria-activedescendant={
-              activeSuggestionIndex >= 0 ? `suggestion-${activeSuggestionIndex}` : undefined
-            }
-            className={`w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 md:px-4 py-2 pr-20 md:pr-24 text-[var(--foreground)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-violet-500 ${inputClassName}`}
+            aria-activedescendant={activeIndex >= 0 ? `suggestion-${activeIndex}` : undefined}
+            className={`w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 py-2 pr-20 text-[var(--foreground)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-violet-500 ${inputClassName}`}
           />
           <button
             type="submit"
-            className="absolute right-1.5 md:right-2 top-1/2 -translate-y-1/2 rounded bg-violet-600 px-2 md:px-3 py-1 text-xs md:text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50 transition-colors"
-            disabled={!validateSearchQuery(query).valid}
+            disabled={!isQueryValid}
             aria-label="Submit search"
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded bg-violet-600 px-3 py-1 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:opacity-50"
           >
             {buttonLabel}
           </button>
         </div>
       </form>
 
-      {/* Suggestions Dropdown */}
       {showDropdown && (
         <div
           ref={dropdownRef}
           id="search-suggestions"
           role="listbox"
-          className="absolute z-50 mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-lg max-h-80 overflow-y-auto"
-    <form onSubmit={handleSubmit} className={className} role="search">
-      <div className="relative">
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          className={`w-full rounded-lg border border-[var(--border)] bg-[var(--muted)] px-3 md:px-4 py-2 pr-20 md:pr-24 text-[var(--foreground)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-violet-500 ${inputClassName}`}
-        />
-        <button
-          type="submit"
-          className="absolute right-1.5 md:right-2 top-1/2 -translate-y-1/2 rounded bg-violet-600 px-2 md:px-3 py-1 text-xs md:text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-50"
-          disabled={!validateSearchQuery(query).valid}
+          className="absolute z-50 mt-2 max-h-80 w-full overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card)] shadow-lg"
         >
-          {loading && query.trim() && (
-            <div className="px-4 py-3 text-sm text-[var(--text-muted)] flex items-center gap-2">
+          {loading && query.trim() ? (
+            <div className="flex items-center gap-2 px-4 py-3 text-sm text-[var(--text-muted)]">
               <svg
-                className="animate-spin h-4 w-4"
+                className="h-4 w-4 animate-spin"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"
+                aria-hidden="true"
               >
                 <circle
                   className="opacity-25"
@@ -219,29 +232,29 @@ export default function SearchBar({
                   r="10"
                   stroke="currentColor"
                   strokeWidth="4"
-                ></circle>
+                />
                 <path
                   className="opacity-75"
                   fill="currentColor"
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                ></path>
+                />
               </svg>
               Loading suggestions...
             </div>
-          )}
+          ) : null}
 
           {!query.trim() && recentSearches.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border)]">
-              <span className="text-xs font-semibold text-[var(--text-muted)] uppercase">
+            <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2">
+              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
                 Recent Searches
               </span>
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
+                onClick={(event) => {
+                  event.stopPropagation();
                   clearRecentSearches();
                 }}
-                className="text-xs text-violet-500 hover:text-violet-400 font-medium transition-colors"
+                className="text-xs font-medium text-violet-400 transition-colors hover:text-violet-300"
                 aria-label="Clear recent searches"
               >
                 Clear recent
@@ -249,87 +262,94 @@ export default function SearchBar({
             </div>
           )}
 
-          {currentSuggestions.map((suggestion: SearchSuggestion, index: number) => (
-            <button
-              key={`${suggestion.type}-${suggestion.value}-${index}`}
-              id={`suggestion-${index}`}
-              role="option"
-              aria-selected={index === activeSuggestionIndex}
-              type="button"
-              onClick={() => handleSuggestionClick(suggestion)}
-              className={`w-full px-4 py-3 text-left hover:bg-[var(--muted)] transition-colors flex items-center gap-3 ${
-                index === activeSuggestionIndex ? "bg-[var(--muted)]" : ""
-              }`}
-            >
-              {/* Icon */}
-              <div className="flex-shrink-0">
-                {suggestion.type === "profile" && (
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-cyan-500 flex items-center justify-center text-white text-sm font-semibold">
-                    {(suggestion.displayName || suggestion.value)[0].toUpperCase()}
+          {currentSuggestions.map((suggestion, index) => {
+            const selected = index === activeIndex;
+            const label = getSuggestionLabel(suggestion);
+
+            return (
+              <div
+                key={`${suggestion.type}-${suggestion.value}-${index}`}
+                id={`suggestion-${index}`}
+                role="option"
+                aria-selected={selected}
+                onClick={() => handleSuggestionSelect(suggestion)}
+                className={`flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--muted)] ${
+                  selected ? "bg-[var(--muted)]" : ""
+                }`}
+              >
+                <div className="flex-shrink-0">
+                  {suggestion.type === "profile" && (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-500 text-sm font-semibold text-white">
+                      {label.slice(0, 1).toUpperCase()}
+                    </div>
+                  )}
+                  {suggestion.type === "hashtag" && (
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-violet-500/20 text-violet-400">
+                      #
+                    </div>
+                  )}
+                  {suggestion.type === "recent" && (
+                    <div className="flex h-8 w-8 items-center justify-center text-[var(--text-muted)]">
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        strokeWidth={1.5}
+                        stroke="currentColor"
+                        className="h-5 w-5"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                    {query.trim() && suggestion.type !== "recent"
+                      ? highlightMatch(label, query)
+                      : label}
                   </div>
-                )}
-                {suggestion.type === "hashtag" && (
-                  <div className="w-8 h-8 rounded-full bg-violet-500/20 flex items-center justify-center text-violet-500">
-                    <span className="text-lg font-bold">#</span>
+                  <div className="text-xs text-[var(--text-muted)]">
+                    {suggestion.type === "profile"
+                      ? "Profile"
+                      : suggestion.type === "hashtag"
+                        ? "Hashtag"
+                        : "Recent search"}
                   </div>
-                )}
+                </div>
+
                 {suggestion.type === "recent" && (
-                  <div className="w-8 h-8 flex items-center justify-center text-[var(--text-muted)]">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      removeRecentSearch(suggestion.value);
+                    }}
+                    className="flex-shrink-0 p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--foreground)]"
+                    aria-label={`Remove ${suggestion.value} from recent searches`}
+                  >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
                       fill="none"
                       viewBox="0 0 24 24"
                       strokeWidth={1.5}
                       stroke="currentColor"
-                      className="w-5 h-5"
+                      className="h-4 w-4"
+                      aria-hidden="true"
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                  </div>
+                  </button>
                 )}
               </div>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-[var(--foreground)] truncate">
-                  {query.trim() && suggestion.type !== "recent"
-                    ? highlightMatch(suggestion.displayName || suggestion.value, query)
-                    : suggestion.displayName || suggestion.value}
-                </div>
-                {suggestion.type === "profile" && (
-                  <div className="text-xs text-[var(--text-muted)] truncate">Profile</div>
-                )}
-                {suggestion.type === "hashtag" && (
-                  <div className="text-xs text-[var(--text-muted)]">Hashtag</div>
-                )}
-              </div>
-
-              {/* Remove button for recent searches */}
-              {suggestion.type === "recent" && (
-                <button
-                  type="button"
-                  onClick={(e) => handleRemoveRecent(e, suggestion.value)}
-                  className="flex-shrink-0 p-1 text-[var(--text-muted)] hover:text-[var(--foreground)] transition-colors"
-                  aria-label={`Remove ${suggestion.value} from recent searches`}
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    strokeWidth={1.5}
-                    stroke="currentColor"
-                    className="w-4 h-4"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

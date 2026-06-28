@@ -11,6 +11,7 @@ export interface Post {
   like_count?: string | number;
   timestamp?: string | number;
   created_at?: string;
+  created_ledger?: string | number;
 }
 
 interface PostCardProps {
@@ -46,7 +47,7 @@ function highlightText(text: string, query = "") {
 }
 
 export function getPostDate(post: Post): Date | null {
-  const raw = post.created_at ?? post.timestamp;
+  const raw = post.created_at ?? post.timestamp ?? post.created_ledger;
   if (raw === undefined || raw === null || raw === "") return null;
 
   const numeric = Number(raw);

@@ -92,16 +92,16 @@ export function RichTextComposer({
   // Handle content changes with mention/hashtag detection
   const handleContentChange = useCallback((e: React.FormEvent<HTMLDivElement>) => {
     const newContent = e.currentTarget.innerText || "";
-    
+
     if (newContent.length <= MAX_CONTENT_LENGTH) {
       setContent(newContent);
-      
+
       // Detect @mention
       const selection = window.getSelection();
       if (selection && selection.rangeCount > 0) {
         const range = selection.getRangeAt(0);
         const textBeforeCursor = newContent.substring(0, range.startOffset);
-        
+
         const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
         if (mentionMatch) {
           setMentionQuery(mentionMatch[1]);
@@ -115,63 +115,71 @@ export function RichTextComposer({
   }, []);
 
   // Insert mention
-  const insertMention = useCallback((user: User) => {
-    if (!editorRef.current) return;
+  const insertMention = useCallback(
+    (user: User) => {
+      if (!editorRef.current) return;
 
-    const selection = window.getSelection();
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0);
-      const textBeforeCursor = content.substring(0, range.startOffset);
-      const mentionStart = textBeforeCursor.lastIndexOf("@");
-      
-      // Remove the @ and query, insert the mention
-      const beforeMention = content.substring(0, mentionStart);
-      const afterCursor = content.substring(range.startOffset);
-      const newContent = beforeMention + `@${user.username} ` + afterCursor;
-      
-      setContent(newContent);
-      setShowMentionDropdown(false);
-      setMentionQuery("");
-      
-      // Restore cursor position
-      editorRef.current.innerText = newContent;
-      const newRange = document.createRange();
-      const newCursorPos = beforeMention.length + `@${user.username} `.length;
-      newRange.setStart(editorRef.current.firstChild || editorRef.current, newCursorPos);
-      newRange.collapse(true);
-      selection.removeAllRanges();
-      selection.addRange(newRange);
-    }
-  }, [content]);
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const textBeforeCursor = content.substring(0, range.startOffset);
+        const mentionStart = textBeforeCursor.lastIndexOf("@");
+
+        // Remove the @ and query, insert the mention
+        const beforeMention = content.substring(0, mentionStart);
+        const afterCursor = content.substring(range.startOffset);
+        const newContent = beforeMention + `@${user.username} ` + afterCursor;
+
+        setContent(newContent);
+        setShowMentionDropdown(false);
+        setMentionQuery("");
+
+        // Restore cursor position
+        editorRef.current.innerText = newContent;
+        const newRange = document.createRange();
+        const newCursorPos = beforeMention.length + `@${user.username} `.length;
+        newRange.setStart(editorRef.current.firstChild || editorRef.current, newCursorPos);
+        newRange.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(newRange);
+      }
+    },
+    [content]
+  );
 
   // Handle keyboard navigation in mention dropdown
-  const handleMentionKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!showMentionDropdown) return;
+  const handleMentionKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!showMentionDropdown) return;
 
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setMentionIndex((prev) => (prev + 1) % filteredUsers.length);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setMentionIndex((prev) => (prev - 1 + filteredUsers.length) % filteredUsers.length);
-    } else if (e.key === "Enter" || e.key === "Tab") {
-      e.preventDefault();
-      if (filteredUsers[mentionIndex]) {
-        insertMention(filteredUsers[mentionIndex]);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev + 1) % filteredUsers.length);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((prev) => (prev - 1 + filteredUsers.length) % filteredUsers.length);
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        if (filteredUsers[mentionIndex]) {
+          insertMention(filteredUsers[mentionIndex]);
+        }
+      } else if (e.key === "Escape") {
+        setShowMentionDropdown(false);
       }
-    } else if (e.key === "Escape") {
-      setShowMentionDropdown(false);
-    }
-  }, [showMentionDropdown, filteredUsers, mentionIndex, insertMention]);
+    },
+    [showMentionDropdown, filteredUsers, mentionIndex, insertMention]
+  );
 
   // Handle file selection
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const validFiles = files.filter((file) => file.type.startsWith("image/") || file.type.startsWith("video/"));
-    
+    const validFiles = files.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/")
+    );
+
     if (validFiles.length > 0) {
       setAttachments((prev) => [...prev, ...validFiles]);
-      
+
       // Create previews
       validFiles.forEach((file) => {
         const reader = new FileReader();
@@ -204,11 +212,14 @@ export function RichTextComposer({
   }, [pollOptions.length]);
 
   // Remove poll option
-  const removePollOption = useCallback((id: string) => {
-    if (pollOptions.length > 2) {
-      setPollOptions((prev) => prev.filter((option) => option.id !== id));
-    }
-  }, [pollOptions.length]);
+  const removePollOption = useCallback(
+    (id: string) => {
+      if (pollOptions.length > 2) {
+        setPollOptions((prev) => prev.filter((option) => option.id !== id));
+      }
+    },
+    [pollOptions.length]
+  );
 
   // Format content with highlights
   const formatContent = useCallback((text: string) => {
@@ -225,15 +236,20 @@ export function RichTextComposer({
 
     setIsSubmitting(true);
     try {
-      const pollData = showPoll ? pollOptions.filter((opt) => opt.text.trim().length > 0) : undefined;
+      const pollData = showPoll
+        ? pollOptions.filter((opt) => opt.text.trim().length > 0)
+        : undefined;
       await onSubmit(content, attachments.length > 0 ? attachments : undefined, pollData);
-      
+
       // Reset form
       setContent("");
       setAttachments([]);
       setAttachmentPreviews([]);
       setShowPoll(false);
-      setPollOptions([{ id: "1", text: "" }, { id: "2", text: "" }]);
+      setPollOptions([
+        { id: "1", text: "" },
+        { id: "2", text: "" },
+      ]);
       setShowPreview(false);
     } finally {
       setIsSubmitting(false);
@@ -243,7 +259,7 @@ export function RichTextComposer({
   // Render content with highlights
   const renderContent = () => {
     if (!content) return null;
-    
+
     const parts = content.split(/(@\w+|#\w+)/g);
     return parts.map((part, index) => {
       if (part.startsWith("@")) {
@@ -316,7 +332,8 @@ export function RichTextComposer({
           suppressContentEditableWarning
           dangerouslySetInnerHTML={{ __html: formatContent(content) }}
           data-placeholder={placeholder}
-          disabled={disabled}
+          aria-disabled={disabled}
+          data-disabled={disabled || undefined}
         />
       ) : (
         <div className="composer-preview">
@@ -408,9 +425,7 @@ export function RichTextComposer({
       <div className="composer-footer">
         {/* Character Counter */}
         <div
-          className={`char-counter ${
-            isNearLimit ? "warning" : ""
-          } ${isOverLimit ? "error" : ""}`}
+          className={`char-counter ${isNearLimit ? "warning" : ""} ${isOverLimit ? "error" : ""}`}
         >
           {charCount}/{MAX_CONTENT_LENGTH}
         </div>
@@ -418,21 +433,11 @@ export function RichTextComposer({
         {/* Actions */}
         <div className="composer-actions">
           {onCancel && (
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isSubmitting}
-              className="cancel-btn"
-            >
+            <button type="button" onClick={onCancel} disabled={isSubmitting} className="cancel-btn">
               Cancel
             </button>
           )}
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isDisabled}
-            className="submit-btn"
-          >
+          <button type="button" onClick={handleSubmit} disabled={isDisabled} className="submit-btn">
             {isSubmitting ? "Posting..." : "Post"}
           </button>
         </div>
