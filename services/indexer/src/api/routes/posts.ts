@@ -3,20 +3,21 @@ import { Database } from "../../db";
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
-const DEFAULT_OFFSET = 0;
 
 export function createPostsRouter(db: Database): Router {
   const router = Router();
 
   /**
-   * GET /posts?author=<address>&limit=<n>&offset=<n>
-   * Lists posts with optional author filter and pagination.
+   * GET /posts?author=<address>&limit=<n>&cursor=<id>
+   * Lists posts with optional author filter and cursor-based pagination.
+   * Response includes nextCursor (null when no more pages).
+   * Legacy ?offset parameter is ignored; clients should migrate to ?cursor.
    */
   router.get("/", async (req: Request, res: Response): Promise<void> => {
     const author = typeof req.query.author === "string" ? req.query.author : undefined;
 
     const rawLimit = req.query.limit !== undefined ? Number(req.query.limit) : DEFAULT_LIMIT;
-    const rawOffset = req.query.offset !== undefined ? Number(req.query.offset) : DEFAULT_OFFSET;
+    const cursor = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
 
     if (!Number.isInteger(rawLimit) || rawLimit < 1) {
       res.status(400).json({ error: "limit must be a positive integer", code: "INVALID_QUERY" });
@@ -26,20 +27,12 @@ export function createPostsRouter(db: Database): Router {
       res.status(400).json({ error: `limit cannot exceed ${MAX_LIMIT}`, code: "LIMIT_EXCEEDED" });
       return;
     }
-    if (!Number.isInteger(rawOffset) || rawOffset < 0) {
-      res
-        .status(400)
-        .json({ error: "offset must be a non-negative integer", code: "INVALID_QUERY" });
-      return;
-    }
 
-    const { posts, total } = await db.listPosts({ author, limit: rawLimit, offset: rawOffset });
+    const { posts, nextCursor } = await db.listPosts({ author, limit: rawLimit, cursor });
     res.json({
       posts,
-      total,
+      nextCursor,
       limit: rawLimit,
-      offset: rawOffset,
-      has_more: rawOffset + posts.length < total,
     });
   });
 

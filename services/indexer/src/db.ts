@@ -89,16 +89,16 @@ export interface Database {
   listPosts(filters: {
     author?: string;
     limit: number;
-    offset: number;
-  }): Promise<{ posts: Post[]; total: number }>;
+    cursor?: string;
+  }): Promise<{ posts: Post[]; nextCursor: string | null }>;
   getFollowers(
     address: string,
     limit: number,
-    offset: number
-  ): Promise<{ followers: string[]; total: number }>;
+    cursor?: string
+  ): Promise<{ followers: string[]; nextCursor: string | null }>;
   getFollowing(
     address: string,
     limit: number,
-    offset: number
-  ): Promise<{ following: string[]; total: number }>;
+    cursor?: string
+  ): Promise<{ following: string[]; nextCursor: string | null }>;
 }

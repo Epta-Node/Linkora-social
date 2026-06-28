@@ -196,6 +196,34 @@ Emitted when a pool's signature threshold is updated.
   - `old_threshold`: `u32`
   - `new_threshold`: `u32`
 
+### ProfileDeleted
+
+Emitted when a user deletes their profile.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `profile_deleted`
+- **Topic 2**: `v1`
+- **Data Payload**: `ProfileDeletedEvent`
+  - `user`: `Address`
+
+### Paused
+
+Emitted when the contract admin pauses all state-changing operations.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `paused`
+- **Topic 2**: `v1`
+- **Data Payload**: `PausedEvent`
+
+### Unpaused
+
+Emitted when the contract admin resumes operations.
+
+- **Topic 0**: `Linkora`
+- **Topic 1**: `unpaused`
+- **Topic 2**: `v1`
+- **Data Payload**: `UnpausedEvent`
+
 ### FeeUpdated
 
 Emitted when the admin updates the protocol fee.

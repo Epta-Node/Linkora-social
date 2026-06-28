@@ -29,6 +29,7 @@ const TREASURY: Symbol = symbol_short!("TREASURY");
 const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 const INITIALIZED: Symbol = symbol_short!("INIT");
 const TIP_COOLDOWN_WINDOW: Symbol = symbol_short!("TIP_CD_W");
+const PAUSED: Symbol = symbol_short!("PAUSED");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -300,6 +301,21 @@ pub struct TreasuryUpdatedEvent {
     pub old_treasury: Address,
     pub new_treasury: Address,
 }
+
+#[contractevent]
+#[derive(Clone)]
+pub struct ProfileDeletedEvent {
+    #[topic]
+    pub user: Address,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PausedEvent {}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct UnpausedEvent {}
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
@@ -380,6 +396,7 @@ impl LinkoraContract {
     // ── Profiles ──────────────────────────────────────────────────────────────
 
     pub fn set_profile(env: Env, user: Address, username: String, creator_token: Address) {
+        Self::require_not_paused(&env);
         user.require_auth();
         validate_username(&username).expect("invalid username");
 
@@ -452,6 +469,7 @@ impl LinkoraContract {
     }
 
     pub fn delete_profile(env: Env, user: Address) {
+        Self::require_not_paused(&env);
         user.require_auth();
         let key = StorageKey::Profile(user.clone());
         let profile: Profile = env
@@ -475,6 +493,8 @@ impl LinkoraContract {
                 .instance()
                 .set(&PROFILE_CREATED_CT, &(count - 1));
         }
+
+        ProfileDeletedEvent { user }.publish(&env);
     }
 
     pub fn get_address_by_username(env: Env, username: String) -> Option<Address> {
@@ -489,6 +509,7 @@ impl LinkoraContract {
     // ── Social Graph ──────────────────────────────────────────────────────────
 
     pub fn follow(env: Env, follower: Address, followee: Address) {
+        Self::require_not_paused(&env);
         follower.require_auth();
 
         if Self::is_blocked(env.clone(), followee.clone(), follower.clone()) {
@@ -526,6 +547,7 @@ impl LinkoraContract {
     }
 
     pub fn unfollow(env: Env, follower: Address, followee: Address) {
+        Self::require_not_paused(&env);
         follower.require_auth();
 
         let following_key = StorageKey::Following(follower.clone());
@@ -597,6 +619,7 @@ impl LinkoraContract {
     // ── Block List ────────────────────────────────────────────────────────────
 
     pub fn block_user(env: Env, blocker: Address, blocked: Address) {
+        Self::require_not_paused(&env);
         blocker.require_auth();
         let key = StorageKey::Blocks(blocker.clone());
         let mut blocks: Map<Address, ()> = env
@@ -611,6 +634,7 @@ impl LinkoraContract {
     }
 
     pub fn unblock_user(env: Env, blocker: Address, blocked: Address) {
+        Self::require_not_paused(&env);
         blocker.require_auth();
         let key = StorageKey::Blocks(blocker.clone());
         let mut blocks: Map<Address, ()> = env
@@ -636,6 +660,7 @@ impl LinkoraContract {
     // ── Posts ─────────────────────────────────────────────────────────────────
 
     pub fn create_post(env: Env, author: Address, content: String) -> u64 {
+        Self::require_not_paused(&env);
         author.require_auth();
         validate_content(&content).expect("invalid content");
 
@@ -686,6 +711,7 @@ impl LinkoraContract {
     }
 
     pub fn delete_post(env: Env, author: Address, post_id: u64) {
+        Self::require_not_paused(&env);
         author.require_auth();
         let key = StorageKey::Post(post_id);
         let post: Post = env.storage().persistent().get(&key).unwrap_or_else(|| {
@@ -739,6 +765,7 @@ impl LinkoraContract {
     // ── Reactions ─────────────────────────────────────────────────────────────
 
     pub fn like_post(env: Env, user: Address, post_id: u64) {
+        Self::require_not_paused(&env);
         user.require_auth();
 
         let like_key = StorageKey::Like(post_id, user.clone());
@@ -774,6 +801,7 @@ impl LinkoraContract {
     // ── Tipping ───────────────────────────────────────────────────────────────
 
     pub fn tip(env: Env, tipper: Address, post_id: u64, token: Address, amount: i128) {
+        Self::require_not_paused(&env);
         assert!(amount > 0, "tip amount must be positive");
         tipper.require_auth();
 
@@ -850,6 +878,7 @@ impl LinkoraContract {
     ) {
         admin.require_auth();
         Self::require_admin(&env);
+        Self::require_not_paused(&env);
         let key = StorageKey::Pool(pool_id.clone());
         assert!(!env.storage().persistent().has(&key), "pool exists");
         assert!(
@@ -887,6 +916,7 @@ impl LinkoraContract {
         token: Address,
         amount: i128,
     ) {
+        Self::require_not_paused(&env);
         assert!(amount > 0, "must be positive");
         depositor.require_auth();
         let key = StorageKey::Pool(pool_id.clone());
@@ -922,6 +952,7 @@ impl LinkoraContract {
         amount: i128,
         recipient: Address,
     ) {
+        Self::require_not_paused(&env);
         assert!(amount > 0, "must be positive");
         let key = StorageKey::Pool(pool_id.clone());
         let mut pool: Pool = env
@@ -978,6 +1009,7 @@ impl LinkoraContract {
     }
 
     pub fn add_pool_admin(env: Env, signers: Vec<Address>, pool_id: Symbol, new_admin: Address) {
+        Self::require_not_paused(&env);
         let key = StorageKey::Pool(pool_id.clone());
         let mut pool: Pool = env
             .storage()
@@ -1007,6 +1039,7 @@ impl LinkoraContract {
     }
 
     pub fn remove_pool_admin(env: Env, signers: Vec<Address>, pool_id: Symbol, admin: Address) {
+        Self::require_not_paused(&env);
         let key = StorageKey::Pool(pool_id.clone());
         let mut pool: Pool = env
             .storage()
@@ -1045,6 +1078,7 @@ impl LinkoraContract {
     }
 
     pub fn update_pool_threshold(env: Env, signers: Vec<Address>, pool_id: Symbol, threshold: u32) {
+        Self::require_not_paused(&env);
         assert!(threshold > 0, "threshold must be positive");
         let key = StorageKey::Pool(pool_id.clone());
         let mut pool: Pool = env
@@ -1115,6 +1149,24 @@ impl LinkoraContract {
         env.storage().instance().get(&TREASURY)
     }
 
+    // ── Pause / Unpause ──────────────────────────────────────────────────────
+
+    pub fn pause(env: Env) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&PAUSED, &true);
+        PausedEvent {}.publish(&env);
+    }
+
+    pub fn unpause(env: Env) {
+        Self::require_admin(&env);
+        env.storage().instance().set(&PAUSED, &false);
+        UnpausedEvent {}.publish(&env);
+    }
+
+    pub fn is_paused(env: Env) -> bool {
+        env.storage().instance().get::<Symbol, bool>(&PAUSED).unwrap_or(false)
+    }
+
     pub fn set_tip_cooldown_window(env: Env, cooldown_ledgers: u32) {
         Self::require_admin(&env);
         assert!(cooldown_ledgers > 0, "cooldown must be positive");
@@ -1148,6 +1200,12 @@ impl LinkoraContract {
             .get(&ADMIN)
             .expect("not initialized");
         admin.require_auth();
+    }
+
+    fn require_not_paused(env: &Env) {
+        if env.storage().instance().get::<Symbol, bool>(&PAUSED).unwrap_or(false) {
+            panic!("contract is paused");
+        }
     }
 
     /// Extend the TTL of a persistent entry after every write and on every
