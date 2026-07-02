@@ -32,7 +32,7 @@
     "@react-native-community/netinfo": "^12.0.1",
     "@walletconnect/sign-client": "^2.23.9",
     "expo": "^49.0.23",
-    "expo-notifications": "~0.20.1",
+    "expo-notifications": "~57.0.2",
     "expo-router": "^2.0.15",
     "expo-secure-store": "^12.0.0",
     "@walletconnect/sign-client": "^2.23.9",
