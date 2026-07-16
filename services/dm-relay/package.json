@@ -33,7 +33,7 @@
     "pino": "^8.21.0",
     "pino-pretty": "^11.3.0",
     "ws": "^8.18.0",
-    "zod": "^3.22.4"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
