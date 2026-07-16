@@ -47,7 +47,7 @@
     "react": "^18.2.0",
     "react-native": "^0.72.0",
     "react-native-reanimated": "^4.4.0",
-    "react-native-webview": "^13.6.0"
+    "react-native-webview": "^14.0.1"
   },
   "optionalDependencies": {
     "@stellar/freighter-api": "^2.0.0"
