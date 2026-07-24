@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Post } from "../components/PostCard";
-import { useNetwork } from "./useNetwork";
 import { initDatabase, getCachedPosts, evictStaleCache } from "../utils/db";
 import { fetchAndCachePosts, syncPendingPosts } from "../utils/sync";
 
@@ -46,7 +45,6 @@ export interface UseFeedReturn {
 }
 
 export function useFeed(): UseFeedReturn {
-  const { contractId, rpcUrl } = useNetwork();
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +84,7 @@ export function useFeed(): UseFeedReturn {
 
         // 2. Fetch remote page and upsert to SQLite
         const offset = replace ? 0 : offsetRef.current;
-        await fetchAndCachePosts(PAGE_SIZE, offset, contractId, rpcUrl);
+        await fetchAndCachePosts(PAGE_SIZE, offset);
 
         // 3. Evict stale rows periodically on initial refresh
         if (replace) {
@@ -101,7 +99,7 @@ export function useFeed(): UseFeedReturn {
         setHasMore(cached.length >= currentLoadedCount);
 
         // 5. Fire background sync for pending posts
-        void syncPendingPosts(contractId, rpcUrl).then(() => {
+        void syncPendingPosts().then(() => {
           notifyFeedUpdate();
         });
       } catch (err) {
@@ -116,7 +114,7 @@ export function useFeed(): UseFeedReturn {
         loadingRef.current = false;
       }
     },
-    [contractId, rpcUrl, posts.length, loadFromCache]
+    [posts.length, loadFromCache]
   );
 
   // Initial load

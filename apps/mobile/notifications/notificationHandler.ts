@@ -8,6 +8,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -55,7 +57,7 @@ export function setupNotificationListeners() {
 
   // Listener for notification taps (when user interacts with a notification)
   const responseListener = Notifications.addNotificationResponseReceivedListener((response) => {
-    const data = response.notification.request.content.data as NotificationPayload;
+    const data = response.notification.request.content.data as unknown as NotificationPayload;
     console.log("Notification response (tap) received:", data);
 
     if (!data || !data.type) return;
@@ -96,7 +98,7 @@ export function setupNotificationListeners() {
   });
 
   return () => {
-    Notifications.removeNotificationSubscription(notificationListener);
-    Notifications.removeNotificationSubscription(responseListener);
+    notificationListener.remove();
+    responseListener.remove();
   };
 }

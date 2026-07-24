@@ -269,3 +269,8 @@ body {
 .btn-primary:hover {
   background: var(--accent-hover);
 }
+
+/* Mobile safe-area handling — clears the fixed BottomNav on notched devices */
+.pb-safe {
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+}

@@ -159,7 +159,7 @@ describe("rateLimitRead middleware (100 req/min per IP)", () => {
     const res = await request(app).get("/test").set(headers);
     expect(res.status).toBe(429);
     expect(res.headers["retry-after"]).toBeDefined();
-    expect(res.body.code).toBe("RATE_LIMIT_EXCEEDED");
+    expect(res.body.error.code).toBe("RATE_LIMITED");
   }, 30_000);
 
   it("burst of 110 requests: exactly 100 allowed and 10 rate-limited", async () => {
@@ -242,14 +242,14 @@ describe("requireStellarAuth middleware", () => {
     const authHeader = buildStellarAuthHeader(kp, Date.now() - 60_000);
     const res = await request(app).post("/write").set("Authorization", authHeader).send({});
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("EXPIRED_TIMESTAMP");
+    expect(res.body.error.code).toBe("EXPIRED_TIMESTAMP");
   });
 
   it("rejects a 31-second-old timestamp (tolerance is 30s) → 403", async () => {
     const authHeader = buildStellarAuthHeader(kp, Date.now() - 31_000);
     const res = await request(app).post("/write").set("Authorization", authHeader).send({});
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("EXPIRED_TIMESTAMP");
+    expect(res.body.error.code).toBe("EXPIRED_TIMESTAMP");
   });
 
   it("accepts a timestamp within the 30s window → 200", async () => {
@@ -272,7 +272,7 @@ describe("requireStellarAuth middleware", () => {
 
     const res = await request(app).post("/write").set("Authorization", authHeader).send({});
     expect(res.status).toBe(401);
-    expect(res.body.code).toBe("INVALID_SIGNATURE");
+    expect(res.body.error.code).toBe("INVALID_SIGNATURE");
   });
 
   it("rejects a garbage signature → 401 INVALID_SIGNATURE", async () => {
@@ -286,7 +286,7 @@ describe("requireStellarAuth middleware", () => {
 
     const res = await request(app).post("/write").set("Authorization", authHeader).send({});
     expect(res.status).toBe(401);
-    expect(res.body.code).toBe("INVALID_SIGNATURE");
+    expect(res.body.error.code).toBe("INVALID_SIGNATURE");
   });
 
   // ── Missing / malformed header → 400 ─────────────────────────────────────
@@ -294,14 +294,14 @@ describe("requireStellarAuth middleware", () => {
   it("returns 400 when Authorization header is missing", async () => {
     const res = await request(app).post("/write").send({});
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("INVALID_AUTH_HEADER");
-    expect(res.body.error).toBeDefined();
+    expect(res.body.error.code).toBe("INVALID_AUTH_HEADER");
+    expect(res.body.error.message).toBeDefined();
   });
 
   it("returns 400 for wrong scheme (Bearer)", async () => {
     const res = await request(app).post("/write").set("Authorization", "Bearer sometoken").send({});
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("INVALID_AUTH_HEADER");
+    expect(res.body.error.code).toBe("INVALID_AUTH_HEADER");
   });
 
   it("returns 400 for invalid base64 in StellarSig payload", async () => {
@@ -310,14 +310,14 @@ describe("requireStellarAuth middleware", () => {
       .set("Authorization", "StellarSig !!!not-base64!!!")
       .send({});
     expect(res.status).toBe(400);
-    expect(res.body.code).toBe("INVALID_AUTH_HEADER");
+    expect(res.body.error.code).toBe("INVALID_AUTH_HEADER");
   });
 
   it("returns 403 for a future timestamp (replay attack from future)", async () => {
     const authHeader = buildStellarAuthHeader(kp, Date.now() + 999_999);
     const res = await request(app).post("/write").set("Authorization", authHeader).send({});
     expect(res.status).toBe(403);
-    expect(res.body.code).toBe("INVALID_TIMESTAMP");
+    expect(res.body.error.code).toBe("INVALID_TIMESTAMP");
   });
 });
 

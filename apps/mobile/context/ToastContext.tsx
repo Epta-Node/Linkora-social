@@ -102,7 +102,7 @@ export function useToast(): ToastContextValue {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: "flex-start",
     alignItems: "stretch",
     paddingHorizontal: 16,

@@ -8,11 +8,12 @@ const mockToXDR = jest.fn();
 const mockAddOperation = jest.fn();
 const mockSetTimeout = jest.fn();
 
-jest.mock("@stellar/stellar-sdk", () => ({
-  rpc: {
-    Server: jest.fn(),
-    Api: { isSimulationError: jest.fn(), isSimulationSuccess: jest.fn() },
-  },
+jest.mock("@stellar/stellar-sdk/rpc", () => ({
+  Server: jest.fn(),
+  Api: { isSimulationError: jest.fn(), isSimulationSuccess: jest.fn() },
+}));
+
+jest.mock("@stellar/stellar-base", () => ({
   Contract: jest.fn(() => ({ call: mockCall })),
   Address: {
     fromString: jest.fn((v: string) => ({

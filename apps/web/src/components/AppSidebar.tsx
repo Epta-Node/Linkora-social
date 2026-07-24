@@ -32,16 +32,24 @@ const sidebarLinks = [
   },
 ] as const;
 
+import { useState } from "react";
+import { CreatePostModal } from "@/components/modals/CreatePostModal";
+
 export function AppSidebar() {
   const pathname = usePathname();
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
-    <aside
-      className="hidden w-56 shrink-0 lg:block"
-      aria-label="App sidebar"
-      data-tour="sidebar"
-    >
-      <div className="sticky top-24 space-y-2 rounded-2xl border border-[var(--border)] bg-[var(--muted)]/60 p-3">
+    <aside className="hidden w-56 shrink-0 lg:block" aria-label="App sidebar" data-tour="sidebar">
+      <div className="sticky top-24 space-y-3 rounded-2xl border border-[var(--border)] bg-[var(--muted)]/60 p-3">
+        <button
+          type="button"
+          onClick={() => setIsModalOpen(true)}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-500 transition-colors shadow-md"
+        >
+          Create Post
+        </button>
+
         <p className="px-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
           Discover
         </p>
@@ -80,6 +88,8 @@ export function AppSidebar() {
           })}
         </nav>
       </div>
+
+      <CreatePostModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </aside>
   );
 }

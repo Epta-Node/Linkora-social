@@ -6,7 +6,7 @@
  */
 
 import { LinkoraClient } from "../client";
-import { Keypair } from "@stellar/stellar-sdk";
+import { Keypair } from "@stellar/stellar-base";
 import {
   generateDmKeypair,
   encryptDirectMessage,

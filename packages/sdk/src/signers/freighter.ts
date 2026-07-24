@@ -72,7 +72,7 @@ export class FreighterSigner implements Signer {
 
       // If the original input was a Transaction object, convert back
       if (typeof tx !== "string") {
-        const { TransactionBuilder } = await import("@stellar/stellar-sdk");
+        const { TransactionBuilder } = await import("@stellar/stellar-base");
         // Parse the signed XDR back into a Transaction
         return TransactionBuilder.fromXDR(signedXdr, tx.networkPassphrase ?? "");
       }

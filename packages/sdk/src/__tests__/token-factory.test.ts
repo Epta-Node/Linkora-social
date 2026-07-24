@@ -19,14 +19,15 @@ const mockToXDR = jest.fn();
 const mockSimulate = jest.fn();
 const mockGetPublicKey = jest.fn(() => "GFAKEKEY111111111111111111111111");
 
-jest.mock("@stellar/stellar-sdk", () => ({
-  rpc: {
-    Server: jest.fn(() => ({ simulateTransaction: mockSimulate })),
-    Api: {
-      isSimulationError: jest.fn(() => false),
-      isSimulationSuccess: jest.fn(() => true),
-    },
+jest.mock("@stellar/stellar-sdk/rpc", () => ({
+  Server: jest.fn(() => ({ simulateTransaction: mockSimulate })),
+  Api: {
+    isSimulationError: jest.fn(() => false),
+    isSimulationSuccess: jest.fn(() => true),
   },
+}));
+
+jest.mock("@stellar/stellar-base", () => ({
   Contract: jest.fn(() => ({ call: mockCall })),
   nativeToScVal: jest.fn((val: unknown, opts?: unknown) => ({
     _type: "scval",
@@ -83,7 +84,7 @@ describe("LinkoraClient — token factory methods", () => {
       expect(result).toBe(XDR);
 
       // Contract must be instantiated with the factory ID, not the main contract ID.
-      const { Contract } = jest.requireMock("@stellar/stellar-sdk");
+      const { Contract } = jest.requireMock("@stellar/stellar-base");
       expect(Contract).toHaveBeenCalledWith(FACTORY_ID);
 
       // The call must use the correct method name and args.
@@ -186,11 +187,13 @@ describe("LinkoraClient — token factory methods", () => {
         error: undefined,
       });
 
-      const { rpc } = jest.requireMock("@stellar/stellar-sdk");
+      const rpc = jest.requireMock("@stellar/stellar-sdk/rpc") as {
+        Api: { isSimulationSuccess: jest.Mock; isSimulationError: jest.Mock };
+      };
       rpc.Api.isSimulationSuccess.mockReturnValue(true);
       rpc.Api.isSimulationError.mockReturnValue(false);
 
-      const { scValToNative } = jest.requireMock("@stellar/stellar-sdk");
+      const { scValToNative } = jest.requireMock("@stellar/stellar-base");
       scValToNative.mockReturnValue(TOKEN_ADDR);
 
       const client = makeClient();
@@ -205,7 +208,7 @@ describe("LinkoraClient — token factory methods", () => {
       expect(result).toBe(TOKEN_ADDR);
 
       // Must simulate against the factory contract.
-      const { Contract } = jest.requireMock("@stellar/stellar-sdk");
+      const { Contract } = jest.requireMock("@stellar/stellar-base");
       expect(Contract).toHaveBeenCalledWith(FACTORY_ID);
     });
 
@@ -215,7 +218,9 @@ describe("LinkoraClient — token factory methods", () => {
         error: undefined,
       });
 
-      const { rpc } = jest.requireMock("@stellar/stellar-sdk");
+      const rpc = jest.requireMock("@stellar/stellar-sdk/rpc") as {
+        Api: { isSimulationSuccess: jest.Mock; isSimulationError: jest.Mock };
+      };
       rpc.Api.isSimulationSuccess.mockReturnValue(true);
       rpc.Api.isSimulationError.mockReturnValue(false);
 

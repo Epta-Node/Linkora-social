@@ -14,18 +14,21 @@ test.describe("Post Tipping", () => {
     await expect(page.locator("main").first()).toBeVisible({ timeout: 10000 });
   });
 
-  test("tip button visible on post detail when post exists", async ({ page }) => {
+  test("tip button visible on a feed post when one exists", async ({ page }) => {
+    // Tipping happens on the feed card itself (components/PostCard.tsx) — there
+    // is no tip control on the post detail page, so we assert directly on the
+    // feed rather than navigating into a post.
     await page.goto("/feed");
     await page.waitForLoadState("networkidle");
 
     const firstPost = page.locator("article").first();
-    if (await firstPost.isVisible().catch(() => false)) {
-      await firstPost.click();
-      await page.waitForLoadState("networkidle");
-      const tipButton = page.locator('button:has-text("Tip"), button:has-text("Support")').first();
-      if (await tipButton.isVisible().catch(() => false)) {
-        await expect(tipButton).toBeVisible();
-      }
-    }
+    const hasPost = await firstPost.isVisible().catch(() => false);
+    // This environment has no seeded feed data and post creation requires a
+    // real wallet signature (not mocked here), so an empty feed is a valid
+    // state — skip explicitly instead of silently passing with no assertions.
+    test.skip(!hasPost, "No posts in feed to verify the tip button against");
+
+    const tipButton = firstPost.locator('button[aria-label="Tip creator"]');
+    await expect(tipButton).toBeVisible();
   });
 });

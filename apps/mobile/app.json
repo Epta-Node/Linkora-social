@@ -10,6 +10,7 @@
     },
     "android": {
       "package": "social.linkora.app"
-    }
+    },
+    "plugins": ["expo-router"]
   }
 }

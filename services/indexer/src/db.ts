@@ -107,6 +107,7 @@ export interface GovernanceVote {
 export interface Database {
   // Profiles
   upsertProfile(profile: Profile): Promise<void>;
+  deleteProfile(address: string): Promise<void>;
 
   // Follows
   insertFollow(follow: Follow): Promise<void>;

@@ -25,7 +25,7 @@ test.describe("Wallet Connection & Profile Registration", () => {
     expect(address).toBeTruthy();
 
     await navigateToProfile(page, MOCK_ADDRESS);
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1, h2").first()).toBeVisible({ timeout: 10000 });
     expect(page.url()).toContain(MOCK_ADDRESS);
   });

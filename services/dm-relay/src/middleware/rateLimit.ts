@@ -1,13 +1,6 @@
-/**
- * Rate limiting middleware using express-rate-limit.
- *
- * Environment variables:
- *   RATE_LIMIT_ANON_RPM  - requests per minute for anonymous IPs (default: 100)
- *   RATE_LIMIT_AUTH_RPM  - requests per minute for authenticated users (default: 300)
- */
-
 import { rateLimit } from "express-rate-limit";
 import { NextFunction, Request, Response } from "express";
+import { rateLimitedError } from "@linkora/types/src/errors";
 
 function getClientIP(req: Request): string {
   const xForwardedFor = req.headers["x-forwarded-for"];
@@ -27,10 +20,8 @@ export const anonLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   handler: (_req: Request, res: Response) => {
-    res.status(429).json({
-      error: "Rate Limit Exceeded",
-      message: `Max ${RATE_LIMIT_ANON_RPM} requests per minute per IP`,
-    });
+    const err = rateLimitedError(`Max ${RATE_LIMIT_ANON_RPM} requests per minute per IP`);
+    res.status(err.statusCode).json(err.toJSON((_req as any).requestId));
   },
 });
 
@@ -41,10 +32,10 @@ export const authLimiter = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   handler: (_req: Request, res: Response) => {
-    res.status(429).json({
-      error: "Rate Limit Exceeded",
-      message: `Max ${RATE_LIMIT_AUTH_RPM} requests per minute per authenticated user`,
-    });
+    const err = rateLimitedError(
+      `Max ${RATE_LIMIT_AUTH_RPM} requests per minute per authenticated user`
+    );
+    res.status(err.statusCode).json(err.toJSON((_req as any).requestId));
   },
 });
 

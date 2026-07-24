@@ -15,7 +15,7 @@ import SearchBar from "@/components/SearchBar";
 type Tab = "posts" | "profiles";
 type Sort = "relevance" | "recent" | "most_tipped";
 
-const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "http://localhost:3001";
+const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "";
 
 function readTab(value: string | null): Tab {
   return value === "profiles" ? "profiles" : "posts";
@@ -232,7 +232,10 @@ export function SearchPageClient() {
       </div>
 
       {error && (
-        <div className="mb-6 rounded-lg border border-red-500/50 bg-red-950/40 p-4 text-red-200" role="alert">
+        <div
+          className="mb-6 rounded-lg border border-red-500/50 bg-red-950/40 p-4 text-red-200"
+          role="alert"
+        >
           {error}
         </div>
       )}

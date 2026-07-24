@@ -1,5 +1,5 @@
 import { LinkoraClient } from "../client";
-import { Keypair, Networks } from "@stellar/stellar-sdk";
+import { Keypair, Networks } from "@stellar/stellar-base";
 
 function isNetworkError(e: unknown): boolean {
   if (typeof e !== "object" || e === null) return false;

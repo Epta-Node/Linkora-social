@@ -1,4 +1,4 @@
-import { scValToNative, xdr } from "@stellar/stellar-sdk";
+import { scValToNative, xdr } from "@stellar/stellar-base";
 
 export interface SorobanEvent {
   type?: string;

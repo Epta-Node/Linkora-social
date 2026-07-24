@@ -9,14 +9,15 @@ const mockToXDR = jest.fn();
 const mockAddOperation = jest.fn();
 const mockSetTimeout = jest.fn();
 
-jest.mock("@stellar/stellar-sdk", () => ({
-  rpc: {
-    Server: jest.fn(() => ({ simulateTransaction: mockSimulate })),
-    Api: {
-      isSimulationError: (r: unknown) => !!(r as { error?: unknown }).error,
-      isSimulationSuccess: (r: unknown) => !!(r as { result?: unknown }).result,
-    },
+jest.mock("@stellar/stellar-sdk/rpc", () => ({
+  Server: jest.fn(() => ({ simulateTransaction: mockSimulate })),
+  Api: {
+    isSimulationError: (r: unknown) => !!(r as { error?: unknown }).error,
+    isSimulationSuccess: (r: unknown) => !!(r as { result?: unknown }).result,
   },
+}));
+
+jest.mock("@stellar/stellar-base", () => ({
   Contract: jest.fn(() => ({ call: mockCall })),
   nativeToScVal: jest.fn((val: unknown, opts?: unknown) => ({
     _type: "scval",

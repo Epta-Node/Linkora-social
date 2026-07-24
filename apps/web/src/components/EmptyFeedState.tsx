@@ -18,7 +18,8 @@ export function EmptyFeedState({ variant = "explore" }: EmptyFeedStateProps) {
         <div className="text-8xl mb-6 opacity-50">👥</div>
         <h2 className="text-2xl font-bold mb-3">Your Feed is Empty</h2>
         <p className="text-[var(--text-muted)] max-w-md mb-8">
-          You're not following anyone yet. Discover and follow creators to see their posts here.
+          You&apos;re not following anyone yet. Discover and follow creators to see their posts
+          here.
         </p>
         <div className="flex flex-col sm:flex-row gap-4">
           <Link
@@ -45,7 +46,8 @@ export function EmptyFeedState({ variant = "explore" }: EmptyFeedStateProps) {
       <div className="text-8xl mb-6 opacity-50">🌟</div>
       <h2 className="text-2xl font-bold mb-3">Welcome to Linkora!</h2>
       <p className="text-[var(--text-muted)] max-w-md mb-8">
-        Get started by creating your first post, following creators, or exploring what others are sharing.
+        Get started by creating your first post, following creators, or exploring what others are
+        sharing.
       </p>
 
       {/* Quick Actions */}
@@ -56,7 +58,9 @@ export function EmptyFeedState({ variant = "explore" }: EmptyFeedStateProps) {
         >
           <div className="text-4xl mb-3">✍️</div>
           <h3 className="font-semibold mb-1">Create a Post</h3>
-          <p className="text-sm text-[var(--text-muted)]">Share your first thought with the community</p>
+          <p className="text-sm text-[var(--text-muted)]">
+            Share your first thought with the community
+          </p>
         </Link>
 
         <Link

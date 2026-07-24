@@ -206,6 +206,9 @@ export function FollowList({ address, type }: FollowListProps) {
       )}
 
       <AnimatedList
+        as="ul"
+        role="list"
+        aria-label={type === "followers" ? "Followers list" : "Following list"}
         items={visibleUsers}
         getKey={(user) => user.address}
         className="flex flex-col gap-3"

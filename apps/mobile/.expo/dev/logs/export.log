@@ -1,0 +1,14 @@
+{"_e":"root:init","_t":1784721380111,"format":"v0-jsonl","version":"57.0.9"}
+{"_e":"env:mode","_t":1784721381706,"nodeEnv":"production","babelEnv":"production","mode":"production"}
+{"_e":"env:load","_t":1784721381726,"mode":"production","files":[],"env":{}}
+{"_e":"devserver:start","_t":1784721381883,"mode":"production","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":true}
+{"_e":"metro:config","_t":1784721391393,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":true,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1784721392289,"atlas":false,"workers":3,"host":null,"port":null}
+{"_e":"metro:bundling:started","_t":1784721392850,"id":"1","platform":"ios","environment":null,"entry":"node_modules/.pnpm/expo-router@57.0.7_wberjhshfhyinfzp4kd3fuighy/node_modules/expo-router/entry.js"}
+{"_e":"root:init","_t":1784721805705,"format":"v0-jsonl","version":"57.0.9"}
+{"_e":"env:mode","_t":1784721806044,"nodeEnv":"production","babelEnv":"production","mode":"production"}
+{"_e":"env:load","_t":1784721806050,"mode":"production","files":[],"env":{}}
+{"_e":"devserver:start","_t":1784721806102,"mode":"production","web":true,"baseUrl":"","asyncRoutes":false,"routerRoot":"../../../app","serverComponents":false,"serverActions":false,"serverRendering":false,"apiRoutes":false,"exporting":true}
+{"_e":"metro:config","_t":1784721809326,"serverRoot":"../../../../..","projectRoot":"../../..","exporting":true,"flags":{"autolinkingModuleResolution":true,"serverActions":false,"serverComponents":false,"reactCompiler":false,"optimizeGraph":false,"treeshaking":false,"logbox":false}}
+{"_e":"metro:instantiate","_t":1784721809692,"atlas":false,"workers":3,"host":null,"port":null}
+{"_e":"metro:bundling:started","_t":1784721809965,"id":"1","platform":"ios","environment":null,"entry":"node_modules/.pnpm/expo-router@57.0.7_57csglmqgxanwjjglqhx3e76pu/node_modules/expo-router/entry.js"}

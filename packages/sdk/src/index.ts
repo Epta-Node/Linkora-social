@@ -7,6 +7,8 @@ export * from "./generated/events";
 export * from "./events/cursor";
 export * from "./events/subscriber";
 export * from "./health";
+export * from "./config";
+export * from "./utils/retry";
 export type {
   FollowEvent,
   LikePostEvent as LikeEvent,

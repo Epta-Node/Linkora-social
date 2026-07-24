@@ -35,6 +35,12 @@ export class PostgresDatabase implements Database {
     );
   }
 
+  async deleteProfile(address: string): Promise<void> {
+    await this.pool.query(
+      `DELETE FROM profiles WHERE address = $1`,
+      [address]
+    );
+  }
   async getProfile(address: string): Promise<Profile | null> {
     const res = await this.pool.query(
       `

@@ -1,6 +1,8 @@
 import { createUsersRouter } from "../users";
 import { Database } from "../../../db";
 
+const VALID_ADDRESS = "GABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRSTUVW";
+
 function createMockResponse() {
   const res = {
     status: jest.fn().mockReturnThis(),
@@ -10,32 +12,36 @@ function createMockResponse() {
   return res;
 }
 
+async function invokeRoute(
+  router: ReturnType<typeof createUsersRouter>,
+  path: string,
+  req: Record<string, unknown>
+) {
+  const layer = router.stack.find((item: any) => item.route?.path === path);
+  if (!layer) throw new Error(`Route ${path} not found`);
+
+  const res = createMockResponse();
+  const stack = layer.route.stack;
+
+  let i = 0;
+  const next = () => {
+    if (i < stack.length) {
+      const handler = stack[i++].handle;
+      handler(req, res, next);
+    }
+  };
+  next();
+  return res;
+}
+
 async function getBlocked(address: string, query: Record<string, unknown>, db: Database) {
   const router = createUsersRouter(db);
-  const layer = router.stack.find((item) => item.route?.path === "/:address/blocked");
-  const handler = layer?.route?.stack[0].handle;
-  if (!handler) {
-    throw new Error("blocked route handler not found");
-  }
-
-  const req = { params: { address }, query };
-  const res = createMockResponse();
-  await handler(req as never, res as never, jest.fn());
-  return res;
+  return invokeRoute(router, "/:address/blocked", { params: { address }, query });
 }
 
 async function getDmKey(address: string, db: Database) {
   const router = createUsersRouter(db);
-  const layer = router.stack.find((item) => item.route?.path === "/:address/dm-key");
-  const handler = layer?.route?.stack[0].handle;
-  if (!handler) {
-    throw new Error("dm-key route handler not found");
-  }
-
-  const req = { params: { address } };
-  const res = createMockResponse();
-  await handler(req as never, res as never, jest.fn());
-  return res;
+  return invokeRoute(router, "/:address/dm-key", { params: { address } });
 }
 
 describe("users API", () => {
@@ -53,11 +59,11 @@ describe("users API", () => {
 
   describe("GET /users/:address/blocked", () => {
     it("returns blocked users with default limit and offset", async () => {
-      const res = await getBlocked("GUSER123", {}, db);
+      const res = await getBlocked(VALID_ADDRESS, {}, db);
 
-      expect(db.getBlockedUsers).toHaveBeenCalledWith("GUSER123", 20, 0);
+      expect(db.getBlockedUsers).toHaveBeenCalledWith(VALID_ADDRESS, 20, 0);
       expect(res.json).toHaveBeenCalledWith({
-        address: "GUSER123",
+        address: VALID_ADDRESS,
         blocked: ["GBLOCKED1", "GBLOCKED2"],
         total: 2,
         limit: 20,
@@ -67,9 +73,9 @@ describe("users API", () => {
     });
 
     it("returns blocked users with custom limit and offset", async () => {
-      const res = await getBlocked("GUSER123", { limit: "5", offset: "10" }, db);
+      const res = await getBlocked(VALID_ADDRESS, { limit: "5", offset: "10" }, db);
 
-      expect(db.getBlockedUsers).toHaveBeenCalledWith("GUSER123", 5, 10);
+      expect(db.getBlockedUsers).toHaveBeenCalledWith(VALID_ADDRESS, 5, 10);
       expect(res.json).toHaveBeenCalledWith(
         expect.objectContaining({
           limit: 5,
@@ -79,10 +85,10 @@ describe("users API", () => {
     });
 
     it("rejects invalid limit or offset", async () => {
-      const res1 = await getBlocked("GUSER123", { limit: "-1" }, db);
+      const res1 = await getBlocked(VALID_ADDRESS, { limit: "-1" }, db);
       expect(res1.status).toHaveBeenCalledWith(400);
 
-      const res2 = await getBlocked("GUSER123", { offset: "abc" }, db);
+      const res2 = await getBlocked(VALID_ADDRESS, { offset: "abc" }, db);
       expect(res2.status).toHaveBeenCalledWith(400);
     });
 
@@ -94,23 +100,25 @@ describe("users API", () => {
 
   describe("GET /users/:address/dm-key", () => {
     it("returns DM key if found", async () => {
-      const res = await getDmKey("GUSER123", db);
+      const res = await getDmKey(VALID_ADDRESS, db);
 
-      expect(db.getDmKey).toHaveBeenCalledWith("GUSER123");
+      expect(db.getDmKey).toHaveBeenCalledWith(VALID_ADDRESS);
       expect(res.json).toHaveBeenCalledWith({
-        address: "GUSER123",
+        address: VALID_ADDRESS,
         x25519_pubkey: "x25519keyhexvalue",
       });
     });
 
     it("returns 404 if not found", async () => {
       db.getDmKey.mockResolvedValueOnce(null);
-      const res = await getDmKey("GUSER123", db);
+      const res = await getDmKey(VALID_ADDRESS, db);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({
-        error: "DM key not found",
-        code: "NOT_FOUND",
+        error: {
+          code: "NOT_FOUND",
+          message: "DM key not found",
+        },
       });
     });
 

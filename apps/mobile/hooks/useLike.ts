@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { LinkoraClient } from "linkora-sdk";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
-import { useNetwork } from "./useNetwork";
 import { useSubmitTx } from "./useSubmitTx";
 
 export interface UseLikeOptions {
@@ -27,10 +25,7 @@ export function useLike({
 }: UseLikeOptions): UseLikeResult {
   const { address, connected } = useWallet();
   const { showError } = useToast();
-  const { contractId, rpcUrl } = useNetwork();
   const submitTx = useSubmitTx();
-
-  const client = useMemo(() => new LinkoraClient({ contractId, rpcUrl }), [contractId, rpcUrl]);
 
   const [liked, setLiked] = useState(initialHasLiked);
   const [likeCount, setLikeCount] = useState(initialLikeCount);
@@ -69,8 +64,7 @@ export function useLike({
 
     try {
       const convertedPostId = typeof postId === "number" ? postId : BigInt(postId);
-      const txXdr = client.likePost(address, convertedPostId);
-      await submitTx(txXdr);
+      await submitTx(`like_post:${address}:${convertedPostId}`);
       return true;
     } catch (err) {
       setLiked(false);
@@ -81,7 +75,7 @@ export function useLike({
     } finally {
       setPending(false);
     }
-  }, [address, connected, liked, pending, postId, showError, client, submitTx]);
+  }, [address, connected, liked, pending, postId, showError, submitTx]);
 
   return { liked, likeCount, pending, error, like };
 }

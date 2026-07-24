@@ -10,16 +10,17 @@ CREATE TABLE IF NOT EXISTS reports (
     moderator_address TEXT,
     moderator_notes TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
-    -- Indexes
-    INDEX idx_reports_post_id (post_id),
-    INDEX idx_reports_reporter (reporter_address),
-    INDEX idx_reports_status (status),
-    INDEX idx_reports_created_at (created_at DESC)
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
--- Trigger to auto-update updated_at timestamp
+-- Indexes (declared separately; PostgreSQL has no inline INDEX in CREATE TABLE).
+CREATE INDEX IF NOT EXISTS idx_reports_post_id ON reports (post_id);
+CREATE INDEX IF NOT EXISTS idx_reports_reporter ON reports (reporter_address);
+CREATE INDEX IF NOT EXISTS idx_reports_status ON reports (status);
+CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports (created_at DESC);
+
+-- Trigger to auto-update updated_at timestamp. CREATE OR REPLACE keeps the
+-- migration idempotent when re-applied.
 CREATE OR REPLACE FUNCTION update_reports_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -28,7 +29,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER reports_updated_at_trigger
+CREATE OR REPLACE TRIGGER reports_updated_at_trigger
     BEFORE UPDATE ON reports
     FOR EACH ROW
     EXECUTE FUNCTION update_reports_updated_at();

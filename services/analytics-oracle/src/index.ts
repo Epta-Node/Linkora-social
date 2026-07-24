@@ -1,17 +1,4 @@
-/**
- * Linkora Analytics Oracle
- *
- * Runs on a ledger-window schedule:
- *   1. Queries the indexer PostgreSQL DB for per-creator activity in the window.
- *   2. Encodes each creator's analytics as a CBOR report.
- *   3. Signs the SHA-256 of the CBOR with the oracle Ed25519 key.
- *   4. Submits `verify_analytics_attestation` to the Soroban contract.
- *   5. Caches the latest signed attestation per creator.
- *
- * Exposes GET /attestations/:creator returning the latest signed report + signature.
- */
-
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import { Pool } from "pg";
 import { Keypair } from "@stellar/stellar-sdk";
 import * as ed from "@noble/ed25519";
@@ -24,11 +11,11 @@ import { AnalyticsReport, SignedAttestation } from "./types.js";
 import { logger } from "./logger.js";
 import { rateLimiter } from "./middleware/rate-limiter.js";
 import { createHealthRouter } from "./routes/health.js";
+import { validateParams } from "./middleware/validate.js";
+import { z } from "zod";
+import { notFoundError } from "@linkora/types/src/errors";
 
-// Wire sha512 for @noble/ed25519 synchronous API
 ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
-
-// ── Config ────────────────────────────────────────────────────────────────────
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -45,20 +32,27 @@ const WINDOW_LEDGERS = BigInt(process.env["WINDOW_LEDGERS"] ?? "1000");
 const PORT = parseInt(process.env["PORT"] ?? "4000", 10);
 const NETWORK_PASSPHRASE = process.env["NETWORK_PASSPHRASE"] ?? "Test SDF Network ; September 2015";
 
-// ── Init ──────────────────────────────────────────────────────────────────────
-
 const oraclePrivateKey = Buffer.from(ORACLE_PRIVATE_KEY_HEX, "hex");
-// Stellar keypair derived from the same 32-byte seed for fee payment.
 const oracleKeypair = Keypair.fromRawEd25519Seed(oraclePrivateKey);
 
 const db = new Pool({ connectionString: DATABASE_URL });
 
-// In-memory cache: creator address -> latest attestation
 const attestationCache = new Map<string, SignedAttestation>();
 
-// ── Analytics loop ────────────────────────────────────────────────────────────
-
 let lastWindowEnd = BigInt(0);
+
+function generateRequestId(): string {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      requestId: string;
+    }
+  }
+}
 
 async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> {
   logger.info(
@@ -76,7 +70,6 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
   }
 
   for (const s of stats) {
-    // Decode the creator's Stellar address to its raw 32-byte public key.
     let creatorBytes: Uint8Array;
     try {
       creatorBytes = Keypair.fromPublicKey(s.creatorAddress).rawPublicKey();
@@ -99,7 +92,6 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
     const reportCbor = encodeReport(report);
     const { signature, reportHash } = signReport(reportCbor, oraclePrivateKey);
 
-    // Submit on-chain.
     let txHash: string;
     try {
       txHash = await submitAttestation(
@@ -120,7 +112,6 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
       continue;
     }
 
-    // Cache for API.
     attestationCache.set(s.creatorAddress, {
       oracleName: ORACLE_NAME,
       reportCbor,
@@ -146,8 +137,6 @@ async function scheduleLoop(currentLedger: bigint): Promise<void> {
   await runWindow(windowStart, windowEnd);
 }
 
-// ── REST API ──────────────────────────────────────────────────────────────────
-
 const app = express();
 const startTime = Date.now();
 
@@ -160,8 +149,17 @@ function markStarted(): void {
   startedAt = new Date().toISOString();
 }
 
+function requestIdMiddleware(req: Request, _res: Response, next: NextFunction): void {
+  const existing = req.headers["x-request-id"];
+  const id = (typeof existing === "string" ? existing : null) ?? generateRequestId();
+  req.requestId = id;
+  next();
+}
+
 // ── Health endpoints ──────────────────────────────────────────────────────────
 // Liveness / readiness / startup probes — see routes/health.ts for details.
+
+app.use(requestIdMiddleware);
 
 app.use(
   createHealthRouter({
@@ -177,14 +175,17 @@ app.use(
 // services/analytics-oracle/src/middleware/rate-limiter.ts and config.ts.
 app.use(rateLimiter);
 
-/**
- * GET /attestations/:creator
- * Returns the latest signed attestation for a creator address.
- */
-app.get("/attestations/:creator", (req, res) => {
-  const att = attestationCache.get(req.params["creator"] ?? "");
+const creatorParamsSchema = z.object({
+  creator: z.string().regex(/^G[A-Z2-7]{55}$/, "Invalid Stellar address format"),
+});
+
+app.get("/attestations/:creator", validateParams(creatorParamsSchema), (req, res) => {
+  const { creator } = req.params;
+  const att = attestationCache.get(creator);
   if (!att) {
-    res.status(404).json({ error: "no attestation found for this creator" });
+    const err = notFoundError("no attestation found for this creator");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    res.status(err.statusCode).json(err.toJSON((req as any).requestId));
     return;
   }
 
@@ -210,6 +211,23 @@ app.get("/attestations/:creator", (req, res) => {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+app.use((err: Error, req: any, res: Response, _next: NextFunction): void => {
+  logger.error({ requestId: req.requestId, err }, "Unhandled error");
+
+  const statusCode = typeof err.statusCode === "number" ? err.statusCode : 500;
+  const code = err.code || "INTERNAL_ERROR";
+  const message = process.env.NODE_ENV === "development" ? err.message : "Internal server error";
+
+  res.status(statusCode).json({
+    error: {
+      code,
+      message,
+      requestId: req.requestId,
+    },
+  });
+});
+
 async function main(): Promise<void> {
   const pubkeyHex = Buffer.from(ed.getPublicKey(oraclePrivateKey)).toString("hex");
   logger.info(
@@ -227,8 +245,6 @@ async function main(): Promise<void> {
     markStarted();
   });
 
-  // Poll every WINDOW_LEDGERS * 5s for simplicity. In production, subscribe
-  // to the indexer's event bus WebSocket for exact ledger-close events.
   const pollMs = Number(WINDOW_LEDGERS) * 5_000;
   logger.info({ pollIntervalMs: pollMs }, "Oracle polling interval set");
 
@@ -244,7 +260,6 @@ async function main(): Promise<void> {
     }
   };
 
-  // Run once immediately, then on interval.
   await tick();
   setInterval(tick, pollMs);
 }

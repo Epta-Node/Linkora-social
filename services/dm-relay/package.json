@@ -34,6 +34,7 @@
     "pino": "^8.21.0",
     "pino-pretty": "^11.3.0",
     "ws": "^8.18.0",
+    "@linkora/types": "workspace:*",
     "zod": "^3.22.4"
   },
   "devDependencies": {

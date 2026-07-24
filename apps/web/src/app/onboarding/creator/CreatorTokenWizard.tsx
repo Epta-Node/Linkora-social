@@ -67,15 +67,14 @@ export function CreatorTokenWizard() {
 
   // Guard: if the user already has a creator token, redirect to their profile.
   useEffect(() => {
-    const storedCreatorToken = address
-      ? localStorage.getItem(`linkora:creator_token:${address}`)
-      : null;
+    if (typeof window === "undefined" || !address) return;
+    const storedCreatorToken = localStorage.getItem(`linkora:creator_token:${address}`);
     if (storedCreatorToken && storedCreatorToken !== address) {
       router.replace(`/profile/${address}`);
       return;
     }
 
-    if (profileState.status === "loading" || !address) return;
+    if (profileState.status === "loading") return;
     if (
       profileState.status === "success" &&
       profileState.data.profile.creator_token &&

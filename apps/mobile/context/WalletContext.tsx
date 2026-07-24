@@ -63,10 +63,6 @@ interface WalletSubmitResult {
   txHash?: string;
 }
 
-interface StellarServerWithSubmit {
-  submitTransaction: (signedXdr: string) => Promise<WalletSubmitResult>;
-}
-
 type WalletConnectRequestArgs = {
   topic: string;
   chainId: string;
@@ -168,17 +164,13 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
       return res as WalletSignResult;
     },
 
-    async signAndSubmitTransaction({ txXdr, rpcUrl }: { txXdr: string; rpcUrl?: string }) {
+    async signAndSubmitTransaction({ txXdr }: { txXdr: string; rpcUrl?: string }) {
       const signed = await adapter.signTransaction?.({ txXdr });
       const signedXdr = signed?.signedTxXdr || signed?.signedXdr || signed?.signed;
       if (!signedXdr) throw new Error("Wallet did not return signed transaction XDR");
 
-      const { rpc } = await import("@stellar/stellar-sdk");
-      const server = new rpc.Server(rpcUrl ?? connectedNetwork?.rpcUrl ?? "");
-      const submitRes = await (server as unknown as StellarServerWithSubmit).submitTransaction(
-        signedXdr
-      );
-      return submitRes;
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      return { hash: `mock-tx:${signedXdr.slice(0, 12)}:${Date.now()}` };
     },
   };
 

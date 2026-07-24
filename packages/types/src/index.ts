@@ -1,3 +1,30 @@
+export {
+  stellarAddressSchema,
+  cursorPaginationSchema,
+  offsetPaginationSchema,
+  numericIdStringSchema,
+  base64Schema,
+  hex64BytesSchema,
+  conversationIdSchema,
+} from "./schemas";
+
+export {
+  AppError,
+  ErrorCodes,
+  ErrorStatusMap,
+  validationError,
+  notFoundError,
+  unauthorizedError,
+  forbiddenError,
+  conflictError,
+  rateLimitedError,
+  internalError,
+  serviceUnavailableError,
+  isAppError,
+} from "./errors";
+
+export type { ErrorCode, ErrorResponseBody, ErrorResponse } from "./errors";
+
 export type {
   Profile,
   Post,

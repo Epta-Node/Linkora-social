@@ -1,14 +1,11 @@
 import { Request, Response, NextFunction } from "express";
 import { logger } from "../logger";
-
-// ── Configuration ─────────────────────────────────────────────────────────────
+import { rateLimitedError } from "@linkora/types/src/errors";
 
 const RATE_LIMIT_ANON_RPM = parseInt(process.env.RATE_LIMIT_ANON_RPM || "100", 10);
 const RATE_LIMIT_AUTH_RPM = parseInt(process.env.RATE_LIMIT_AUTH_RPM || "300", 10);
 const RATE_LIMIT_WRITE_RPM = parseInt(process.env.RATE_LIMIT_WRITE_RPM || "50", 10);
-const WINDOW_MS = 60_000; // 1 minute
-
-// ── In-memory sliding window implementation ────────────────────────────────────
+const WINDOW_MS = 60_000;
 
 interface RateWindow {
   requests: number[];
@@ -63,8 +60,6 @@ class RateLimiter {
 
 const limiter = new RateLimiter();
 
-// ── Helper: extract IP address ─────────────────────────────────────────────────
-
 function getClientIP(req: Request): string {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string") {
@@ -73,13 +68,9 @@ function getClientIP(req: Request): string {
   return req.ip || "unknown";
 }
 
-// ── Helper: determine if endpoint is write ────────────────────────────────────
-
 function isWriteEndpoint(path: string, method: string): boolean {
   return ["POST", "PUT", "DELETE", "PATCH"].includes(method);
 }
-
-// ── Rate limit middleware for read endpoints ──────────────────────────────────
 
 export function rateLimitRead(req: Request, res: Response, next: NextFunction): void {
   const ip = getClientIP(req);
@@ -103,14 +94,17 @@ export function rateLimitRead(req: Request, res: Response, next: NextFunction): 
     "Rate limit exceeded for read endpoint"
   );
 
-  res.status(429).set("Retry-After", String(retryAfterSeconds)).json({
-    error: "Too many requests. Please retry after the indicated delay.",
-    code: "RATE_LIMIT_EXCEEDED",
-    retryAfterSeconds,
-  });
+  const err = rateLimitedError("Too many requests. Please retry after the indicated delay.");
+  res
+    .status(err.statusCode)
+    .set("Retry-After", String(retryAfterSeconds))
+    .json({
+      error: {
+        ...err.toJSON(req.context?.requestId).error,
+        retryAfterSeconds,
+      },
+    });
 }
-
-// ── Rate limit middleware for write endpoints ──────────────────────────────────
 
 export function rateLimitWrite(req: Request, res: Response, next: NextFunction): void {
   const key = req.context?.stellarAddress || getClientIP(req);
@@ -134,14 +128,17 @@ export function rateLimitWrite(req: Request, res: Response, next: NextFunction):
     "Rate limit exceeded for write endpoint"
   );
 
-  res.status(429).set("Retry-After", String(retryAfterSeconds)).json({
-    error: "Too many requests. Please retry after the indicated delay.",
-    code: "RATE_LIMIT_EXCEEDED",
-    retryAfterSeconds,
-  });
+  const err = rateLimitedError("Too many requests. Please retry after the indicated delay.");
+  res
+    .status(err.statusCode)
+    .set("Retry-After", String(retryAfterSeconds))
+    .json({
+      error: {
+        ...err.toJSON(req.context?.requestId).error,
+        retryAfterSeconds,
+      },
+    });
 }
-
-// ── Unified rate limit middleware (auto-detects read vs write) ────────────────
 
 export function rateLimit(req: Request, res: Response, next: NextFunction): void {
   if (isWriteEndpoint(req.path, req.method)) {
@@ -151,14 +148,10 @@ export function rateLimit(req: Request, res: Response, next: NextFunction): void
   }
 }
 
-// ── Reset limiter state (for tests) ──────────────────────────────────────────
-
 export function resetRateLimiter(): void {
   const l = limiter as unknown as { windows: Map<string, RateWindow> };
   l.windows.clear();
 }
-
-// ── Export the limiter for testing ─────────────────────────────────────────────
 
 export { RateLimiter };
 export const getRateLimiterInstance = () => limiter;

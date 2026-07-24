@@ -1,4 +1,5 @@
 import { Tabs, useRouter } from "expo-router";
+import { Home, Compass, Droplets, LayoutGrid, User } from "lucide-react-native";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { useNetwork } from "../../hooks/useNetwork";
@@ -92,11 +93,46 @@ export default function TabsLayout() {
         },
       }}
     >
-      <Tabs.Screen name="feed" options={{ title: "Feed", tabBarLabel: "Feed" }} />
-      <Tabs.Screen name="explore" options={{ title: "Explore", tabBarLabel: "Explore" }} />
-      <Tabs.Screen name="pools" options={{ title: "Pools", tabBarLabel: "Pools" }} />
-      <Tabs.Screen name="mini-apps" options={{ title: "Mini Apps", tabBarLabel: "Mini Apps" }} />
-      <Tabs.Screen name="profile" options={{ title: "Profile", tabBarLabel: "Profile" }} />
+      <Tabs.Screen
+        name="feed"
+        options={{
+          title: "Feed",
+          tabBarLabel: "Feed",
+          tabBarIcon: ({ color, size }) => <Home color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: "Explore",
+          tabBarLabel: "Explore",
+          tabBarIcon: ({ color, size }) => <Compass color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="pools"
+        options={{
+          title: "Pools",
+          tabBarLabel: "Pools",
+          tabBarIcon: ({ color, size }) => <Droplets color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="mini-apps"
+        options={{
+          title: "Mini Apps",
+          tabBarLabel: "Mini Apps",
+          tabBarIcon: ({ color, size }) => <LayoutGrid color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarLabel: "Profile",
+          tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
+        }}
+      />
     </Tabs>
   );
 }

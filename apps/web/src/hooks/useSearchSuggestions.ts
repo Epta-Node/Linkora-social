@@ -13,7 +13,7 @@ interface UseSearchSuggestionsOptions {
   maxSuggestions?: number;
 }
 
-const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "http://localhost:3001";
+const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "";
 
 export function useSearchSuggestions({
   debounceMs = 300,
@@ -40,14 +40,15 @@ export function useSearchSuggestions({
         abortControllerRef.current.abort();
       }
 
-      abortControllerRef.current = new AbortController();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       setLoading(true);
 
       try {
         // Fetch profiles
         const profilesResponse = await fetch(
           `${INDEXER_API_URL}/api/profiles/search?q=${encodeURIComponent(trimmed)}&limit=${maxSuggestions}`,
-          { signal: abortControllerRef.current.signal }
+          { signal: controller.signal }
         );
 
         if (!profilesResponse.ok) {
@@ -77,14 +78,20 @@ export function useSearchSuggestions({
           });
         }
 
-        setSuggestions(newSuggestions);
+        if (abortControllerRef.current === controller) {
+          setSuggestions(newSuggestions);
+        }
       } catch (error: unknown) {
         if (error instanceof Error && error.name !== "AbortError") {
           console.error("Failed to fetch suggestions:", error);
-          setSuggestions([]);
+          if (abortControllerRef.current === controller) {
+            setSuggestions([]);
+          }
         }
       } finally {
-        setLoading(false);
+        if (abortControllerRef.current === controller) {
+          setLoading(false);
+        }
       }
     },
     [minQueryLength, maxSuggestions]
@@ -96,16 +103,20 @@ export function useSearchSuggestions({
         clearTimeout(debounceTimerRef.current);
       }
 
-      if (!query.trim()) {
+      const trimmed = query.trim();
+      if (!trimmed || trimmed.length < minQueryLength) {
         setSuggestions([]);
+        setLoading(false);
         return;
       }
+
+      setLoading(true);
 
       debounceTimerRef.current = setTimeout(() => {
         fetchSuggestions(query);
       }, debounceMs);
     },
-    [debounceMs, fetchSuggestions]
+    [debounceMs, fetchSuggestions, minQueryLength]
   );
 
   const clearSuggestions = useCallback(() => {

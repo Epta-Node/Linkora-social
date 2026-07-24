@@ -14,6 +14,14 @@ import { ServiceWorkerRegistration } from "@/components/ServiceWorkerRegistratio
 export const metadata: Metadata = {
   title: "Linkora",
   description: "Decentralised social on Stellar",
+  icons: {
+    icon: [
+      { url: "/logo/logo-icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", type: "image/x-icon" },
+    ],
+    shortcut: "/logo/logo-icon.svg",
+    apple: "/logo/logo-icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -33,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <GuidedTourProvider>
               <NotificationsProvider>
                 <NavBar />
-                <main id="main-content" tabIndex={-1} className="pb-16 md:pb-0">
+                <main id="main-content" tabIndex={-1} className="pb-safe md:pb-0">
                   {children}
                 </main>
                 <GuidedTour />

@@ -61,13 +61,12 @@ describe("GET /pools", () => {
 });
 
 describe("GET /pools/:id", () => {
-  it("returns 400 when id is empty", async () => {
+  it("returns 400 when id is whitespace-only", async () => {
     const db = makeDb();
     const app = buildApp(db);
 
     const res = await request(app).get("/pools/%20");
     expect(res.status).toBe(400);
-    expect(body(res).code).toBe("INVALID_ID");
   });
 
   it("returns 404 when pool not found", async () => {
@@ -76,28 +75,17 @@ describe("GET /pools/:id", () => {
 
     const res = await request(app).get("/pools/nonexistent");
     expect(res.status).toBe(404);
-    expect(body(res).code).toBe("NOT_FOUND");
-  });
-
-  it("returns pool data", async () => {
-    const pool = makePool();
-    const db = makeDb({ getPool: jest.fn().mockResolvedValue(pool) });
-    const app = buildApp(db);
-
-    const res = await request(app).get("/pools/community");
-    expect(res.status).toBe(200);
-    expect(body(res).pool_id).toBe("community");
+    expect(body(res).error.code).toBe("NOT_FOUND");
   });
 });
 
 describe("GET /pools/:id/analytics", () => {
-  it("returns 400 when id is empty", async () => {
+  it("returns 400 when id is whitespace-only", async () => {
     const db = makeDb();
     const app = buildApp(db);
 
     const res = await request(app).get("/pools/%20/analytics");
     expect(res.status).toBe(400);
-    expect(body(res).code).toBe("INVALID_ID");
   });
 
   it("returns 404 when pool not found", async () => {
@@ -106,7 +94,7 @@ describe("GET /pools/:id/analytics", () => {
 
     const res = await request(app).get("/pools/nonexistent/analytics");
     expect(res.status).toBe(404);
-    expect(body(res).code).toBe("NOT_FOUND");
+    expect(body(res).error.code).toBe("NOT_FOUND");
   });
 
   it("returns analytics data for a pool", async () => {

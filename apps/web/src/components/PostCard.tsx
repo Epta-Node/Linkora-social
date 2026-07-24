@@ -11,6 +11,7 @@ export interface Post {
   like_count?: string | number;
   timestamp?: string | number;
   created_at?: string;
+  imageUrl?: string;
 }
 
 interface PostCardProps {
@@ -74,11 +75,19 @@ function formatDate(post: Post): string {
   return date ? date.toLocaleDateString() : "Unknown date";
 }
 
-function formatAuthor(author: string): string {
+export function formatAuthor(author: string): string {
   return author.length > 16 ? `${author.slice(0, 6)}...${author.slice(-4)}` : author;
 }
 
-export function PostCard({ post, query, onLike, onTip, isLiked, isTipping, tourAnchor }: PostCardProps) {
+export function PostCard({
+  post,
+  query,
+  onLike,
+  onTip,
+  isLiked,
+  isTipping,
+  tourAnchor,
+}: PostCardProps) {
   const likeCount = getPostLikeCount(post);
   const [animateLikeCount, setAnimateLikeCount] = useState(false);
   const [previousLikeCount, setPreviousLikeCount] = useState(likeCount);

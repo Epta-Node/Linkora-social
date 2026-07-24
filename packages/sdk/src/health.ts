@@ -1,7 +1,38 @@
-import { rpc } from "@stellar/stellar-sdk";
+import * as rpc from "@stellar/stellar-sdk/rpc";
+import type { RetryAttemptInfo, RetryReason } from "./utils/retry";
 
 export type ConnectionStatus = "connected" | "disconnected";
 export type ConnectionStatusCallback = (status: ConnectionStatus) => void;
+
+/**
+ * Aggregate retry telemetry recorded from a {@link TransactionQueue}'s retry loop.
+ */
+export interface RetryMetrics {
+  /** Total retry attempts observed (excludes the initial try and terminal outcomes). */
+  totalRetries: number;
+  /** Retries triggered by a rate-limit (`Retry-After` / 429) response. */
+  rateLimitedRetries: number;
+  /** Number of times the circuit breaker has opened. */
+  circuitOpenEvents: number;
+  /** Number of submissions that exhausted all attempts. */
+  exhaustedEvents: number;
+  /** Reason for the most recent retry decision, if any. */
+  lastReason?: RetryReason;
+  /** Delay in ms scheduled for the most recent retry, if any. */
+  lastDelayMs?: number;
+  /** False once the circuit breaker has opened; restored by {@link ConnectionHealthMonitor.resetRetryMetrics}. */
+  healthy: boolean;
+}
+
+function emptyRetryMetrics(): RetryMetrics {
+  return {
+    totalRetries: 0,
+    rateLimitedRetries: 0,
+    circuitOpenEvents: 0,
+    exhaustedEvents: 0,
+    healthy: true,
+  };
+}
 
 export interface HealthCheckConfig {
   /** Interval in ms between health checks. Default: 30000 */
@@ -26,6 +57,7 @@ export class ConnectionHealthMonitor {
   private listeners: ConnectionStatusCallback[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private retryMetrics: RetryMetrics = emptyRetryMetrics();
 
   constructor(rpcUrl: string, config: HealthCheckConfig = {}) {
     this.rpcUrl = rpcUrl;
@@ -85,6 +117,52 @@ export class ConnectionHealthMonitor {
     if (!this.stopped) {
       this.scheduleCheck(ok ? this.intervalMs : this.nextBackoff());
     }
+  }
+
+  /**
+   * Record a retry decision emitted by a transaction queue's retry loop.
+   *
+   * Wire this as the queue's `logger` (or call it from one) to surface retry
+   * telemetry and circuit-breaker health through the monitor.
+   */
+  recordRetry(info: RetryAttemptInfo): void {
+    this.retryMetrics.lastReason = info.reason;
+    this.retryMetrics.lastDelayMs = info.delayMs;
+
+    switch (info.reason) {
+      case "rate-limited":
+        this.retryMetrics.rateLimitedRetries += 1;
+        this.retryMetrics.totalRetries += 1;
+        break;
+      case "error":
+        this.retryMetrics.totalRetries += 1;
+        break;
+      case "circuit-open":
+        this.retryMetrics.circuitOpenEvents += 1;
+        this.retryMetrics.healthy = false;
+        break;
+      case "exhausted":
+        this.retryMetrics.exhaustedEvents += 1;
+        break;
+    }
+  }
+
+  /** Snapshot of the retry telemetry gathered so far. */
+  getRetryMetrics(): RetryMetrics {
+    return { ...this.retryMetrics };
+  }
+
+  /** Clear retry telemetry and restore retry health to healthy. */
+  resetRetryMetrics(): void {
+    this.retryMetrics = emptyRetryMetrics();
+  }
+
+  /**
+   * Overall health: connected to the RPC and the retry circuit breaker has not
+   * tripped since the last reset.
+   */
+  isHealthy(): boolean {
+    return this.status === "connected" && this.retryMetrics.healthy;
   }
 
   private _currentBackoff = 0;

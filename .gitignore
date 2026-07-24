@@ -26,3 +26,9 @@ package-lock.json
 
 # Auto-generated PR descriptions
 .github/PR_BODY_*.md
+
+apps/mobile/android/
+apps/mobile/ios/
+
+app/apps/mobile/components/__snapshots__/
+app/apps/mobile/components/__tests__/

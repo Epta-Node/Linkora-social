@@ -1,7 +1,15 @@
 // Jest setup for React Native testing
 import "react-native-gesture-handler/jestSetup";
 
-// Mock react-native-reanimated (version mismatch with react-native@0.72)
+// react-native-reanimated v4's own mock.js pulls in react-native-worklets' real
+// native-module bootstrap, which throws outside a device/simulator. Stub both
+// packages with plain JS so no native binding is ever touched in tests.
+jest.mock("react-native-worklets", () => ({
+  __esModule: true,
+  runOnJS: (fn: unknown) => fn,
+  runOnUI: (fn: unknown) => fn,
+}));
+
 jest.mock("react-native-reanimated", () => {
   const RN = jest.requireActual("react-native");
   return {
@@ -27,6 +35,55 @@ jest.mock("react-native-reanimated", () => {
     createAnimatedComponent: (c: unknown) => c,
   };
 });
+
+// Mock react-native-svg — prevents TurboModuleRegistry.getEnforcing crash in Jest.
+// lucide-react-native renders via react-native-svg; stubbing it here covers both.
+jest.mock("react-native-svg", () => {
+  const stub = () => null;
+  return {
+    __esModule: true,
+    default: stub,
+    Svg: stub,
+    Circle: stub,
+    Ellipse: stub,
+    G: stub,
+    Text: stub,
+    TSpan: stub,
+    TextPath: stub,
+    Path: stub,
+    Polygon: stub,
+    Polyline: stub,
+    Line: stub,
+    Rect: stub,
+    Use: stub,
+    Image: stub,
+    Symbol: stub,
+    Defs: stub,
+    LinearGradient: stub,
+    RadialGradient: stub,
+    Stop: stub,
+    ClipPath: stub,
+    Pattern: stub,
+    Mask: stub,
+    ForeignObject: stub,
+  };
+});
+
+// Mock lucide-react-native — each named icon export becomes a no-op component.
+// Using a Proxy avoids listing every icon individually.
+jest.mock(
+  "lucide-react-native",
+  () =>
+    new Proxy(
+      { __esModule: true },
+      {
+        get: (_target: Record<string, unknown>, name: string) => {
+          if (name === "__esModule") return true;
+          return () => null;
+        },
+      }
+    )
+);
 
 // Global test timeout
 jest.setTimeout(10000);

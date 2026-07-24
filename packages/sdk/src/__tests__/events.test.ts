@@ -10,11 +10,11 @@
  */
 
 // ---------------------------------------------------------------------------
-// Mock @stellar/stellar-sdk
+// Mock @stellar/stellar-base
 // Our test fixtures encode values as { __native: <value> } serialised to base64.
 // The mock scValToNative simply unwraps that envelope, and fromXDR deserialises it.
 // ---------------------------------------------------------------------------
-jest.mock("@stellar/stellar-sdk", () => ({
+jest.mock("@stellar/stellar-base", () => ({
   scValToNative: (scv: unknown) => {
     if (scv && typeof scv === "object" && "__native" in (scv as object)) {
       return (scv as { __native: unknown }).__native;

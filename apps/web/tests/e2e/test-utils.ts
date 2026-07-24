@@ -4,6 +4,7 @@ const MOCK_ADDRESS = "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
 
 export async function injectWalletMock(page: Page): Promise<void> {
   await page.addInitScript((address) => {
+    window.localStorage.setItem("linkora_guided_tour_dismissed", "true");
     (window as Window & { freighterApi?: unknown; freighter?: unknown }).freighterApi = {
       getPublicKey: () => Promise.resolve({ publicKey: address }),
       isConnected: () => Promise.resolve(true),
@@ -30,6 +31,12 @@ export async function waitForWalletConnection(page: Page, timeout = 15000): Prom
 
 export async function connectWallet(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle");
+
+  const skipTourButton = page.locator('button:has-text("Skip tour")').first();
+  if (await skipTourButton.isVisible().catch(() => false)) {
+    await skipTourButton.click().catch(() => {});
+    await page.waitForTimeout(300);
+  }
 
   const hamburgerSelectors = [
     '[aria-label="Toggle navigation menu"]',
@@ -101,7 +108,9 @@ export async function navigateToFeed(page: Page): Promise<void> {
 
 export async function createPost(page: Page, content: string): Promise<void> {
   const composeButton = page
-    .locator('button:has-text("Compose"), button:has-text("New Post")')
+    .locator(
+      'button:has-text("Compose"), button:has-text("New Post"), button:has-text("Create Post")'
+    )
     .first();
   await composeButton.click();
 

@@ -7,7 +7,9 @@
  * callback that is invoked if a later step fails.
  */
 
-import { NetworkError, SigningError } from "./errors";
+import { CircuitBreakerError, NetworkError, SigningError } from "./errors";
+import { resolveRetryConfig, type RetryConfig } from "./config";
+import { CircuitBreaker, withRetry, type RetryLogger } from "./utils/retry";
 
 export type TxStatus = "pending" | "submitted" | "confirmed" | "failed";
 
@@ -46,6 +48,28 @@ export interface TransactionQueueConfig {
   pollIntervalMs?: number;
   /** Maximum number of poll attempts before timing out (default 30). */
   maxPollAttempts?: number;
+  /**
+   * Retry / backoff overrides. Any field left unset falls back to the
+   * environment-derived defaults (see {@link resolveRetryConfig}).
+   */
+  retry?: Partial<RetryConfig>;
+  /**
+   * Structured-logging hook invoked on every retry decision. Wire this to a
+   * `ConnectionHealthMonitor.recordRetry` to surface retry telemetry.
+   */
+  logger?: RetryLogger;
+  /** Injectable RNG for the backoff jitter (defaults to `Math.random`). */
+  random?: () => number;
+}
+
+/**
+ * A submission failure is permanent (not worth retrying) when it carries a
+ * `retryable: false` marker in its error details — e.g. a transaction the RPC
+ * rejected outright with an `ERROR` status.
+ */
+function isRetryableSubmission(err: unknown): boolean {
+  const details = (err as { details?: { retryable?: boolean } } | null)?.details;
+  return details?.retryable !== false;
 }
 
 /**
@@ -67,12 +91,25 @@ export class TransactionQueue {
   private readonly rpc: RpcClient;
   private readonly pollIntervalMs: number;
   private readonly maxPollAttempts: number;
+  private readonly retryConfig: RetryConfig;
+  private readonly circuitBreaker: CircuitBreaker;
+  private readonly logger?: RetryLogger;
+  private readonly random: () => number;
 
   constructor(config: TransactionQueueConfig) {
     this.signer = config.signer;
     this.rpc = config.rpc;
     this.pollIntervalMs = config.pollIntervalMs ?? 2000;
     this.maxPollAttempts = config.maxPollAttempts ?? 30;
+    this.retryConfig = resolveRetryConfig(config.retry);
+    this.circuitBreaker = new CircuitBreaker(this.retryConfig.circuitBreakerThreshold);
+    this.logger = config.logger;
+    this.random = config.random ?? Math.random;
+  }
+
+  /** Current circuit-breaker state — `true` once the failure threshold is hit. */
+  get isCircuitOpen(): boolean {
+    return this.circuitBreaker.isOpen;
   }
 
   /**
@@ -154,18 +191,34 @@ export class TransactionQueue {
 
       let hash: string;
       try {
-        const result = await this.rpc.sendTransaction(signedXdr);
-        if (result.status === "ERROR") {
-          throw new NetworkError(result.errorResultXdr ?? "sendTransaction returned ERROR", {
-            step: i,
-          });
-        }
+        const result = await withRetry(
+          async () => {
+            const r = await this.rpc.sendTransaction(signedXdr);
+            if (r.status === "ERROR") {
+              // Permanent rejection — mark non-retryable so we fail fast.
+              throw new NetworkError(r.errorResultXdr ?? "sendTransaction returned ERROR", {
+                step: i,
+                retryable: false,
+              });
+            }
+            return r;
+          },
+          {
+            config: this.retryConfig,
+            circuitBreaker: this.circuitBreaker,
+            isRetryable: isRetryableSubmission,
+            onRetry: this.logger,
+            sleep: (ms) => this.sleep(ms),
+            random: this.random,
+          }
+        );
         hash = result.hash;
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         this.emit({ index: i, xdr: step.xdr, status: "failed", error });
         await this.runRollbacks(completed);
-        throw err instanceof NetworkError
+        // Surface circuit-breaker trips verbatim so callers can report unhealthy.
+        throw err instanceof CircuitBreakerError
           ? err
           : new NetworkError(`Step ${i} submission failed: ${error}`, { step: i }, err);
       }

@@ -16,6 +16,9 @@ interface AnimatedListProps {
   renderItem: (item: any, state: AnimatedListState) => ReactNode;
   className?: string;
   durationMs?: number;
+  as?: "div" | "ul" | "ol";
+  role?: string;
+  "aria-label"?: string;
 }
 
 export function AnimatedList({
@@ -24,6 +27,9 @@ export function AnimatedList({
   renderItem,
   className,
   durationMs = 220,
+  as: Component = "div",
+  role,
+  "aria-label": ariaLabel,
 }: AnimatedListProps) {
   const [renderedItems, setRenderedItems] = useState<AnimatedListItem[]>(() =>
     items.map((item) => ({
@@ -115,8 +121,8 @@ export function AnimatedList({
   }, [durationMs, renderedItems]);
 
   return (
-    <div className={className}>
+    <Component className={className} role={role} aria-label={ariaLabel}>
       {renderedItems.map(({ key, item, state }) => renderItem(item, state))}
-    </div>
+    </Component>
   );
 }

@@ -45,6 +45,7 @@
     "@noble/ciphers": "^0.5.3",
     "@noble/curves": "^1.9.7",
     "@noble/hashes": "^1.8.0",
+    "@stellar/stellar-base": "^12.1.1",
     "@stellar/stellar-sdk": "^12.3.0",
     "ajv": "^8.17.1"
   },

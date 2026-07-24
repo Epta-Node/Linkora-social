@@ -120,7 +120,7 @@ export class LedgerSigner implements Signer {
       const publicKey =
         "publicKey" in result
           ? String(result.publicKey)
-          : (await import("@stellar/stellar-sdk")).StrKey.encodeEd25519PublicKey(
+          : (await import("@stellar/stellar-base")).StrKey.encodeEd25519PublicKey(
               result.rawPublicKey
             );
       this.publicKeyCache.set(derivationPath, publicKey);
@@ -163,7 +163,7 @@ export class LedgerSigner implements Signer {
       const { signature } = await app.signTransaction(derivationPath, txBytes);
 
       if (typeof tx !== "string") {
-        const { Keypair, xdr } = await import("@stellar/stellar-sdk");
+        const { Keypair, xdr } = await import("@stellar/stellar-base");
         const publicKey = await this.getPublicKey(derivationPath);
         const keypair = Keypair.fromPublicKey(publicKey);
         const txObj = tx as { signatures?: unknown[] };

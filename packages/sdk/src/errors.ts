@@ -129,6 +129,17 @@ export class ContractError extends LinkoraError {
   }
 }
 
+/**
+ * Thrown when the retry circuit breaker opens after too many consecutive
+ * retryable failures. Signals that the transaction queue has been paused and
+ * the RPC endpoint should be treated as unhealthy until it recovers.
+ */
+export class CircuitBreakerError extends LinkoraError {
+  constructor(message: string, details?: Record<string, unknown>, originalError?: unknown) {
+    super(message, "CIRCUIT_OPEN", details, originalError);
+  }
+}
+
 // ── mapError ──────────────────────────────────────────────────────────────────
 
 /**

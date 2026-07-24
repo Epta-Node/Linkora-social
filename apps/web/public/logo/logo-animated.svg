@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="100%" height="100%" fill="none">
+  <style>
+    @keyframes logoPulse {
+      0%, 100% {
+        transform: scale(1);
+        opacity: 1;
+        filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.4));
+      }
+      50% {
+        transform: scale(0.94);
+        opacity: 0.82;
+        filter: drop-shadow(0 0 12px rgba(99, 102, 241, 0.7));
+      }
+    }
+    .animated-pulse-group {
+      animation: logoPulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      transform-origin: 32px 32px;
+    }
+  </style>
+  <defs>
+    <linearGradient id="stellar-grad-anim" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A5F" />
+      <stop offset="100%" stop-color="#6366F1" />
+    </linearGradient>
+  </defs>
+
+  <g class="animated-pulse-group">
+    <rect x="12" y="8" width="20" height="38" rx="10" fill="url(#stellar-grad-anim)" />
+    <rect x="17" y="13" width="10" height="28" rx="5" fill="#1E3A5F" opacity="0.95" />
+
+    <rect x="18" y="34" width="38" height="20" rx="10" fill="url(#stellar-grad-anim)" />
+    <rect x="23" y="39" width="28" height="10" rx="5" fill="#1E3A5F" opacity="0.95" />
+
+    <path d="M 22 34 A 4 4 0 0 1 26 30 H 32 A 4 4 0 0 1 36 34" stroke="url(#stellar-grad-anim)" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+
+    <circle cx="16" cy="14" r="1" fill="#FFFFFF" opacity="0.9" />
+    <circle cx="48" cy="18" r="1.2" fill="#FFFFFF" opacity="0.8" />
+    <circle cx="52" cy="46" r="1" fill="#FFFFFF" opacity="0.7" />
+    <path d="M 44 12 L 45 14 L 47 15 L 45 16 L 44 18 L 43 16 L 41 15 L 43 14 Z" fill="#FFFFFF" opacity="0.8"/>
+  </g>
+</svg>

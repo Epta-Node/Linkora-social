@@ -73,6 +73,25 @@ pnpm --filter contracts test      # or: cd packages/contracts && cargo test
 
 ---
 
+## Testing
+
+```bash
+# Contract unit tests
+pnpm --filter contracts test
+
+# Indexer database migrations (requires Docker + Compose v2)
+# Spins up a throwaway PostgreSQL, applies all migrations forward, checks the
+# schema against the committed snapshot, verifies idempotency on re-apply, and
+# tears the database down. Runs in well under a minute.
+bash tests/migrations/test-migrations.sh
+```
+
+See [`services/indexer/migrations/README.md`](./services/indexer/migrations/README.md)
+for the migration authoring rules, reversibility policy, and how to refresh the
+schema snapshot after an intentional change.
+
+---
+
 ## Documentation
 
 | Document                                                         | Description                                               |
@@ -83,6 +102,7 @@ pnpm --filter contracts test      # or: cd packages/contracts && cargo test
 | [Mobile UI Spec](./docs/design/MOBILE_SPEC.md)                   | Screen inventory, components, tokens, accessibility       |
 | [Mobile Developer Guide](./docs/mobile/DEVELOPER_GUIDE.md)       | Expo setup, simulators, EAS builds                        |
 | [Indexer Design](./docs/indexer/INDEXER_DESIGN.md)               | Event indexing strategy and search API                    |
+| [Indexer Migrations](./services/indexer/migrations/README.md)    | Migration rules, reversibility policy, and testing        |
 | [Mini Apps Developer Guide](./docs/mini-apps/DEVELOPER_GUIDE.md) | Build and submit a Linkora mini app                       |
 | [Mini Apps Bridge API](./docs/mini-apps/BRIDGE_API.md)           | Bridge method reference                                   |
 | [Security Policy](./SECURITY.md)                                 | Vulnerability disclosure guidance                         |

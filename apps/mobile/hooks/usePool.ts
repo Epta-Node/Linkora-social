@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import type { Pool } from "@linkora/types";
+import type { Pool } from "../types/pool";
 
 const MOCK_POOLS: Record<string, Pool> = {
   "pool-1": {

@@ -143,8 +143,9 @@ test.describe("Notifications page", () => {
     await expect(page.getByTestId("unread-badge")).toBeVisible();
 
     await page.goto("/notifications");
+    await page.waitForTimeout(300);
 
-    await page.goto("/");
+    await page.goto("/feed");
     await expect(page.getByTestId("unread-badge")).not.toBeVisible();
   });
 

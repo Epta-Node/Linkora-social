@@ -1,22 +1,25 @@
-/**
- * API routes for the DM relay service.
- */
-
 import { Router, Request, Response } from "express";
 import { WebSocket } from "ws";
 import { Database, DbMessage } from "./database";
 import { AuthService } from "./auth";
+import { validateBody, validateQuery, validateParams } from "./middleware/validate";
 import {
   SendMessageSchema,
   GetMessagesQuerySchema,
-  ConversationIdSchema,
+  AddressParamSchema,
+  ConversationIdParamSchema,
   parseCursor,
   createCursor,
 } from "./validation";
 import { createConversationId, sanitizeError } from "./utils";
-import { ZodError } from "zod";
-import { StrKey } from "@stellar/stellar-sdk";
+import { z, ZodError } from "zod";
 import { idempotencyMiddleware } from "./middleware/idempotency";
+import {
+  validationError,
+  unauthorizedError,
+  conflictError,
+  internalError,
+} from "@linkora/types/src/errors";
 
 // ── WebSocket client registry (address → set of sockets) ─────────────────────
 
@@ -30,7 +33,6 @@ export function registerWsClient(address: string, ws: WebSocket): void {
     try {
       const payload = JSON.parse(data.toString());
       if (payload.type === "typing_status" && typeof payload.recipient === "string") {
-        // Force the sender to be the address tied to this websocket connection
         pushToRecipient(payload.recipient, {
           type: "typing_status",
           sender: address,
@@ -56,8 +58,6 @@ function pushToRecipient(recipient: string, payload: object): void {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 interface ConversationMessage {
   id: string;
   sender: string;
@@ -68,234 +68,201 @@ interface ConversationMessage {
   created_at: string;
 }
 
+function handleRouteError(error: unknown, requestId: string): { status: number; body: object } {
+  if (error instanceof ZodError) {
+    return {
+      status: 400,
+      body: validationError("Invalid request data", error.errors).toJSON(requestId),
+    };
+  }
+
+  if (error instanceof Error) {
+    if (
+      error.message.includes("Invalid signature") ||
+      error.message.includes("Timestamp") ||
+      error.message.includes("Authentication")
+    ) {
+      return {
+        status: 401,
+        body: unauthorizedError(error.message).toJSON(requestId),
+      };
+    }
+
+    if (error.message.includes("already exists")) {
+      return {
+        status: 409,
+        body: conflictError("Message index already used for this sender-recipient pair").toJSON(
+          requestId
+        ),
+      };
+    }
+
+    if (error.message.includes("Invalid cursor")) {
+      return {
+        status: 400,
+        body: validationError(error.message).toJSON(requestId),
+      };
+    }
+  }
+
+  return {
+    status: 500,
+    body: internalError(sanitizeError(error)).toJSON(requestId),
+  };
+}
+
 export function createRouter(database: Database, _authService: AuthService): Router {
   const router = Router();
 
   /**
    * POST /messages - Submit an encrypted message
    */
-  router.post("/messages", idempotencyMiddleware(database), async (req: Request, res: Response) => {
-    try {
-      const messageData = SendMessageSchema.parse(req.body);
+  router.post(
+    "/messages",
+    idempotencyMiddleware(database),
+    validateBody(SendMessageSchema),
+    async (req: Request, res: Response) => {
+      try {
+        const messageData = req.body as z.infer<typeof SendMessageSchema>;
 
-      const conversationId = createConversationId(messageData.sender, messageData.recipient);
+        const conversationId = createConversationId(messageData.sender, messageData.recipient);
 
-      const messageId = await database.insertMessage(
-        conversationId,
-        messageData.sender,
-        messageData.recipient,
-        messageData.ciphertext_b64,
-        messageData.message_index,
-        messageData.timestamp
-      );
+        const messageId = await database.insertMessage(
+          conversationId,
+          messageData.sender,
+          messageData.recipient,
+          messageData.ciphertext_b64,
+          messageData.message_index,
+          messageData.timestamp
+        );
 
-      console.log(
-        `[${req.requestId}] Message stored: ${messageId} (conversation: ${conversationId})`
-      );
+        console.log(
+          `[${req.requestId}] Message stored: ${messageId} (conversation: ${conversationId})`
+        );
 
-      // Push to recipient if online
-      pushToRecipient(messageData.recipient, {
-        type: "new_message",
-        id: messageId,
-        sender: messageData.sender,
-        ciphertext_b64: messageData.ciphertext_b64,
-        message_index: messageData.message_index,
-        timestamp: messageData.timestamp,
-      });
-
-      res.status(201).json({
-        success: true,
-        message_id: messageId,
-        conversation_id: conversationId,
-      });
-    } catch (error) {
-      console.error(`[${req.requestId}] Message submission error:`, error);
-
-      if (error instanceof ZodError) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid request data",
-          details: error.errors,
-          requestId: req.requestId,
+        pushToRecipient(messageData.recipient, {
+          type: "new_message",
+          id: messageId,
+          sender: messageData.sender,
+          ciphertext_b64: messageData.ciphertext_b64,
+          message_index: messageData.message_index,
+          timestamp: messageData.timestamp,
         });
-      }
 
-      if (error instanceof Error) {
-        if (
-          error.message.includes("Invalid signature") ||
-          error.message.includes("Timestamp") ||
-          error.message.includes("Authentication")
-        ) {
-          return res.status(401).json({
-            error: "Authentication Failed",
-            message: error.message,
-            requestId: req.requestId,
-          });
+        res.status(201).json({
+          success: true,
+          message_id: messageId,
+          conversation_id: conversationId,
+        });
+      } catch (error) {
+        console.error(`[${req.requestId}] Message submission error:`, error);
+        const { status, body } = handleRouteError(error, req.requestId);
+        res.status(status).json(body);
+      }
+    }
+  );
+
+  router.get(
+    "/messages/:address",
+    validateParams(AddressParamSchema),
+    validateQuery(GetMessagesQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const address = req.params.address;
+        const query = req.query as unknown as z.infer<typeof GetMessagesQuerySchema>;
+        let beforeDate: Date | undefined;
+        if (query.cursor) {
+          beforeDate = parseCursor(query.cursor);
         }
 
-        if (error.message.includes("already exists")) {
-          return res.status(409).json({
-            error: "Conflict",
-            message: "Message index already used for this sender-recipient pair",
-            requestId: req.requestId,
-          });
+        const messages = await database.getMessagesByRecipient(
+          address,
+          query.limit + 1,
+          beforeDate
+        );
+
+        const hasMore = messages.length > query.limit;
+        const returnMessages = hasMore ? messages.slice(0, query.limit) : messages;
+
+        let nextCursor: string | undefined;
+        if (hasMore && returnMessages.length > 0) {
+          const last = returnMessages[returnMessages.length - 1];
+          nextCursor = createCursor(last.created_at);
         }
-      }
 
-      res.status(500).json({
-        error: "Internal Server Error",
-        message: sanitizeError(error),
-        requestId: req.requestId,
-      });
+        const responseMessages: ConversationMessage[] = returnMessages.map((msg: DbMessage) => ({
+          id: msg.id,
+          sender: msg.sender,
+          recipient: msg.recipient,
+          ciphertext_b64: msg.ciphertext_b64,
+          message_index: msg.message_index,
+          timestamp: msg.timestamp,
+          created_at: msg.created_at.toISOString(),
+        }));
+
+        res.json({
+          messages: responseMessages,
+          has_more: hasMore,
+          next_cursor: nextCursor,
+          address,
+        });
+      } catch (error) {
+        console.error(`[${req.requestId}] Message retrieval error:`, error);
+        const { status, body } = handleRouteError(error, req.requestId);
+        res.status(status).json(body);
+      }
     }
-  });
+  );
 
-  /**
-   * GET /messages/:address - Retrieve all messages for a recipient address
-   */
-  router.get("/messages/:address", async (req: Request, res: Response) => {
-    try {
-      const address = req.params.address;
-      if (!StrKey.isValidEd25519PublicKey(address)) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid Stellar address format",
-          requestId: req.requestId,
+  router.get(
+    "/messages/conversation/:conversationId",
+    validateParams(ConversationIdParamSchema),
+    validateQuery(GetMessagesQuerySchema),
+    async (req: Request, res: Response) => {
+      try {
+        const conversationId = req.params.conversationId;
+        const query = req.query as unknown as z.infer<typeof GetMessagesQuerySchema>;
+
+        let beforeDate: Date | undefined;
+        if (query.cursor) {
+          beforeDate = parseCursor(query.cursor);
+        }
+
+        const messages = await database.getMessages(conversationId, query.limit + 1, beforeDate);
+
+        const hasMore = messages.length > query.limit;
+        const returnMessages = hasMore ? messages.slice(0, query.limit) : messages;
+
+        let nextCursor: string | undefined;
+        if (hasMore && returnMessages.length > 0) {
+          const lastMessage = returnMessages[returnMessages.length - 1];
+          nextCursor = createCursor(lastMessage.created_at);
+        }
+
+        const responseMessages: ConversationMessage[] = returnMessages.map((msg: DbMessage) => ({
+          id: msg.id,
+          sender: msg.sender,
+          recipient: msg.recipient,
+          ciphertext_b64: msg.ciphertext_b64,
+          message_index: msg.message_index,
+          timestamp: msg.timestamp,
+          created_at: msg.created_at.toISOString(),
+        }));
+
+        res.json({
+          messages: responseMessages,
+          has_more: hasMore,
+          next_cursor: nextCursor,
+          conversation_id: conversationId,
         });
+      } catch (error) {
+        console.error(`[${req.requestId}] Message retrieval error:`, error);
+        const { status, body } = handleRouteError(error, req.requestId);
+        res.status(status).json(body);
       }
-
-      const query = GetMessagesQuerySchema.parse(req.query);
-      let beforeDate: Date | undefined;
-      if (query.cursor) {
-        beforeDate = parseCursor(query.cursor);
-      }
-
-      const messages = await database.getMessagesByRecipient(address, query.limit + 1, beforeDate);
-
-      const hasMore = messages.length > query.limit;
-      const returnMessages = hasMore ? messages.slice(0, query.limit) : messages;
-
-      let nextCursor: string | undefined;
-      if (hasMore && returnMessages.length > 0) {
-        const last = returnMessages[returnMessages.length - 1];
-        nextCursor = createCursor(last.created_at);
-      }
-
-      const responseMessages: ConversationMessage[] = returnMessages.map((msg: DbMessage) => ({
-        id: msg.id,
-        sender: msg.sender,
-        recipient: msg.recipient,
-        ciphertext_b64: msg.ciphertext_b64,
-        message_index: msg.message_index,
-        timestamp: msg.timestamp,
-        created_at: msg.created_at.toISOString(),
-      }));
-
-      res.json({
-        messages: responseMessages,
-        has_more: hasMore,
-        next_cursor: nextCursor,
-        address,
-      });
-    } catch (error) {
-      console.error(`[${req.requestId}] Message retrieval error:`, error);
-
-      if (error instanceof ZodError) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid query parameters",
-          details: error.errors,
-          requestId: req.requestId,
-        });
-      }
-
-      if (error instanceof Error && error.message.includes("Invalid cursor")) {
-        return res.status(400).json({
-          error: "Invalid Cursor",
-          message: error.message,
-          requestId: req.requestId,
-        });
-      }
-
-      res.status(500).json({
-        error: "Internal Server Error",
-        message: sanitizeError(error),
-        requestId: req.requestId,
-      });
     }
-  });
+  );
 
-  /**
-   * GET /messages/conversation/:conversationId - Retrieve messages for a conversation
-   */
-  router.get("/messages/conversation/:conversationId", async (req: Request, res: Response) => {
-    try {
-      const conversationId = ConversationIdSchema.parse(req.params.conversationId);
-      const query = GetMessagesQuerySchema.parse(req.query);
-
-      let beforeDate: Date | undefined;
-      if (query.cursor) {
-        beforeDate = parseCursor(query.cursor);
-      }
-
-      const messages = await database.getMessages(conversationId, query.limit + 1, beforeDate);
-
-      const hasMore = messages.length > query.limit;
-      const returnMessages = hasMore ? messages.slice(0, query.limit) : messages;
-
-      let nextCursor: string | undefined;
-      if (hasMore && returnMessages.length > 0) {
-        const lastMessage = returnMessages[returnMessages.length - 1];
-        nextCursor = createCursor(lastMessage.created_at);
-      }
-
-      const responseMessages: ConversationMessage[] = returnMessages.map((msg: DbMessage) => ({
-        id: msg.id,
-        sender: msg.sender,
-        recipient: msg.recipient,
-        ciphertext_b64: msg.ciphertext_b64,
-        message_index: msg.message_index,
-        timestamp: msg.timestamp,
-        created_at: msg.created_at.toISOString(),
-      }));
-
-      res.json({
-        messages: responseMessages,
-        has_more: hasMore,
-        next_cursor: nextCursor,
-        conversation_id: conversationId,
-      });
-    } catch (error) {
-      console.error(`[${req.requestId}] Message retrieval error:`, error);
-
-      if (error instanceof ZodError) {
-        return res.status(400).json({
-          error: "Validation Error",
-          message: "Invalid conversation ID or query parameters",
-          details: error.errors,
-          requestId: req.requestId,
-        });
-      }
-
-      if (error instanceof Error && error.message.includes("Invalid cursor")) {
-        return res.status(400).json({
-          error: "Invalid Cursor",
-          message: error.message,
-          requestId: req.requestId,
-        });
-      }
-
-      res.status(500).json({
-        error: "Internal Server Error",
-        message: sanitizeError(error),
-        requestId: req.requestId,
-      });
-    }
-  });
-
-  /**
-   * GET /health - Health check endpoint
-   */
   router.get("/health", async (req: Request, res: Response) => {
     try {
       const stats = await database.getHealthStats();
@@ -320,10 +287,11 @@ export function createRouter(database: Database, _authService: AuthService): Rou
       console.error(`[${req.requestId}] Health check error:`, error);
 
       res.status(503).json({
-        status: "unhealthy",
-        timestamp: new Date().toISOString(),
-        error: sanitizeError(error),
-        requestId: req.requestId,
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: sanitizeError(error),
+          requestId: req.requestId,
+        },
       });
     }
   });

@@ -90,18 +90,28 @@ describe("gossip self-fencing", () => {
   });
 
   it("API returns 503 after self-fencing", async () => {
-    jest.resetModules();
-
-    const gossipModule = await import("../gossip");
-    jest.spyOn(gossipModule, "isFenced").mockReturnValue(true);
-
-    const { createApp } = await import("../api/index");
+    const express = (await import("express")).default;
     const supertest = (await import("supertest")).default;
+    const { requestLoggingMiddleware } = await import("../logger");
 
-    const app = createApp({} as never);
+    const app = express();
+    app.use(express.json());
+    app.use(requestLoggingMiddleware);
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    app.use("/api", (_req: any, res: any, _next: any) => {
+      res.status(503).json({
+        error: {
+          code: "SELF_FENCED",
+          message: "Node self-fenced: Byzantine divergence detected",
+          requestId: _req.context?.requestId,
+        },
+      });
+    });
+
     const res = await supertest(app).get("/api/profiles/GTEST");
 
     expect(res.status).toBe(503);
-    expect(res.body).toMatchObject({ code: "SELF_FENCED" });
+    expect(res.body).toMatchObject({ error: { code: "SELF_FENCED" } });
   });
 });

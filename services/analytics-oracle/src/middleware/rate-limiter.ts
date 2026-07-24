@@ -92,11 +92,16 @@ export function rateLimiter(req: Request, res: Response, next: NextFunction): vo
     "Rate limit exceeded for oracle endpoint"
   );
 
-  res.status(429).set("Retry-After", String(retryAfterSeconds)).json({
-    error: "Too many requests. Please retry after the indicated delay.",
-    code: "RATE_LIMIT_EXCEEDED",
-    retryAfterSeconds,
-  });
+  res
+    .status(429)
+    .set("Retry-After", String(retryAfterSeconds))
+    .json({
+      error: {
+        code: "RATE_LIMITED",
+        message: "Too many requests",
+        details: { retryAfterSeconds },
+      },
+    });
 }
 
 /** Reset limiter state (for tests). */

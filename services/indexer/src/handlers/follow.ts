@@ -75,7 +75,10 @@ export async function handleFollow(
  * Removes the directed edge (follower → followee) from the follow graph.
  * Idempotent: deleting a non-existent edge is a no-op.
  */
-export async function handleUnfollow(db: Database, event: UnfollowEvent): Promise<void> {
+export async function handleUnfollow(
+  source: Database | { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  event: UnfollowEvent
+): Promise<void> {
   if (!event.follower) {
     throw new Error("Unfollow event missing required field: follower");
   }
@@ -83,5 +86,12 @@ export async function handleUnfollow(db: Database, event: UnfollowEvent): Promis
     throw new Error("Unfollow event missing required field: followee");
   }
 
-  await db.deleteFollow(event.follower, event.followee);
+  if ("query" in source) {
+    await source.query(`DELETE FROM follows WHERE follower = $1 AND followee = $2`, [
+      event.follower,
+      event.followee,
+    ]);
+  } else {
+    await source.deleteFollow(event.follower, event.followee);
+  }
 }

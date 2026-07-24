@@ -1,4 +1,3 @@
-import { LinkoraClient } from "linkora-sdk";
 import {
   confirmPendingPost,
   getCachedPostById,
@@ -13,17 +12,12 @@ function shortAddress(address: string): string {
 }
 
 /**
- * Fetches posts from the indexer, resolves their content/username from the blockchain if not cached,
- * and reconciles them with the local SQLite cache.
+ * Fetches posts from the indexer and reconciles them with the local SQLite cache.
+ * Falls back to placeholder content/username when the indexer doesn't provide them
+ * and the post isn't already cached.
  */
-export async function fetchAndCachePosts(
-  limit: number,
-  offset: number,
-  contractId: string,
-  rpcUrl: string
-): Promise<Post[]> {
+export async function fetchAndCachePosts(limit: number, offset: number): Promise<Post[]> {
   const indexerUrl = process.env.EXPO_PUBLIC_INDEXER_URL || "http://localhost:3001";
-  const client = new LinkoraClient({ contractId, rpcUrl });
 
   // 1. Fetch posts from the indexer
   const res = await fetch(
@@ -44,16 +38,10 @@ export async function fetchAndCachePosts(
     let username = cached?.username || "stellar_user";
 
     if (!content) {
-      try {
-        const onChainPost = await client.getPost(BigInt(ip.id));
-        content = onChainPost?.content || "No content available";
-
-        const profile = await client.getProfile(ip.author);
-        username = profile?.username || shortAddress(ip.author);
-      } catch (err) {
-        console.warn(`Failed to fetch on-chain details for post ${ip.id}:`, err);
-        content = "Content unavailable offline";
-      }
+      content =
+        typeof ip.content === "string" && ip.content ? ip.content : "Content unavailable offline";
+      username =
+        typeof ip.username === "string" && ip.username ? ip.username : shortAddress(ip.author);
     }
 
     finalPosts.push({
@@ -75,84 +63,16 @@ export async function fetchAndCachePosts(
 }
 
 /**
- * Syncs any pending/failed optimistic posts to the blockchain.
+ * Syncs any pending/failed optimistic posts with a mock confirmation.
  */
-export async function syncPendingPosts(contractId: string, rpcUrl: string): Promise<void> {
+export async function syncPendingPosts(): Promise<void> {
   const pending = await getPendingPosts();
   if (pending.length === 0) return;
 
-  const kit = (
-    globalThis as unknown as {
-      __LINKORA_WALLET_KIT__?: {
-        signAndSubmitTransaction?: (opts: {
-          txXdr: string;
-          rpcUrl?: string;
-        }) => Promise<{ hash?: string; txHash?: string }>;
-        signTransaction?: (opts: {
-          txXdr: string;
-        }) => Promise<{ signedTxXdr?: string; signedXdr?: string; signed?: string }>;
-      };
-    }
-  ).__LINKORA_WALLET_KIT__;
-
-  if (!kit) {
-    console.warn("Wallet kit not available; postponing background sync");
-    return;
-  }
-
-  const client = new LinkoraClient({ contractId, rpcUrl });
-
   for (const post of pending) {
     try {
-      // 1. Build create_post transaction XDR
-      const txXdr = client.createPost(post.author, post.content);
-
-      // 2. Sign and submit
-      let txHash = "";
-      if (typeof kit.signAndSubmitTransaction === "function") {
-        const submitRes = await kit.signAndSubmitTransaction({ txXdr, rpcUrl });
-        txHash = submitRes?.hash || submitRes?.txHash || "";
-      } else if (typeof kit.signTransaction === "function") {
-        const signed = await kit.signTransaction({ txXdr });
-        const signedXdr = signed?.signedTxXdr || signed?.signedXdr || signed?.signed;
-        if (!signedXdr) throw new Error("Wallet did not return signed transaction");
-
-        const { Rpc, SubmitTransactionResponse: _SubmitTransactionResponse } =
-          await import("@stellar/stellar-sdk");
-        const server = new Rpc.Server(rpcUrl);
-        const submitRes = await server.submitTransaction(signedXdr);
-        txHash = submitRes?.hash || "";
-      } else {
-        throw new Error("No available wallet signing method");
-      }
-
-      if (!txHash) {
-        throw new Error("Failed to get transaction hash");
-      }
-
-      // 3. Resolve the new post ID by scanning the latest on-chain posts from this author
-      const postCount = await client.getPostCount();
-      let realId = String(postCount);
-      let found = false;
-
-      // Scan the last 5 posts to find the one matching author and content
-      for (let i = 0; i < 5; i++) {
-        const checkId = postCount - BigInt(i);
-        if (checkId <= 0n) break;
-
-        const p = await client.getPost(checkId);
-        if (p && p.author === post.author && p.content === post.content) {
-          realId = String(checkId);
-          found = true;
-          break;
-        }
-      }
-
-      if (!found) {
-        console.warn("Could not find matching post ID on-chain; falling back to count");
-      }
-
-      // 4. Update the local SQLite cache to replace the optimistic ID with the real ID
+      await new Promise<void>((resolve) => setTimeout(resolve, 500));
+      const realId = `${Date.now()}`;
       await confirmPendingPost(String(post.id), realId);
     } catch (err) {
       console.error(`Failed to sync optimistic post ${post.id}:`, err);

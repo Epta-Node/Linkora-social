@@ -10,18 +10,31 @@ function createMockResponse() {
   return res;
 }
 
+async function invokeRoute(
+  router: ReturnType<typeof createGovernanceRouter>,
+  path: string,
+  req: Record<string, unknown>
+) {
+  const layer = router.stack.find((item: any) => item.route?.path === path);
+  if (!layer) throw new Error(`Route ${path} not found`);
+
+  const res = createMockResponse();
+  const stack = layer.route.stack;
+
+  let i = 0;
+  const next = () => {
+    if (i < stack.length) {
+      const handler = stack[i++].handle;
+      handler(req, res, next);
+    }
+  };
+  next();
+  return res;
+}
+
 async function getProposals(query: Record<string, unknown>, db: Database) {
   const router = createGovernanceRouter(db);
-  const layer = router.stack.find((item) => item.route?.path === "/proposals");
-  const handler = layer?.route?.stack[0].handle;
-  if (!handler) {
-    throw new Error("proposals route handler not found");
-  }
-
-  const req = { query };
-  const res = createMockResponse();
-  await handler(req as never, res as never, jest.fn());
-  return res;
+  return invokeRoute(router, "/proposals", { query });
 }
 
 describe("governance API", () => {

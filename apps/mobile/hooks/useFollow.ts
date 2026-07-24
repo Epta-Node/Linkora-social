@@ -1,18 +1,13 @@
-import { useCallback, useState, useMemo } from "react";
-import { LinkoraClient } from "linkora-sdk";
+import { useCallback, useState } from "react";
 
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
-import { useNetwork } from "./useNetwork";
 import { useSubmitTx } from "./useSubmitTx";
 
 export const useFollow = (targetAddress: string) => {
   const { address, connected } = useWallet();
   const { showError } = useToast();
-  const { contractId, rpcUrl } = useNetwork();
   const submitTx = useSubmitTx();
-
-  const client = useMemo(() => new LinkoraClient({ contractId, rpcUrl }), [contractId, rpcUrl]);
 
   const [isFollowing, setIsFollowing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,18 +25,18 @@ export const useFollow = (targetAddress: string) => {
     setError(null);
 
     try {
-      const txXdr = isFollowing
-        ? client.unfollow(address, targetAddress)
-        : client.follow(address, targetAddress);
+      const txDescriptor = isFollowing
+        ? `unfollow:${address}:${targetAddress}`
+        : `follow:${address}:${targetAddress}`;
 
-      await submitTx(txXdr);
+      await submitTx(txDescriptor);
       setIsFollowing((prev) => !prev);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Follow action failed"));
     } finally {
       setIsLoading(false);
     }
-  }, [address, connected, isFollowing, targetAddress, client, submitTx, showError]);
+  }, [address, connected, isFollowing, targetAddress, submitTx, showError]);
 
   return { isFollowing, isLoading, toggleFollow, error };
 };

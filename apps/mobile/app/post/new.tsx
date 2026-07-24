@@ -16,7 +16,6 @@ import { useRouter } from "expo-router";
 import { useWallet } from "../../hooks/useWallet";
 import { useTheme } from "../../theme/useTheme";
 import { useToast } from "../../context/ToastContext";
-import { useNetwork } from "../../hooks/useNetwork";
 import { useProfile } from "../../hooks/useProfile";
 import { addOptimisticPost } from "../../utils/db";
 import { syncPendingPosts } from "../../utils/sync";
@@ -32,7 +31,6 @@ export default function CreatePostScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { address, connected } = useWallet();
-  const { contractId, rpcUrl } = useNetwork();
   const { profile } = useProfile(address ?? "");
   const { showPending, showSuccess, showError, dismissToast } = useToast();
 
@@ -72,7 +70,7 @@ export default function CreatePostScreen() {
       router.replace("/(tabs)/feed" as Parameters<typeof router.replace>[0]);
 
       // 4. Submit to blockchain in background
-      void syncPendingPosts(contractId, rpcUrl).then(() => {
+      void syncPendingPosts().then(() => {
         notifyFeedUpdate();
       });
     } catch (err) {
@@ -90,8 +88,6 @@ export default function CreatePostScreen() {
     showError,
     dismissToast,
     profile,
-    contractId,
-    rpcUrl,
   ]);
 
   const styles = useMemo(() => createStyles(theme), [theme]);

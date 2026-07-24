@@ -1,5 +1,5 @@
+import * as rpc from "@stellar/stellar-sdk/rpc";
 import {
-  rpc,
   Contract,
   nativeToScVal,
   scValToNative,
@@ -9,7 +9,7 @@ import {
   Keypair,
   StrKey,
   xdr,
-} from "@stellar/stellar-sdk";
+} from "@stellar/stellar-base";
 import { GeneratedLinkoraClient } from "./generated/client";
 import { Profile, Post, Pool, SimulationResult, LedgerFootprint } from "./types";
 import {
