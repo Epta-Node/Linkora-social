@@ -1,0 +1,92 @@
+# E2E Test Environment
+# Spins up a local Stellar sandbox, PostgreSQL, Indexer, and DM Relay for integration testing.
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up -d
+#   docker compose -f docker-compose.test.yml down -v
+
+version: "3.9"
+
+services:
+  stellar:
+    # Stellar QuickStart image with Soroban RPC enabled for local development
+    image: stellar/quickstart:testing
+    platform: linux/amd64
+    ports:
+      - "8000:8000"
+    command: ["--local", "--enable-soroban-rpc"]
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/.well-known/stellar.toml"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - e2e-net
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: linkora
+      POSTGRES_PASSWORD: linkora
+      POSTGRES_DB: linkora
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U linkora"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - e2e-net
+
+  indexer:
+    build:
+      context: ../../services/indexer
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://linkora:linkora@postgres:5432/linkora
+      STELLAR_RPC_URL: http://stellar:8000/rpc
+      CONTRACT_ID: ${CONTRACT_ID:-}
+      START_LEDGER: ${START_LEDGER:-1}
+      PORT: 3000
+      NODE_ENV: test
+      ALLOWED_ORIGINS: "*"
+    ports:
+      - "3002:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      stellar:
+        condition: service_started
+    networks:
+      - e2e-net
+
+  dm-relay:
+    build:
+      context: ../../services/dm-relay
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://linkora:linkora@postgres:5432/linkora_dm_relay
+      PORT: 3001
+      STELLAR_NETWORK: local
+      NODE_ENV: test
+      CORS_ORIGIN: "*"
+    ports:
+      - "3003:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - e2e-net
+
+networks:
+  e2e-net:
+    driver: bridge
+
+volumes:
+  postgres_test_data:

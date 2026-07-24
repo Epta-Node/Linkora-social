@@ -1,0 +1,25 @@
+{
+  "name": "linkora-e2e-tests",
+  "private": true,
+  "version": "0.1.0",
+  "description": "E2E integration tests for Linkora",
+  "scripts": {
+    "test": "bash run_e2e.sh",
+    "test:quick": "jest --config jest.config.js",
+    "test:lifecycle": "jest --config jest.config.js e2e-lifecycle.test.ts",
+    "test:social": "jest --config jest.config.js e2e-social-graph.test.ts",
+    "test:tipping": "jest --config jest.config.js e2e-tipping.test.ts",
+    "test:governance": "jest --config jest.config.js e2e-governance.test.ts",
+    "test:dm": "jest --config jest.config.js e2e-dm-relay.test.ts"
+  },
+  "dependencies": {
+    "linkora-sdk": "workspace:*",
+    "@stellar/stellar-sdk": "^12.3.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.11",
+    "typescript": "^5.8.3"
+  }
+}
