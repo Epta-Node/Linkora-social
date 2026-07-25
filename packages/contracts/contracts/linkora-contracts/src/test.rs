@@ -2514,3 +2514,46 @@ fn test_tip_cooldown_uses_typed_storage_key() {
         "both tips must accumulate after cooldown expires"
     );
 }
+
+// ── Set Tip Cooldown Window Tests ────────────────────────────────────────────
+
+#[test]
+fn test_set_tip_cooldown_window_by_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    client.set_tip_cooldown_window(&100);
+    assert_eq!(client.get_tip_cooldown_window(), 100);
+
+    client.set_tip_cooldown_window(&500);
+    assert_eq!(client.get_tip_cooldown_window(), 500);
+}
+
+#[test]
+#[should_panic(expected = "cooldown must be positive")]
+fn test_set_tip_cooldown_window_zero_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    client.set_tip_cooldown_window(&0);
+}
+
+#[test]
+#[should_panic(expected = "not initialized")]
+fn test_set_tip_cooldown_window_non_admin_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(LinkoraContract, ());
+    let client = LinkoraContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+    let non_admin = Address::generate(&env);
+
+    env.mock_all_auths_allowing_non_root_auth();
+    client.initialize(&admin, &treasury, &0);
+
+    // Non-admin tries to set cooldown
+    non_admin.require_auth();
+    client.set_tip_cooldown_window(&100);
+}
