@@ -16,6 +16,27 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 // Public VAPID Key configured from your environment variables
 const VAPID_PUBLIC_KEY = process.env.REACT_APP_VAPID_PUBLIC_KEY || "YOUR_PUBLIC_VAPID_KEY_HERE";
 
+export interface NotificationPreferences {
+  address: string;
+  follow_notifications: boolean;
+  tip_notifications: boolean;
+  like_notifications: boolean;
+  moderation_notifications: boolean;
+  governance_notifications: boolean;
+  pool_notifications: boolean;
+  post_notifications: boolean;
+}
+
+export interface NotificationPreferencePayload {
+  follow_notifications?: boolean;
+  tip_notifications?: boolean;
+  like_notifications?: boolean;
+  moderation_notifications?: boolean;
+  governance_notifications?: boolean;
+  pool_notifications?: boolean;
+  post_notifications?: boolean;
+}
+
 /**
  * Registers the Service Worker (if not already done) and requests/retrieves
  * a unique PushSubscription object from the browser's PushManager.
@@ -65,31 +86,47 @@ export async function unsubscribeFromPush(): Promise<boolean> {
 }
 
 /**
+ * Fetches the current notification preferences for a given address from the backend.
+ */
+export async function getPreferencesFromBackend(
+  address: string
+): Promise<NotificationPreferences | null> {
+  const response = await fetch(`/api/notifications/preferences/${address}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+    },
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  return (await response.json()) as NotificationPreferences | null;
+}
+
+/**
  * Transmits the structural toggles and the generated push encryption tokens
  * to your application database.
  */
 export async function savePreferencesToBackend(
-  preferences: any,
+  address: string,
+  preferences: NotificationPreferencePayload,
   subscription: PushSubscription | null
-): Promise<any> {
-  const payload = {
-    preferences,
-    subscription: subscription ? subscription.toJSON() : null,
-  };
-
-  // Adjust endpoint string to mirror Linkora-Social's API path configuration rules
-  const response = await fetch("/api/user/notification-preferences", {
-    method: "POST",
+): Promise<void> {
+  const response = await fetch(`/api/notifications/preferences/${address}`, {
+    method: "PUT",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      ...preferences,
+      subscription: subscription ? subscription.toJSON() : null,
+    }),
   });
 
   if (!response.ok) {
     throw new Error("Failed to synchronize preferences with database records.");
   }
-
-  return await response.json();
 }

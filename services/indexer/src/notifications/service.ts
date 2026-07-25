@@ -1,5 +1,16 @@
 import { Pool } from "pg";
 
+export interface NotificationPreferences {
+  address: string;
+  follow_notifications: boolean;
+  tip_notifications: boolean;
+  like_notifications: boolean;
+  moderation_notifications: boolean;
+  governance_notifications: boolean;
+  pool_notifications: boolean;
+  post_notifications: boolean;
+}
+
 export type NotificationEventType =
   | "FOLLOW"
   | "TIP_RECEIVED"
@@ -27,19 +38,27 @@ export interface NotificationDispatchOptions {
   payload?: Record<string, unknown>;
 }
 
+export interface PreferencesStore {
+  getPreferences(address: string): Promise<NotificationPreferences | null>;
+  setPreferences(address: string, prefs: Omit<NotificationPreferences, "address">): Promise<void>;
+}
+
 export interface NotificationServiceOptions {
   sendPush?: (message: Record<string, unknown>) => Promise<unknown>;
   deviceTokens?: Map<string, { token: string; platform: string; createdAt: string }>;
   deviceTokenStore?: DeviceTokenStore;
+  preferencesStore?: PreferencesStore;
 }
 
 export class NotificationService {
   private deviceTokenStore: DeviceTokenStore;
+  private preferencesStore: PreferencesStore;
   private sendPush: (message: Record<string, unknown>) => Promise<unknown>;
 
   constructor(options: NotificationServiceOptions = {}) {
     this.deviceTokenStore =
       options.deviceTokenStore ?? new MemoryDeviceTokenStore(options.deviceTokens ?? new Map());
+    this.preferencesStore = options.preferencesStore ?? new MemoryPreferencesStore();
     this.sendPush = options.sendPush ?? this.defaultSendPush;
   }
 
@@ -63,7 +82,31 @@ export class NotificationService {
     await this.deviceTokenStore.removeToken(address);
   }
 
+  async getPreferences(address: string): Promise<NotificationPreferences | null> {
+    if (!address) {
+      return null;
+    }
+
+    return this.preferencesStore.getPreferences(address);
+  }
+
+  async setPreferences(
+    address: string,
+    prefs: Omit<NotificationPreferences, "address">
+  ): Promise<void> {
+    if (!address) {
+      return;
+    }
+
+    await this.preferencesStore.setPreferences(address, prefs);
+  }
+
   async dispatchEventNotification(options: NotificationDispatchOptions): Promise<boolean> {
+    const prefs = await this.getPreferences(options.recipient);
+    if (prefs && !this.isNotificationEnabled(prefs, options.type)) {
+      return false;
+    }
+
     const token = await this.getDeviceToken(options.recipient);
     if (!token) {
       return false;
@@ -82,6 +125,23 @@ export class NotificationService {
     });
 
     return true;
+  }
+
+  isNotificationEnabled(prefs: NotificationPreferences, type: NotificationEventType): boolean {
+    switch (type) {
+      case "FOLLOW":
+        return prefs.follow_notifications;
+      case "TIP_RECEIVED":
+        return prefs.tip_notifications;
+      case "LIKE_RECEIVED":
+        return prefs.like_notifications;
+      case "POST_REPORTED":
+      case "REPORT_DISMISSED":
+      case "POST_REMOVED_BY_MODERATION":
+        return prefs.moderation_notifications;
+      default:
+        return true;
+    }
   }
 
   private async defaultSendPush(message: Record<string, unknown>): Promise<unknown> {
@@ -206,6 +266,74 @@ export class PostgresDeviceTokenStore implements DeviceTokenStore {
       WHERE address = $1
       `,
       [address]
+    );
+  }
+}
+
+export class MemoryPreferencesStore implements PreferencesStore {
+  private readonly store = new Map<string, NotificationPreferences>();
+
+  async getPreferences(address: string): Promise<NotificationPreferences | null> {
+    return this.store.get(address) ?? null;
+  }
+
+  async setPreferences(
+    address: string,
+    prefs: Omit<NotificationPreferences, "address">
+  ): Promise<void> {
+    this.store.set(address, { address, ...prefs });
+  }
+}
+
+export class PostgresPreferencesStore implements PreferencesStore {
+  constructor(private readonly pool: Pool) {}
+
+  async getPreferences(address: string): Promise<NotificationPreferences | null> {
+    const res = await this.pool.query<NotificationPreferences>(
+      `
+      SELECT address, follow_notifications, tip_notifications, like_notifications,
+             moderation_notifications, governance_notifications, pool_notifications,
+             post_notifications
+      FROM notification_preferences
+      WHERE address = $1
+      `,
+      [address]
+    );
+
+    return res.rows[0] ?? null;
+  }
+
+  async setPreferences(
+    address: string,
+    prefs: Omit<NotificationPreferences, "address">
+  ): Promise<void> {
+    await this.pool.query(
+      `
+      INSERT INTO notification_preferences
+        (address, follow_notifications, tip_notifications, like_notifications,
+         moderation_notifications, governance_notifications, pool_notifications,
+         post_notifications, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      ON CONFLICT (address) DO UPDATE SET
+        follow_notifications = EXCLUDED.follow_notifications,
+        tip_notifications = EXCLUDED.tip_notifications,
+        like_notifications = EXCLUDED.like_notifications,
+        moderation_notifications = EXCLUDED.moderation_notifications,
+        governance_notifications = EXCLUDED.governance_notifications,
+        pool_notifications = EXCLUDED.pool_notifications,
+        post_notifications = EXCLUDED.post_notifications,
+        updated_at = NOW()
+      `,
+      [
+        address,
+        prefs.follow_notifications,
+        prefs.tip_notifications,
+        prefs.like_notifications,
+        prefs.moderation_notifications,
+        prefs.governance_notifications,
+        prefs.pool_notifications,
+        prefs.post_notifications,
+      ]
     );
   }
 }
