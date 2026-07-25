@@ -14,6 +14,7 @@ import {
 import { createConversationId, sanitizeError } from "./utils";
 import { z, ZodError } from "zod";
 import { idempotencyMiddleware } from "./middleware/idempotency";
+import { logger } from "./logger";
 import {
   validationError,
   unauthorizedError,
@@ -136,8 +137,9 @@ export function createRouter(database: Database, _authService: AuthService): Rou
           messageData.timestamp
         );
 
-        console.log(
-          `[${req.requestId}] Message stored: ${messageId} (conversation: ${conversationId})`
+        logger.info(
+          { requestId: req.requestId, messageId, conversationId },
+          "Message stored"
         );
 
         pushToRecipient(messageData.recipient, {
@@ -155,7 +157,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
           conversation_id: conversationId,
         });
       } catch (error) {
-        console.error(`[${req.requestId}] Message submission error:`, error);
+        logger.error({ requestId: req.requestId, error }, "Message submission error");
         const { status, body } = handleRouteError(error, req.requestId);
         res.status(status).json(body);
       }
@@ -207,7 +209,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
           address,
         });
       } catch (error) {
-        console.error(`[${req.requestId}] Message retrieval error:`, error);
+        logger.error({ requestId: req.requestId, error }, "Message retrieval error");
         const { status, body } = handleRouteError(error, req.requestId);
         res.status(status).json(body);
       }
@@ -256,7 +258,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
           conversation_id: conversationId,
         });
       } catch (error) {
-        console.error(`[${req.requestId}] Message retrieval error:`, error);
+        logger.error({ requestId: req.requestId, error }, "Message retrieval error");
         const { status, body } = handleRouteError(error, req.requestId);
         res.status(status).json(body);
       }
@@ -284,7 +286,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
         },
       });
     } catch (error) {
-      console.error(`[${req.requestId}] Health check error:`, error);
+      logger.error({ requestId: req.requestId, error }, "Health check error");
 
       res.status(503).json({
         error: {

@@ -3,6 +3,7 @@
  */
 
 import { Pool } from "pg";
+import { logger } from "./logger";
 
 export interface DbMessage {
   id: string;
@@ -38,7 +39,7 @@ class Database {
 
   async init(): Promise<void> {
     await this.createTables();
-    console.log("Database initialized successfully");
+    logger.info("Database initialized successfully");
   }
 
   async ping(): Promise<void> {
