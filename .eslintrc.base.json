@@ -6,9 +6,11 @@
       "error",
       {
         "argsIgnorePattern": "^_",
-        "varsIgnorePattern": "^_"
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
       }
-    ]
+    ],
+    "no-empty": ["error", { "allowEmptyCatch": true }]
   },
   "env": {
     "node": true,

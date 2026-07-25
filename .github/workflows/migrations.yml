@@ -1,0 +1,32 @@
+name: Migration Tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "services/indexer/migrations/**"
+      - "tests/migrations/**"
+      - "docker-compose.migrations.yml"
+      - ".github/workflows/migrations.yml"
+  pull_request:
+    paths:
+      - "services/indexer/migrations/**"
+      - "tests/migrations/**"
+      - "docker-compose.migrations.yml"
+      - ".github/workflows/migrations.yml"
+
+jobs:
+  migrations:
+    name: Indexer DB Migrations
+    runs-on: ubuntu-latest
+    # Docker (compose v2) is preinstalled on ubuntu-latest runners; the test
+    # harness manages its own throwaway PostgreSQL via docker-compose.migrations.yml.
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run migration test suite
+        run: bash tests/migrations/test-migrations.sh

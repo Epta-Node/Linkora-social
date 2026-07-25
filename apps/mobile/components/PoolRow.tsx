@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+import { useTheme } from "../theme/useTheme";
 
 export interface PoolSearchResult {
   id: string;
@@ -16,6 +18,9 @@ interface PoolRowProps {
 }
 
 export function PoolRow({ pool, onPress }: PoolRowProps) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   return (
     <TouchableOpacity
       style={styles.row}
@@ -41,58 +46,60 @@ export function PoolRow({ pool, onPress }: PoolRowProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    minHeight: 84,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1e293b",
-  },
-  icon: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
-    backgroundColor: "#0f766e",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  iconText: {
-    color: "#ffffff",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  content: {
-    flex: 1,
-  },
-  heading: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  title: {
-    flex: 1,
-    color: "#f8fafc",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  balance: {
-    color: "#a7f3d0",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  subtitle: {
-    color: "#94a3b8",
-    fontSize: 13,
-    marginTop: 2,
-  },
-  meta: {
-    color: "#64748b",
-    fontSize: 11,
-    marginTop: 4,
-  },
-});
+function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
+  return StyleSheet.create({
+    row: {
+      minHeight: 84,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.surface.border,
+    },
+    icon: {
+      width: 44,
+      height: 44,
+      borderRadius: 10,
+      backgroundColor: theme.colors.brand.secondary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+    },
+    iconText: {
+      color: theme.colors.text.onBrand,
+      fontSize: 22,
+      fontWeight: "800",
+    },
+    content: {
+      flex: 1,
+    },
+    heading: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+    },
+    title: {
+      flex: 1,
+      color: theme.colors.text.primary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    balance: {
+      color: theme.colors.semantic.success,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    subtitle: {
+      color: theme.colors.text.secondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    meta: {
+      color: theme.colors.text.secondary,
+      fontSize: 11,
+      marginTop: 4,
+    },
+  });
+}

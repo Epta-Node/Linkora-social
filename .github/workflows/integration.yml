@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       run_e2e:
-        description: 'Run Playwright E2E tests after integration tests'
+        description: "Run Playwright E2E tests after integration tests"
         required: false
-        default: 'false'
+        default: "false"
         type: choice
         options:
-          - 'true'
-          - 'false'
+          - "true"
+          - "false"
   schedule:
     # Runs nightly at 02:00 UTC.
     - cron: "0 2 * * *"
@@ -28,12 +28,15 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Cache Rust build artefacts
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: packages/contracts
+
+      - name: Install system dependencies
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libdbus-1-dev pkg-config libudev-dev libhidapi-dev
 
       - name: Install stellar-cli
         run: cargo install --locked stellar-cli --version 22.8.1
@@ -62,7 +65,7 @@ jobs:
 
       - name: Run Playwright E2E tests (optional)
         if: github.event.inputs.run_e2e == 'true' || github.event_name == 'schedule'
-        working-directory: packages/web
+        working-directory: apps/web
         env:
           CI: true
         run: pnpm test:e2e
@@ -72,5 +75,5 @@ jobs:
         if: (github.event.inputs.run_e2e == 'true' || github.event_name == 'schedule') && always()
         with:
           name: playwright-report
-          path: packages/web/playwright-report/
+          path: apps/web/playwright-report/
           retention-days: 30

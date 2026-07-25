@@ -1,34 +1,78 @@
 {
-  "name": "sdk",
-  "version": "0.0.1",
-  "private": true,
-  "main": "./src/index.ts",
+  "name": "linkora-sdk",
+  "version": "0.1.0",
+  "description": "Typed TypeScript client for LinkoraContract on Stellar",
+  "homepage": "https://github.com/Epta-Node/Linkora-social#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Epta-Node/Linkora-social.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/Epta-Node/Linkora-social/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "Linkora Contributors",
+  "keywords": [
+    "stellar",
+    "soroban",
+    "linkora",
+    "sdk",
+    "typescript",
+    "client"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
-    "build": "echo \"Run generate.sh to regenerate the client from the contract WASM\"",
+    "build": "tsc --outDir dist --declaration --declarationMap --sourceMap --module commonjs --target ES2020 --moduleResolution node --esModuleInterop --skipLibCheck",
     "docs": "typedoc --out docs src/index.ts --tsconfig tsconfig.json",
     "test": "jest",
-    "test:e2e": "jest --testPathPattern=e2e.test.ts"
+    "test:e2e": "jest --config jest.e2e.config.js"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^12.3.0"
+    "@noble/ciphers": "^0.5.3",
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@stellar/stellar-base": "^12.1.1",
+    "@stellar/stellar-sdk": "^12.3.0",
+    "ajv": "^8.17.1"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.12",
+    "@types/jest": "^29.5.14",
     "jest": "^29.7.0",
-    "ts-jest": "^29.1.2",
-    "typedoc": "^0.26.11",
+    "ts-jest": "^29.4.11",
+    "typedoc": "^0.27.9",
     "typescript": "^5.8.3"
   },
-  "jest": {
-    "preset": "ts-jest",
-    "testEnvironment": "node",
-    "testMatch": ["**/__tests__/**/*.test.ts"],
-    "collectCoverageFrom": [
-      "src/**/*.ts",
-      "!src/**/*.d.ts",
-      "!src/__tests__/**"
-    ]
+  "peerDependencies": {
+    "@ledgerhq/hw-app-str": "^7.0.0",
+    "@ledgerhq/hw-transport-node-hid": "^6.0.0",
+    "@ledgerhq/hw-transport-webhid": "^6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@ledgerhq/hw-transport-webhid": {
+      "optional": true
+    },
+    "@ledgerhq/hw-transport-node-hid": {
+      "optional": true
+    },
+    "@ledgerhq/hw-app-str": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

@@ -10,7 +10,7 @@
     "test:integration": "../../tests/integration/run_e2e.sh",
     "dev": "cargo watch -x test",
     "format": "cargo fmt",
-    "generate:bindings": "stellar contract bindings typescript --wasm contracts/linkora-contracts/target/wasm32v1-none/release/linkora_contracts.wasm --output src/ --overwrite"
+    "generate:bindings": "stellar contract bindings typescript --wasm contracts/linkora-contracts/target/wasm32-unknown-unknown/release/linkora_contracts.wasm --output src/ --overwrite"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^13.0.0"

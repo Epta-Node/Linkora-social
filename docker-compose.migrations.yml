@@ -1,0 +1,34 @@
+# Ephemeral PostgreSQL used only for migration testing.
+#
+# It is deliberately isolated from docker-compose.yml:
+#   * a dedicated container name and project-independent port (55432) so it
+#     never clashes with a running dev stack,
+#   * data lives on tmpfs (RAM) with fsync disabled — the database is thrown
+#     away after every run, so durability is irrelevant and this keeps the
+#     whole test suite well under the 60s budget.
+#
+# Driven by tests/migrations/test-migrations.sh (locally and in CI).
+
+services:
+  migrations-postgres:
+    image: postgres:16-alpine
+    container_name: linkora-migrations-postgres
+    environment:
+      POSTGRES_USER: linkora
+      POSTGRES_PASSWORD: linkora
+      POSTGRES_DB: linkora_migtest
+    command:
+      ["postgres", "-c", "fsync=off", "-c", "full_page_writes=off", "-c", "synchronous_commit=off"]
+    ports:
+      - "55432:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      # Probe over TCP (-h 127.0.0.1), not the unix socket: during first-boot
+      # initdb the image runs a socket-only bootstrap server that would
+      # otherwise report "ready" before the real server is accepting clients.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U linkora -d linkora_migtest"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s

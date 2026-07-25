@@ -14,7 +14,6 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/"
-      - "/packages/web"
       - "/packages/sdk"
       - "/apps/web"
       - "/apps/mobile"

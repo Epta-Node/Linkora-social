@@ -26,6 +26,14 @@ function makeMockDb(): jest.Mocked<Database> {
     insertTip: jest.fn(),
     upsertPool: jest.fn(),
     adjustPoolBalance: jest.fn(),
+    insertPool: jest.fn(),
+    getPool: jest.fn(),
+    addPoolAdmin: jest.fn(),
+    removePoolAdmin: jest.fn(),
+    getProfile: jest.fn(),
+    listPosts: jest.fn(),
+    getFollowers: jest.fn(),
+    getFollowing: jest.fn(),
   } as jest.Mocked<Database>;
 }
 
@@ -123,6 +131,28 @@ describe("handleFollow", () => {
     };
 
     await expect(handleFollow(db, event)).rejects.toThrow("DB write failed");
+  });
+
+  it("dispatches a follow notification when a notification service is provided", async () => {
+    const notificationService = {
+      dispatchEventNotification: jest.fn().mockResolvedValue(true),
+    };
+    const event: FollowEvent = {
+      follower: "GABC123",
+      followee: "GXYZ789",
+      ledger: 100,
+    };
+
+    await handleFollow(db, event, { notificationService: notificationService as never });
+
+    expect(notificationService.dispatchEventNotification).toHaveBeenCalledWith({
+      type: "FOLLOW",
+      recipient: "GXYZ789",
+      payload: {
+        followerAddress: "GABC123",
+        deepLink: "linkora://profile/GABC123",
+      },
+    });
   });
 });
 

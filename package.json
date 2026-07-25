@@ -9,10 +9,13 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:integration": "pnpm --filter contracts test:integration",
+    "codegen": "pnpm build:contracts && pnpm --filter @linkora/codegen generate",
+    "codegen:check": "pnpm codegen && git diff --exit-code packages/sdk/src/generated/",
     "format": "turbo run format",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@playwright/test": "^1.45.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
@@ -20,7 +23,7 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "husky": "^9.1.7",
     "lint-staged": "^15.2.10",
-    "prettier": "^3.0.0",
+    "prettier": "^3.8.3",
     "ts-node": "^10.9.2",
     "turbo": "latest"
   },
@@ -33,7 +36,7 @@
       "prettier --write"
     ],
     "*.rs": [
-      "cargo fmt --check"
+      "bash -c 'cd packages/contracts && cargo fmt'"
     ]
   },
   "packageManager": "pnpm@9.15.9"

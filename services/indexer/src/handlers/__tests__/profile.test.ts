@@ -27,6 +27,14 @@ function makeMockDb(): jest.Mocked<Database> {
     insertTip: jest.fn(),
     upsertPool: jest.fn(),
     adjustPoolBalance: jest.fn(),
+    insertPool: jest.fn(),
+    getPool: jest.fn(),
+    addPoolAdmin: jest.fn(),
+    removePoolAdmin: jest.fn(),
+    getProfile: jest.fn(),
+    listPosts: jest.fn(),
+    getFollowers: jest.fn(),
+    getFollowing: jest.fn(),
   } as jest.Mocked<Database>;
 }
 

@@ -77,4 +77,27 @@ describe("Like Event Handler", () => {
     expect(mockQuery).toHaveBeenCalledWith("ROLLBACK");
     expect(mockRelease).toHaveBeenCalled();
   });
+
+  it("should dispatch a push notification to the post author", async () => {
+    const { event, context } = createMockLikeEvent("GUSER123", 42n);
+
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 }); // BEGIN
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 }); // INSERT like
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 }); // UPDATE post
+    mockQuery.mockResolvedValueOnce({ rowCount: 1 }); // COMMIT
+
+    await handleLike(mockPool, event, context);
+
+    expect(mockQuery).toHaveBeenCalledWith("BEGIN");
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO likes"),
+      expect.arrayContaining(["42", "GUSER123", context.timestamp, context.txHash])
+    );
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE posts"),
+      expect.arrayContaining(["42"])
+    );
+    expect(mockQuery).toHaveBeenCalledWith("COMMIT");
+    expect(mockRelease).toHaveBeenCalled();
+  });
 });

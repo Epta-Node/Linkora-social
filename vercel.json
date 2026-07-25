@@ -1,0 +1,4 @@
+{
+  "buildCommand": "cd ../.. && pnpm run build --filter=linkora-sdk && turbo run build --filter=apps-web",
+  "installCommand": "pnpm install"
+}

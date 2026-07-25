@@ -46,7 +46,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -68,6 +68,11 @@ jobs:
 
       - name: Run clippy
         run: cargo clippy -- -D warnings
+
+      - name: Build contract wasm
+        run: |
+          cargo build --target wasm32v1-none --release -p linkora-contracts
+          cp target/wasm32v1-none/release/linkora_contracts.wasm contracts/linkora-contracts/linkora_contracts.wasm
 
       - name: Run unit tests
         run: cargo test

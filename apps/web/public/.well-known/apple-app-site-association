@@ -1,0 +1,32 @@
+/*
+ * Apple App Site Association (AASA) file for linkora.social
+ *
+ * Universal links are verified by iOS against this file. Before deploying
+ * to production you MUST replace the placeholder Team ID below with your
+ * real Apple Developer Team ID.
+ *
+ * How to find your Team ID:
+ *   1. Open https://developer.apple.com/account and sign in.
+ *   2. Click "Membership" in the left sidebar (or visit
+ *      https://developer.apple.com/account/#/membership).
+ *   3. Your Team ID is shown at the top of the page, labelled "Team ID".
+ *      It is a 10-character alphanumeric string, e.g. "1A2B3C4D5E".
+ *
+ * Once you have the real Team ID, replace YOUR_APPLE_TEAM_ID below with
+ * it so the appID reads: "REAL_TEAM_ID.social.linkora.app"
+ */
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["YOUR_APPLE_TEAM_ID.social.linkora.app"],
+        "components": [
+          { "/": "/post/*", "comment": "Post detail links" },
+          { "/": "/profile/*", "comment": "Profile links" },
+          { "/": "/pool/*", "comment": "Pool links" },
+          { "/": "/dm/*", "comment": "Direct message links" }
+        ]
+      }
+    ]
+  }
+}

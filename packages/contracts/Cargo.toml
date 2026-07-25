@@ -1,11 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-  "contracts/*",
+  "contracts/linkora-contracts",
+  "contracts/token-factory",
 ]
 
 [workspace.dependencies]
-soroban-sdk = "25"
+soroban-sdk = { version = "26", features = ["alloc"] }
 
 [profile.release]
 opt-level = "z"
