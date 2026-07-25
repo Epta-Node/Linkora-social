@@ -4,6 +4,7 @@
 
 import * as cron from 'node-cron';
 import { Database } from './database';
+import { logger } from './logger';
 
 export class CleanupService {
   private database: Database;
@@ -21,7 +22,7 @@ export class CleanupService {
    */
   start(): void {
     if (this.task) {
-      console.warn('Cleanup service is already running');
+      logger.warn('Cleanup service is already running');
       return;
     }
 
@@ -33,7 +34,7 @@ export class CleanupService {
       timezone: 'UTC'
     });
 
-    console.log(`Cleanup service started (TTL: ${this.ttlDays} days)`);
+    logger.info({ ttlDays: this.ttlDays }, 'Cleanup service started');
   }
 
   /**
@@ -43,7 +44,7 @@ export class CleanupService {
     if (this.task) {
       this.task.stop();
       this.task = null;
-      console.log('Cleanup service stopped');
+      logger.info('Cleanup service stopped');
     }
   }
 
@@ -52,19 +53,19 @@ export class CleanupService {
    */
   async performCleanup(): Promise<number> {
     try {
-      console.log(`Starting cleanup of messages older than ${this.ttlDays} days...`);
+      logger.info({ ttlDays: this.ttlDays }, 'Starting cleanup of expired messages');
       
       const deletedCount = await this.database.deleteExpiredMessages(this.ttlDays);
       
       if (deletedCount > 0) {
-        console.log(`Cleanup completed: ${deletedCount} expired messages deleted`);
+        logger.info({ deletedCount }, 'Cleanup completed');
       } else {
-        console.log('Cleanup completed: no expired messages found');
+        logger.info('Cleanup completed: no expired messages found');
       }
       
       return deletedCount;
     } catch (error) {
-      console.error('Cleanup failed:', error);
+      logger.error({ err: error }, 'Cleanup failed');
       throw error;
     }
   }

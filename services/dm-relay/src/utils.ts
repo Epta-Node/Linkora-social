@@ -36,7 +36,7 @@ export function sanitizeError(error: unknown): string {
  * Generate a unique request ID for logging.
  */
 export function generateRequestId(): string {
-  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+  return crypto.randomUUID();
 }
 
 /**

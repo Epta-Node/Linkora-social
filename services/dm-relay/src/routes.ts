@@ -16,6 +16,7 @@ import {
 import { createConversationId, sanitizeError } from "./utils";
 import { ZodError } from "zod";
 import { StrKey } from "@stellar/stellar-sdk";
+import { logger } from "./logger";
 
 // ── WebSocket client registry (address → set of sockets) ─────────────────────
 
@@ -88,9 +89,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
         messageData.timestamp
       );
 
-      console.log(
-        `[${req.requestId}] Message stored: ${messageId} (conversation: ${conversationId})`
-      );
+      logger.info({ requestId: req.requestId, messageId, conversationId }, "Message stored");
 
       // Push to recipient if online
       pushToRecipient(messageData.recipient, {
@@ -108,7 +107,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
         conversation_id: conversationId,
       });
     } catch (error) {
-      console.error(`[${req.requestId}] Message submission error:`, error);
+      logger.error({ requestId: req.requestId, err: error }, "Message submission error");
 
       if (error instanceof ZodError) {
         return res.status(400).json({
@@ -197,7 +196,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
         address,
       });
     } catch (error) {
-      console.error(`[${req.requestId}] Message retrieval error:`, error);
+      logger.error({ requestId: req.requestId, err: error }, "Message retrieval error");
 
       if (error instanceof ZodError) {
         return res.status(400).json({
@@ -265,7 +264,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
         conversation_id: conversationId,
       });
     } catch (error) {
-      console.error(`[${req.requestId}] Message retrieval error:`, error);
+      logger.error({ requestId: req.requestId, err: error }, "Message retrieval error");
 
       if (error instanceof ZodError) {
         return res.status(400).json({
@@ -316,7 +315,7 @@ export function createRouter(database: Database, _authService: AuthService): Rou
         },
       });
     } catch (error) {
-      console.error(`[${req.requestId}] Health check error:`, error);
+      logger.error({ requestId: req.requestId, err: error }, "Health check error");
 
       res.status(503).json({
         status: "unhealthy",
