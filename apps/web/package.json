@@ -15,17 +15,17 @@
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
-    "@radix-ui/react-dialog": "^1.1.20",
+    "@radix-ui/react-dialog": "^1.1.23",
     "@stellar/freighter-api": "^2.0.0",
     "browser-image-compression": "^2.0.2",
     "framer-motion": "^12.42.2",
     "linkora-sdk": "workspace:*",
-    "lucide-react": "^1.25.0",
+    "lucide-react": "^1.31.0",
     "next": "15.5.19",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "react-textarea-autosize": "^8.5.9",
-    "recharts": "^3.9.0"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.45.0",
