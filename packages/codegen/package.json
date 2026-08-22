@@ -12,7 +12,7 @@
     "@stellar/stellar-sdk": "^15.1.0"
   },
   "devDependencies": {
-    "tsx": "^4.22.4",
+    "tsx": "^4.23.12",
     "typescript": "^5.8.3"
   }
 }
