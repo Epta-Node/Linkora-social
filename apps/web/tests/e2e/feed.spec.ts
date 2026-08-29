@@ -29,4 +29,27 @@ test.describe("Feed Flow", () => {
     }
     await expect(addressChip).toBeVisible({ timeout: 10000 });
   });
+
+  test("following feed issues a small, bounded number of requests regardless of following count", async ({ page }) => {
+    let requestsCount = 0;
+    await page.route("**/api/**", (route) => {
+      const url = route.request().url();
+      if (url.includes("/api/posts") || url.includes("/api/feed/following") || url.includes("/api/follows")) {
+        requestsCount++;
+      }
+      route.continue();
+    });
+
+    await page.goto("/feed");
+    await page.waitForLoadState("networkidle");
+
+    const followingTab = page.getByRole("button", { name: "Following" });
+    if (await followingTab.isVisible().catch(() => false)) {
+      requestsCount = 0;
+      await followingTab.click();
+      await page.waitForTimeout(500);
+      // Verify request count stays bounded (<= 2 requests per page load, rather than N requests for N followed accounts)
+      expect(requestsCount).toBeLessThanOrEqual(2);
+    }
+  });
 });

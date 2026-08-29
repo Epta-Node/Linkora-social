@@ -189,7 +189,7 @@ export function createFeedRouter(dbOrPg: Database | Pool): Router {
           AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = $1 AND blocked = p.author)
           AND NOT EXISTS (SELECT 1 FROM blocks WHERE blocker = p.author AND blocked = $1)
       `;
-      const params: (string | Date)[] = [address];
+      const params: unknown[] = [address];
       let paramIndex = 2;
 
       if (tag) {
@@ -199,15 +199,18 @@ export function createFeedRouter(dbOrPg: Database | Pool): Router {
       }
 
       if (cursor !== undefined) {
-        query += ` AND p.created_at < $${paramIndex}`;
-        params.push(new Date(cursor));
-        paramIndex++;
+        const cursorDate = !Number.isNaN(Number(cursor)) ? new Date(Number(cursor)) : new Date(cursor);
+        if (!Number.isNaN(cursorDate.getTime())) {
+          query += ` AND p.created_at < $${paramIndex}`;
+          params.push(cursorDate);
+          paramIndex++;
+        }
       }
 
       query += ` ORDER BY p.created_at DESC LIMIT $${paramIndex}`;
-      params.push(String(limit));
+      params.push(limit);
 
-      const result = await dbOrPg.query(query, params);
+      const result = await queryView(dbOrPg, query, params);
 
       res.json({
         posts: result.rows.map((row) => ({

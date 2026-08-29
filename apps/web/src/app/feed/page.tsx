@@ -155,7 +155,7 @@ export default function FeedPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-  const [cursor, setCursor] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<string | number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -176,23 +176,26 @@ export default function FeedPage() {
   /* ── Fetch Posts Logic ──────────────────────────────────────────────── */
 
   const fetchExploreFeed = useCallback(
-    async (cursorParam: number | null, append = false) => {
+    async (cursorParam: string | number | null, append = false) => {
       try {
         if (!append) setLoading(true);
         else setLoadingMore(true);
 
-        const cursorQuery = cursorParam !== null ? `&cursor=${cursorParam}` : "";
+        const cursorQuery = cursorParam !== null ? `&cursor=${encodeURIComponent(cursorParam)}` : "";
         const res = await fetch(`${indexerUrl}/api/posts?limit=${PAGE_SIZE}${cursorQuery}`);
         if (!res.ok) throw new Error("Failed to fetch explore posts");
 
         const data = await res.json();
         const fetchedPosts: Post[] = data.posts ?? [];
+        const serverHasMore = data.has_more ?? false;
+        const nextCursor = data.next_cursor ?? null;
 
-        setPosts((prev) => (append ? [...prev, ...fetchedPosts] : fetchedPosts));
-        setHasMore(data.has_more ?? false);
-
-        const newPosts = append ? [...posts, ...fetchedPosts] : fetchedPosts;
-        persistFeed({ posts: newPosts, cursor: cursorParam, hasMore: data.has_more ?? false });
+        setPosts((prev) => {
+          const newPosts = append ? [...prev, ...fetchedPosts] : fetchedPosts;
+          persistFeed({ posts: newPosts, cursor: nextCursor ?? cursorParam, hasMore: serverHasMore });
+          return newPosts;
+        });
+        setHasMore(serverHasMore);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -200,11 +203,11 @@ export default function FeedPage() {
         setLoadingMore(false);
       }
     },
-    [posts, persistFeed]
+    [persistFeed]
   );
 
   const fetchFollowingFeed = useCallback(
-    async (cursorParam: number | null, append = false) => {
+    async (cursorParam: string | number | null, append = false) => {
       if (!currentUserAddress) {
         setPosts([]);
         setLoading(false);
@@ -215,56 +218,45 @@ export default function FeedPage() {
         if (!append) setLoading(true);
         else setLoadingMore(true);
 
-        // 1. Get followed accounts
-        const followingRes = await fetch(
-          `${indexerUrl}/api/follows/${currentUserAddress}/following?limit=100`
+        const cursorQuery = cursorParam !== null ? `&cursor=${encodeURIComponent(cursorParam)}` : "";
+        const res = await fetch(
+          `${indexerUrl}/api/feed/following/${currentUserAddress}?limit=${PAGE_SIZE}${cursorQuery}`
         );
-        if (!followingRes.ok) throw new Error("Failed to fetch following graph");
-        const followingData = await followingRes.json();
-        const followingList: string[] = followingData.following ?? [];
+        if (!res.ok) throw new Error("Failed to fetch following feed");
 
-        if (followingList.length === 0) {
-          setPosts([]);
-          setHasMore(false);
-          setFollowsNobody(true);
-          setLoading(false);
-          setLoadingMore(false);
-          return;
+        const data = await res.json();
+        const fetchedPosts: Post[] = data.posts ?? [];
+        const serverHasMore = data.has_more ?? false;
+        const nextCursor = data.next_cursor ?? null;
+
+        if (!append && fetchedPosts.length === 0) {
+          try {
+            const followsRes = await fetch(
+              `${indexerUrl}/api/follows/${currentUserAddress}/following?limit=1`
+            );
+            if (followsRes.ok) {
+              const followsData = await followsRes.json();
+              setFollowsNobody((followsData.following ?? []).length === 0);
+            }
+          } catch {
+            setFollowsNobody(false);
+          }
+        } else {
+          setFollowsNobody(false);
         }
-        setFollowsNobody(false);
 
-        // 2. Fetch posts from followed accounts in parallel
-        const postsPromises = followingList.map(async (addr) => {
-          const cursorQuery = cursorParam !== null ? `&cursor=${cursorParam}` : "";
-          const postsRes = await fetch(
-            `${indexerUrl}/api/posts?author=${addr}&limit=10${cursorQuery}`
-          );
-          if (!postsRes.ok) return [];
-          const d = await postsRes.json();
-          return d.posts ?? [];
+        setPosts((prev) => {
+          const newPosts = append ? [...prev, ...fetchedPosts] : fetchedPosts;
+          persistFeed({
+            posts: newPosts,
+            cursor: nextCursor,
+            hasMore: serverHasMore,
+          });
+          return newPosts;
         });
 
-        const allFetchedNested = await Promise.all(postsPromises);
-        const allFetchedPosts: Post[] = allFetchedNested.flat();
-
-        // Sort chronological descending
-        allFetchedPosts.sort((a, b) => {
-          const timeA = Number(a.created_at ?? a.timestamp ?? 0);
-          const timeB = Number(b.created_at ?? b.timestamp ?? 0);
-          return timeB - timeA;
-        });
-
-        // For following tab, we use client-side pagination with cursor
-        const startIdx = append ? posts.length : 0;
-        const paginated = allFetchedPosts.slice(startIdx, startIdx + PAGE_SIZE);
-        const newPosts = append ? [...posts, ...paginated] : paginated;
-        setPosts((prev) => (append ? [...prev, ...paginated] : paginated));
-        setHasMore(startIdx + paginated.length < allFetchedPosts.length);
-        persistFeed({
-          posts: newPosts,
-          cursor: cursorParam,
-          hasMore: startIdx + paginated.length < allFetchedPosts.length,
-        });
+        setHasMore(serverHasMore);
+        setCursor(nextCursor);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -272,11 +264,11 @@ export default function FeedPage() {
         setLoadingMore(false);
       }
     },
-    [currentUserAddress, posts, persistFeed] as const
+    [currentUserAddress, persistFeed]
   );
 
   const loadFeed = useCallback(
-    (cursorParam: number | null, append = false) => {
+    (cursorParam: string | number | null, append = false) => {
       setError(null);
       if (activeTab === "following") {
         fetchFollowingFeed(cursorParam, append);
@@ -324,11 +316,10 @@ export default function FeedPage() {
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) {
-          // Use the oldest post's timestamp as the next cursor
           const oldestPost = posts[posts.length - 1];
-          const nextCursor = oldestPost
-            ? Number(oldestPost.created_at ?? oldestPost.timestamp ?? 0)
-            : null;
+          const nextCursor = cursor ?? (oldestPost
+            ? (oldestPost.created_at ?? oldestPost.timestamp ?? null)
+            : null);
           setCursor(nextCursor);
           loadFeed(nextCursor, true);
         }
@@ -341,7 +332,7 @@ export default function FeedPage() {
     return () => {
       if (el) observer.unobserve(el);
     };
-  }, [loading, loadingMore, hasMore, posts, loadFeed]);
+  }, [loading, loadingMore, hasMore, posts, cursor, loadFeed]);
 
   // Scroll to Top FAB
   useEffect(() => {
