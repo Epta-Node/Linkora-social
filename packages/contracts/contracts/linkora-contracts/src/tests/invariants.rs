@@ -360,6 +360,59 @@ fn invariant_no_orphaned_authored_posts_after_profile_deletion() {
     assert!(client.get_post(&post_id2).is_none());
 }
 
+// ── Issue #1249: pool existence invariant ───────────────────────────────────
+//
+// These invariants verify that get_pool and get_pool_admins always
+// distinguish between a pool that was never created and one that exists
+// with zero admins.
+
+#[test]
+fn invariant_get_pool_admins_none_for_missing_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_test_env(&env);
+
+    // Invariant: get_pool_admins must return None for a pool_id
+    // that was never created — not an empty Vec.
+    let missing_id = soroban_sdk::symbol_short!("never");
+    assert_eq!(
+        client.get_pool_admins(&missing_id),
+        None,
+        "get_pool_admins must return None for a non-existent pool"
+    );
+    // Also verify get_pool returns None for the same missing id.
+    assert!(
+        client.get_pool(&missing_id).is_none(),
+        "get_pool must return None for a non-existent pool"
+    );
+}
+
+#[test]
+fn invariant_existing_pool_admins_are_some() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_test_env(&env);
+
+    let pool_admin = Address::generate(&env);
+    let token = setup_token_in_env(&env, &pool_admin);
+
+    let pool_id = soroban_sdk::symbol_short!("inv12");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+
+    // Invariant: After creation, get_pool returns Some and
+    // get_pool_admins returns Some with the correct admin list.
+    assert!(client.get_pool(&pool_id).is_some());
+    let admins = client.get_pool_admins(&pool_id).unwrap();
+    assert_eq!(admins.len(), 1);
+    assert!(admins.iter().any(|a| a == pool_admin));
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn setup_test_env(env: &Env) -> (LinkoraContractClient<'_>, Address, Address) {

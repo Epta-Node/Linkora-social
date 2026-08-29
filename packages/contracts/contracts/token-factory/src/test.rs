@@ -90,12 +90,6 @@ fn test_same_inputs_produce_same_salt() {
 }
 
 // ── Event emission test ───────────────────────────────────────────────────────
-//
-// We verify that deploying a creator token (via the factory) results in
-// the CreatorTokenDeployedEvent being present in the event log.
-// The full deploy_v2 path requires a live WASM; integration tests cover that.
-// Here we verify the event struct serializes correctly by publishing directly
-// from within the test, which requires a mock contract context.
 
 #[test]
 fn test_event_published_when_deploy_helper_called() {
@@ -124,4 +118,30 @@ fn test_event_published_when_deploy_helper_called() {
     };
     // If this compiles and runs, the struct is correctly wired.
     // The publish() call itself is exercised in the integration tests.
+}
+
+// ── Validation tests ──────────────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "token_wasm_hash must not be zero")]
+fn test_initialize_rejects_zero_wasm_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let factory_id = env.register(TokenFactoryContract, ());
+    let client = TokenFactoryContractClient::new(&env, &factory_id);
+
+    let admin = Address::generate(&env);
+    let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+    client.initialize(&admin, &zero_hash);
+}
+
+#[test]
+#[should_panic(expected = "token_wasm_hash must not be zero")]
+fn test_update_token_wasm_rejects_zero_hash() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup(&env);
+
+    let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+    client.update_token_wasm(&zero_hash);
 }

@@ -6,11 +6,27 @@ use soroban_sdk::{
     contract, contractevent, contractimpl, symbol_short, Address, BytesN, Env, String, Symbol,
 };
 
+#[macro_export]
+macro_rules! require_with_error {
+    ($env:expr, $cond:expr, $msg:expr) => {{
+        if !($cond) {
+            let _ = &$env;
+            panic!("{}", $msg);
+        }
+    }};
+}
+
 // ── Storage Keys ──────────────────────────────────────────────────────────────
 
 const ADMIN: Symbol = symbol_short!("ADMIN");
 const TOKEN_WASM: Symbol = symbol_short!("TOKN_WSM");
 const INIT: Symbol = symbol_short!("INIT");
+
+// ── Validation Constants ────────────────────────────────────────────────────────
+
+const MAX_DECIMALS: u32 = 38;
+const MAX_NAME_LEN: u32 = 64;
+const MAX_SYMBOL_LEN: u32 = 16;
 
 // ── TTL ───────────────────────────────────────────────────────────────────────
 
@@ -65,6 +81,17 @@ impl TokenFactoryContract {
         {
             panic!("already initialized");
         }
+
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        require_with_error!(
+            &env,
+            token_wasm_hash != zero_hash,
+            "token_wasm_hash must not be zero"
+        );
+        // Validate admin is not the zero address by requiring auth.
+        // A zero address cannot satisfy require_auth, so this implicitly rejects it.
+        admin.require_auth();
+
         env.storage().instance().set(&ADMIN, &admin);
         env.storage().instance().set(&TOKEN_WASM, &token_wasm_hash);
         env.storage().instance().set(&INIT, &true);
@@ -83,6 +110,12 @@ impl TokenFactoryContract {
     pub fn update_token_wasm(env: Env, new_wasm_hash: BytesN<32>) {
         let admin: Address = env.storage().instance().get(&ADMIN).unwrap();
         admin.require_auth();
+        let zero_hash = BytesN::from_array(&env, &[0u8; 32]);
+        require_with_error!(
+            &env,
+            new_wasm_hash != zero_hash,
+            "token_wasm_hash must not be zero"
+        );
         env.storage().instance().set(&TOKEN_WASM, &new_wasm_hash);
         env.storage()
             .instance()
@@ -125,6 +158,22 @@ impl TokenFactoryContract {
         initial_supply: i128,
     ) -> Address {
         deployer.require_auth();
+
+        require_with_error!(
+            &env,
+            decimals <= MAX_DECIMALS,
+            "decimals must be at most 38"
+        );
+        require_with_error!(
+            &env,
+            name.len() > 0 && name.len() <= MAX_NAME_LEN,
+            "name must be 1-64 characters"
+        );
+        require_with_error!(
+            &env,
+            symbol.len() > 0 && symbol.len() <= MAX_SYMBOL_LEN,
+            "symbol must be 1-16 characters"
+        );
 
         env.storage()
             .instance()

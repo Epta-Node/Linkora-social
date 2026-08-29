@@ -15,10 +15,13 @@
 import { Server as HttpServer } from "http";
 import { WebSocketServer, WebSocket, RawData } from "ws";
 import { EventBus, BusEvent, ALL_EVENTS } from "./bus";
-import { TokenBucket, wsRateLimiterFromEnv } from "./ratelimit";
+import { TokenBucket, wsRateLimiterFromEnv, wsMaxMessageBytesFromEnv } from "./ratelimit";
 
 /** WS close code for a connection dropped for violating server policy (RFC 6455). */
 const CLOSE_POLICY_VIOLATION = 1008;
+
+/** WS close code for payload exceeding max allowed size (RFC 6455). */
+const CLOSE_MESSAGE_TOO_LARGE = 1009;
 
 /** Consecutive over-budget frames tolerated before the connection is closed. */
 const DEFAULT_MAX_RATE_VIOLATIONS = 5;
@@ -28,6 +31,8 @@ export interface WsServerOptions {
   path?: string;
   /** Heartbeat interval in milliseconds. Default 15000. */
   heartbeatMs?: number;
+  /** Maximum allowed inbound frame size in bytes. Defaults to wsMaxMessageBytesFromEnv(). */
+  maxPayloadBytes?: number;
   /**
    * Per-connection inbound message budget. A frame received with an empty
    * bucket is dropped (with an error frame sent back) rather than processed;
@@ -72,8 +77,9 @@ export function attachWebSocketServer(
 ): WsHandle {
   const path = opts.path ?? "/ws";
   const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  const maxPayloadBytes = opts.maxPayloadBytes ?? wsMaxMessageBytesFromEnv();
 
-  const wss = new WebSocketServer({ server: httpServer, path });
+  const wss = new WebSocketServer({ server: httpServer, path, maxPayload: maxPayloadBytes });
   const clients = new Map<WebSocket, ClientState>();
 
   const createBucket = opts.rateLimit?.createBucket ?? wsRateLimiterFromEnv;
@@ -93,6 +99,19 @@ export function attachWebSocketServer(
     });
 
     ws.on("message", (raw: RawData) => {
+      const rawLength = Buffer.isBuffer(raw)
+        ? raw.length
+        : Array.isArray(raw)
+        ? raw.reduce((acc, b) => acc + b.length, 0)
+        : typeof raw === "string"
+        ? Buffer.byteLength(raw)
+        : (raw as ArrayBuffer).byteLength;
+
+      if (rawLength > maxPayloadBytes) {
+        ws.close(CLOSE_MESSAGE_TOO_LARGE, "message too large");
+        return;
+      }
+
       if (!state.bucket.tryRemove()) {
         state.rateViolations += 1;
         if (state.rateViolations > maxRateViolations) {

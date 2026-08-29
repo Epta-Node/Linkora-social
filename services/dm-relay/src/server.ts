@@ -143,7 +143,11 @@ async function createApp() {
   // Clients connect with ?address=<STELLAR_ADDRESS>&timestamp=<TS>&signature=<SIG>
   // to authenticate and receive their messages.
   const httpServer = http.createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: "/ws",
+    maxPayload: config.maxMessageBytes,
+  });
 
   // Counter for DB writes that are currently executing on behalf of a
   // WebSocket connection.  The shutdown handler drains this before closing
@@ -215,7 +219,7 @@ async function createApp() {
     }
 
     wsConnectionCounts.set(address, currentCount + 1);
-    registerWsClient(address, ws, inflightCounter);
+    registerWsClient(address, ws, inflightCounter, config.maxMessageBytes);
 
     logger.info(
       { address, ip: clientIp, connections: currentCount + 1 },

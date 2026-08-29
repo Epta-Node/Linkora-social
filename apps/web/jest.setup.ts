@@ -1,6 +1,10 @@
 // Jest setup file for DOM and React testing utilities
 import "@testing-library/jest-dom";
 import { toHaveNoViolations } from "jest-axe";
+import { TextEncoder } from "util";
+
+// Polyfill TextEncoder for jsdom (needed by SDK utf8 helper)
+global.TextEncoder = TextEncoder;
 
 // Extend Jest matchers with jest-axe
 expect.extend(toHaveNoViolations);
@@ -51,7 +55,7 @@ jest.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-// Mock LinkoraClient
+// Mock LinkoraClient and linkora-sdk utilities
 jest.mock("linkora-sdk", () => ({
   LinkoraClient: jest.fn().mockImplementation(() => ({
     getProfile: jest.fn().mockResolvedValue({
@@ -69,6 +73,7 @@ jest.mock("linkora-sdk", () => ({
     publicKey: new Uint8Array(32),
     privateKey: new Uint8Array(32),
   }),
+  utf8Bytes: (value: string) => Buffer.from(value, "utf8").length,
 }));
 
 // Mock @stellar/stellar-sdk

@@ -186,8 +186,17 @@ pub fn validate_signature(env: &Env, label: &str, signature: &BytesN<64>) {
     let zero = BytesN::from_array(env, &[0u8; 64]);
     require_with_error!(
         env,
-        signature != &zero,
-        format!("{label} must not be an all-zero signature")
+        signature != &zero && signature.to_array().len() == 64,
+        format!("{label} must not be an all-zero or malformed signature")
+    );
+}
+
+pub fn validate_pubkey_32(env: &Env, label: &str, pubkey: &BytesN<32>) {
+    let zero = BytesN::from_array(env, &[0u8; 32]);
+    require_with_error!(
+        env,
+        pubkey != &zero && pubkey.to_array().len() == 32,
+        format!("{label} must not be an all-zero or malformed public key")
     );
 }
 

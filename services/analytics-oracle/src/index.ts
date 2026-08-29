@@ -6,7 +6,7 @@ import * as ed from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha512";
 import { randomUUID } from "crypto";
 import { encodeReport } from "./codec.js";
-import { signReport } from "./signer.js";
+import { Signer } from "./signer.js";
 import { fetchCreatorStats } from "./db.js";
 import { submitAttestation } from "./submitter.js";
 import { AnalyticsReport, SignedAttestation } from "./types.js";
@@ -14,8 +14,10 @@ import { logger } from "./logger.js";
 import { rateLimiter, initRateLimiter } from "./middleware/rate-limiter.js";
 import { loadRateLimitConfig } from "./config.js";
 import { createHealthRouter } from "./routes/health.js";
+import { createAdminRouter } from "./routes/admin.js";
 import { validateParams } from "./middleware/validate.js";
 import { AttestationCache } from "./attestation-cache.js";
+import { createKeystore, Keystore } from "./secrets.js";
 import { z } from "zod";
 import { notFoundError, isAppError } from "@linkora/types/src/errors.js";
 
@@ -35,7 +37,6 @@ loadRateLimitConfig();
 const DATABASE_URL = requireEnv("DATABASE_URL");
 const SOROBAN_RPC_URL = requireEnv("SOROBAN_RPC_URL");
 const CONTRACT_ID = requireEnv("CONTRACT_ID");
-const ORACLE_PRIVATE_KEY_HEX = requireEnv("ORACLE_PRIVATE_KEY_HEX");
 const ORACLE_NAME = process.env["ORACLE_NAME"] ?? "default";
 const WINDOW_LEDGERS = BigInt(process.env["WINDOW_LEDGERS"] ?? "1000");
 const PORT = parseInt(process.env["PORT"] ?? "4000", 10);
@@ -47,8 +48,13 @@ const ATTESTATION_CACHE_MAX_SIZE = parseInt(
 const ATTESTATION_CACHE_TTL_MS = parseInt(process.env["ATTESTATION_CACHE_TTL_MS"] ?? "3600000", 10);
 const SHUTDOWN_DRAIN_TIMEOUT_MS = parseInt(process.env["SHUTDOWN_DRAIN_TIMEOUT_MS"] ?? "30000", 10);
 
-const oraclePrivateKey = Buffer.from(ORACLE_PRIVATE_KEY_HEX, "hex");
-const oracleKeypair = Keypair.fromRawEd25519Seed(oraclePrivateKey);
+// Load the signing key from the configured secrets backend (a mounted secret
+// file, or — for local dev only — an env var). The raw bytes are handed to the
+// Signer and immediately zeroed on the heap, so they do not persist in memory.
+const keystore: Keystore = createKeystore();
+const oracleSeed = keystore.loadSeed();
+const oracleSigner = new Signer(oracleSeed);
+keystore.zeroise();
 
 const db = new Pool({ connectionString: DATABASE_URL });
 
@@ -62,9 +68,9 @@ const attestationCache = new AttestationCache<SignedAttestation>({
 });
 
 // Bind the cache to the current signer key. If the key rotates (reload of the
-// private key env), calling setSignerId again with the new fingerprint clears
-// every cached signature produced under the previous key.
-const signerId = Buffer.from(ed.getPublicKey(oraclePrivateKey)).toString("hex");
+// signing key), calling setSignerId again with the new fingerprint clears every
+// cached signature produced under the previous key.
+const signerId = oracleSigner.fingerprint();
 attestationCache.setSignerId(signerId);
 
 let lastWindowEnd = BigInt(0);
@@ -118,7 +124,20 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
     };
 
     const reportCbor = encodeReport(report);
-    const { signature, reportHash } = signReport(reportCbor, oraclePrivateKey);
+    const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+
+    // Audit log: every signing includes the public-key fingerprint and the
+    // ledger window, never the private key material.
+    logger.info(
+      {
+        fingerprint: oracleSigner.fingerprint(),
+        creatorAddress: s.creatorAddress,
+        windowStart: windowStart.toString(),
+        windowEnd: windowEnd.toString(),
+        reportHash: reportHash.toString("hex"),
+      },
+      "Attestation signed"
+    );
 
     let txHash: string;
     try {
@@ -129,7 +148,7 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
         ORACLE_NAME,
         reportCbor,
         signature,
-        oracleKeypair,
+        oracleSigner.keypair(),
         s.creatorAddress,
         windowStart,
         windowEnd
@@ -251,6 +270,18 @@ app.get("/metrics/cache", (_req, res) => {
   res.json(attestationCache.getStats());
 });
 
+// ── Admin endpoints ───────────────────────────────────────────────────────────
+// Authenticated key-rotation API. Only reachable with a valid ADMIN_SECRET.
+
+app.use(
+  createAdminRouter({
+    signer: oracleSigner,
+    keystore,
+    invalidateCache: (fingerprint) => attestationCache.setSignerId(fingerprint),
+    isReady: () => started,
+  })
+);
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
@@ -271,15 +302,16 @@ app.use((err: Error, req: any, res: Response, _next: NextFunction): void => {
 });
 
 async function main(): Promise<void> {
-  const pubkeyHex = Buffer.from(ed.getPublicKey(oraclePrivateKey)).toString("hex");
+  const stellarAddress = oracleSigner.stellarPublicKey();
   logger.info(
     {
-      pubkeyHex,
-      stellarAddress: oracleKeypair.publicKey(),
+      pubkeyHex: oracleSigner.fingerprint(),
+      stellarAddress,
       contractId: CONTRACT_ID,
       windowLedgers: WINDOW_LEDGERS.toString(),
       cacheMaxSize: ATTESTATION_CACHE_MAX_SIZE,
       cacheTtlMs: ATTESTATION_CACHE_TTL_MS,
+      keySource: keystore.source,
     },
     "Oracle starting"
   );
@@ -342,6 +374,10 @@ async function main(): Promise<void> {
       await db.end();
       logger.info("PostgreSQL pool closed");
 
+      // 5. Zero the private key off the heap before exiting.
+      oracleSigner.dispose();
+      keystore.zeroise();
+
       clearTimeout(forceExitTimer);
       logger.info({ signal }, "Graceful shutdown complete");
       process.exit(0);
@@ -389,5 +425,7 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   logger.error({ err }, "Oracle fatal error");
+  keystore.zeroise();
+  oracleSigner.dispose();
   process.exit(1);
 });

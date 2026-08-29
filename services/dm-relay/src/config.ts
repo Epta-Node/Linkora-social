@@ -42,6 +42,7 @@ export function loadConfig() {
     corsOrigin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
     messageTtlDays: optionalInt("MESSAGE_TTL_DAYS", 7),
     maxTimestampSkew: optionalInt("MAX_TIMESTAMP_SKEW", 300),
+    maxMessageBytes: optionalInt("MAX_MESSAGE_BYTES", 64 * 1024),
     stellarNetwork: process.env.STELLAR_NETWORK || "Testnet",
     idempotencyTtlHours: optionalInt("IDEMPOTENCY_TTL_HOURS", 24),
   };

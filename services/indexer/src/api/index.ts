@@ -190,10 +190,7 @@ export function createApp(
   app.use("/api/pools", createPoolsRouter(db));
   app.use("/api/governance", createGovernanceRouter(db));
   app.use("/api/users", createUsersRouter(db));
-
-  if (pg) {
-    app.use("/api/feed", createFeedRouter(pg));
-  }
+  app.use("/api/feed", createFeedRouter(pg ?? db));
 
   const notificationService = pg
     ? new NotificationService({ deviceTokenStore: new PostgresDeviceTokenStore(pg) })
@@ -236,7 +233,9 @@ export function createApp(
       "Unhandled error"
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (typeof (err as any).statusCode === "number") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const appErr = err as any;
       res.status(appErr.statusCode).json({
         error: {

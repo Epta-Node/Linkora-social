@@ -92,7 +92,8 @@ This guide covers production deployment of the three Linkora backend services:
 | `DATABASE_URL`                   | ✅       | —                                   | PostgreSQL connection string, e.g. `postgresql://user:pass@host:5432/linkora_indexer` (can share the indexer's DB — read-only queries only) |
 | `SOROBAN_RPC_URL`                | ✅       | —                                   | Soroban RPC endpoint                                                                                                                        |
 | `CONTRACT_ID`                    | ✅       | —                                   | Linkora contract address                                                                                                                    |
-| `ORACLE_PRIVATE_KEY_HEX`         | ✅       | —                                   | 32-byte Ed25519 signing key as hex. **Keep this secret — use a secret manager in production**                                               |
+| `SECRETS`                        | ✅       | `env:ORACLE_PRIVATE_KEY_HEX`        | Signing key backend. Use `file:///path/to/key.hex` with a mounted secret in production; env fallback is dev-only                            |
+| `ADMIN_SECRET`                   | ⚠️       | —                                   | Bearer token for `POST /admin/rotate-key`. **Keep secret — use a secrets manager**                                                          |
 | `PORT`                           |          | `4000`                              | HTTP server port                                                                                                                            |
 | `ORACLE_NAME`                    |          | `default`                           | Identifier included in on-chain attestations                                                                                                |
 | `WINDOW_LEDGERS`                 |          | `1000`                              | Size of the analytics window in ledgers                                                                                                     |
@@ -303,7 +304,8 @@ services:
       DATABASE_URL: postgresql://linkora:${POSTGRES_PASSWORD}@postgres-indexer:5432/linkora_indexer
       SOROBAN_RPC_URL: ${STELLAR_RPC_URL}
       CONTRACT_ID: ${CONTRACT_ID}
-      ORACLE_PRIVATE_KEY_HEX: ${ORACLE_PRIVATE_KEY_HEX}
+      SECRETS: file:///run/secrets/oracle-key.hex
+      ADMIN_SECRET: ${ADMIN_SECRET}
       REDIS_URL: redis://redis:6379
       NODE_ENV: production
       NETWORK_PASSPHRASE: ${NETWORK_PASSPHRASE}
@@ -329,7 +331,7 @@ POSTGRES_PASSWORD=changeme
 STELLAR_RPC_URL=https://soroban-testnet.stellar.org
 CONTRACT_ID=C...
 START_LEDGER=12345678
-ORACLE_PRIVATE_KEY_HEX=<32-byte hex>
+ADMIN_SECRET=<high-entropy bearer token>
 STELLAR_NETWORK=Testnet
 NETWORK_PASSPHRASE=Test SDF Network ; September 2015
 CORS_ORIGIN=https://app.linkora.io
@@ -367,7 +369,8 @@ type: Opaque
 stringData:
   DATABASE_URL_INDEXER: "postgresql://linkora:changeme@postgres-indexer:5432/linkora_indexer"
   DATABASE_URL_DM: "postgresql://linkora:changeme@postgres-dm:5432/linkora_dm"
-  ORACLE_PRIVATE_KEY_HEX: "<32-byte hex>"
+  ORACLE_KEY_HEX: "<32-byte hex>"
+  ADMIN_SECRET: "<high-entropy bearer token>"
   REDIS_URL: "redis://redis:6379"
 ```
 
@@ -433,11 +436,25 @@ spec:
             periodSeconds: 10
           resources:
             requests:
-              cpu: "250m"
-              memory: "256Mi"
+              cpu: "100m"
+              memory: "128Mi"
             limits:
-              cpu: "1"
-              memory: "512Mi"
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: oracle-key
+              mountPath: /run/secrets/oracle-key.hex
+              subPath: oracle-key.hex
+              readOnly: true
+      volumes:
+        - name: oracle-key
+          secret:
+            secretName: linkora-secrets
+            items:
+              - key: ORACLE_KEY_HEX
+                path: oracle-key.hex
+              - key: ADMIN_SECRET
+                path: admin-secret
 ---
 apiVersion: v1
 kind: Service
@@ -560,11 +577,13 @@ spec:
                 secretKeyRef:
                   name: linkora-secrets
                   key: DATABASE_URL_INDEXER
-            - name: ORACLE_PRIVATE_KEY_HEX
+            - name: SECRETS
+              value: "file:///run/secrets/oracle-key.hex"
+            - name: ADMIN_SECRET
               valueFrom:
                 secretKeyRef:
                   name: linkora-secrets
-                  key: ORACLE_PRIVATE_KEY_HEX
+                  key: ADMIN_SECRET
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -710,7 +729,7 @@ All services emit structured JSON logs via [pino](https://getpino.io). Each log 
 | Indexer | `Fatal error`                                    | ERROR    | Pod crashed; check DB/RPC connectivity                                                       |
 | All     | `REDIS_URL is not set`                           | WARN     | Rate limiting is per-instance; set `REDIS_URL` in multi-replica deployments                  |
 | All     | `REDIS_URL is required when NODE_ENV=production` | FATAL    | Service refused to start — set `REDIS_URL` (or `ALLOW_IN_MEMORY_RATE_LIMIT` for one replica) |
-| Oracle  | `Attestation submission failed`                  | ERROR    | RPC or signing error; check `SOROBAN_RPC_URL` and `ORACLE_PRIVATE_KEY_HEX`                   |
+| Oracle  | `Attestation submission failed`                  | ERROR    | RPC or signing error; check `SOROBAN_RPC_URL` and the configured `SECRETS` key source        |
 | Oracle  | `Rate limit exceeded`                            | WARN     | Potential abuse; review `ORACLE_RATE_LIMIT_MAX_REQUESTS`                                     |
 
 ### Recommended metrics (Prometheus / Grafana)
@@ -771,9 +790,29 @@ If the indexer was offline and missed ledgers, it detects the gap automatically 
 2. Increase `BACKFILL_MAX_DEPTH_LEDGERS` temporarily, restart, and let it backfill.
 3. Restore `BACKFILL_MAX_DEPTH_LEDGERS` to the default after recovery.
 
-### Oracle key recovery
+### Oracle key recovery and rotation
 
-The `ORACLE_PRIVATE_KEY_HEX` is a 32-byte Ed25519 key. If lost, a new key must be registered on-chain via governance. **Store it in a secret manager** (AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault) and never commit it to source control.
+The oracle signing key is a 32-byte Ed25519 seed. It is loaded at startup from a
+secret file (see `SECRETS` in the table above) and never passed via an
+environment variable in production. If lost, a new key must be registered
+on-chain via governance.
+
+**Key rotation without restart:** store the new seed at the `SECRETS` file path
+(updating the mounted secret), then call the authenticated admin endpoint:
+
+```
+curl -X POST http://<oracle>/admin/rotate-key \
+  -H "Authorization: Bearer $ADMIN_SECRET"
+```
+
+The service reloads the key atomically, derives the new public key, invalidates
+the attestation cache, and continues signing under the new key. The old raw seed
+is zeroed on the heap. Then register the new public key on-chain via governance.
+
+**Store the key in a secrets manager** (AWS Secrets Manager, GCP Secret Manager,
+HashiCorp Vault) and mount it as a file. Never commit it to source control. The
+`ADMIN_SECRET` bearer token must likewise be stored in a secrets manager and
+never hard-coded.
 
 ### Redis
 

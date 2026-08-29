@@ -1,14 +1,16 @@
 "use client";
 
 import React from "react";
+import { utf8Bytes } from "linkora-sdk";
 
 export interface CharacterCounterProps {
-  current: number;
+  value: string;
   max?: number;
   className?: string;
 }
 
-export function CharacterCounter({ current, max = 280, className = "" }: CharacterCounterProps) {
+export function CharacterCounter({ value, max = 280, className = "" }: CharacterCounterProps) {
+  const current = utf8Bytes(value);
   const percentage = (current / max) * 100;
   const isNearLimit = percentage >= 90;
   const isOverLimit = current > max;

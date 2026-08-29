@@ -127,11 +127,12 @@ export class PostgresDatabase implements Database {
 
   async insertPost(post: Post): Promise<void> {
     const content = (post as { content?: string }).content ?? "";
+    const tags = Array.from(new Set((content.match(/#[\w]+/g) || []).map(t => t.toLowerCase())));
 
     await this.pool.query(
       `
-      INSERT INTO posts (id, author, content, tip_total, like_count, created_at, deleted_at)
-      VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NULL)
+      INSERT INTO posts (id, author, content, tip_total, like_count, created_at, deleted_at, tags)
+      VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NULL, $7)
       ON CONFLICT (id) DO NOTHING
       `,
       [
@@ -141,6 +142,7 @@ export class PostgresDatabase implements Database {
         post.tip_total.toString(),
         post.like_count.toString(),
         post.created_ledger,
+        tags,
       ]
     );
   }
@@ -263,13 +265,64 @@ export class PostgresDatabase implements Database {
   }
 
   async searchPosts(filters: {
-    q: string;
+    q?: string;
+    tag?: string;
     limit: number;
     offset: number;
   }): Promise<{ posts: Post[]; total: number }> {
-    const { q, limit, offset } = filters;
+    const { q, tag, limit, offset } = filters;
 
-    const sanitised = q
+    if (tag || (q && q.startsWith("#"))) {
+      const searchTag = (tag || q!).toLowerCase();
+      
+      const totalRes = await this.pool.query(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM posts
+        WHERE deleted_at IS NULL
+          AND $1 = ANY(tags)
+        `,
+        [searchTag]
+      );
+      const total = totalRes.rows[0]?.total ?? 0;
+
+      const res = await this.pool.query(
+        `
+        SELECT
+          id,
+          author,
+          content,
+          tags,
+          deleted_at IS NOT NULL AS deleted,
+          tip_total,
+          like_count,
+          extract(epoch from created_at)::bigint AS created_ledger,
+          CASE WHEN deleted_at IS NULL THEN NULL ELSE extract(epoch from deleted_at)::bigint END AS deleted_ledger
+        FROM posts
+        WHERE deleted_at IS NULL
+          AND $1 = ANY(tags)
+        ORDER BY created_at DESC
+        OFFSET $2 LIMIT $3
+        `,
+        [searchTag, offset, limit]
+      );
+
+      const posts: Post[] = res.rows.map((row) => ({
+        id: BigInt(row.id),
+        author: row.author,
+        content: row.content,
+        tags: row.tags || [],
+        deleted: row.deleted,
+        tip_total: BigInt(row.tip_total),
+        like_count: BigInt(row.like_count),
+        created_ledger: Number(row.created_ledger),
+        deleted_ledger: row.deleted_ledger === null ? null : Number(row.deleted_ledger),
+      }));
+
+      return { posts, total };
+    }
+
+    const sanitised = (q || "")
       .trim()
       .replace(/[^\w\s]/gu, " ")
       .trim();
@@ -301,6 +354,7 @@ export class PostgresDatabase implements Database {
         id,
         author,
         content,
+        tags,
         deleted_at IS NOT NULL AS deleted,
         tip_total,
         like_count,
@@ -320,6 +374,7 @@ export class PostgresDatabase implements Database {
       id: BigInt(row.id),
       author: row.author,
       content: row.content,
+      tags: row.tags || [],
       deleted: row.deleted,
       tip_total: BigInt(row.tip_total),
       like_count: BigInt(row.like_count),

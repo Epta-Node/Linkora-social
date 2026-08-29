@@ -174,7 +174,7 @@ describe("withRetry", () => {
       })
     ).rejects.toThrow("still failing");
     expect(fn).toHaveBeenCalledTimes(3);
-    expect(attempts.at(-1)?.reason).toBe("exhausted");
+    expect(attempts[attempts.length - 1]?.reason).toBe("exhausted");
   });
 
   it("honors a Retry-After delay over the computed backoff", async () => {
@@ -211,6 +211,6 @@ describe("withRetry", () => {
     // Two failures trip the breaker; it never reaches maxAttempts.
     expect(fn).toHaveBeenCalledTimes(2);
     expect(cb.isOpen).toBe(true);
-    expect(attempts.at(-1)?.reason).toBe("circuit-open");
+    expect(attempts[attempts.length - 1]?.reason).toBe("circuit-open");
   });
 });
