@@ -8078,4 +8078,3 @@ fn test_batch_cleanup_post_emits_event_summary() {
     client.batch_cleanup_post(&post_id, &10);
     assert!(client.get_post(&post_id).is_none());
 }
-
