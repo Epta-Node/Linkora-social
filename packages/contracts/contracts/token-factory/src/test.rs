@@ -6,8 +6,9 @@ use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Placeholder 32-byte hash used when we don't need real WASM semantics.
+/// Must be non-zero: `initialize`/`update_token_wasm` reject the all-zero hash.
 fn dummy_wasm_hash(env: &Env) -> BytesN<32> {
-    BytesN::from_array(env, &[0u8; 32])
+    BytesN::from_array(env, &[0xABu8; 32])
 }
 
 fn setup(env: &Env) -> (TokenFactoryContractClient<'_>, Address, BytesN<32>) {

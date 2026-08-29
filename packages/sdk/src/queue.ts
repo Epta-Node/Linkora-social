@@ -18,9 +18,17 @@
  * deadline is exceeded the step is treated as a failure and rollbacks fire.
  */
 
+import * as rpc from "@stellar/stellar-sdk/rpc";
+import {
+  TransactionBuilder,
+  type Transaction,
+  type FeeBumpTransaction,
+} from "@stellar/stellar-base";
 import { CircuitBreakerError, NetworkError, SigningError, SimulationError } from "./errors.js";
 import { resolveRetryConfig, type RetryConfig } from "./config.js";
 import { CircuitBreaker, withRetry, type RetryLogger } from "./utils/retry.js";
+
+const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
 export type TxStatus = "pending" | "simulated" | "submitted" | "confirmed" | "failed";
 
@@ -75,6 +83,50 @@ export interface RpcClient {
   ): Promise<{ hash: string; status: string; errorResultXdr?: string }>;
 
   getTransaction(hash: string): Promise<{ status: string; errorResultXdr?: string }>;
+}
+
+/**
+ * Adapts a raw `@stellar/stellar-sdk` RPC server handle — whose methods take
+ * parsed `Transaction` objects — to the string-XDR {@link RpcClient} shape
+ * `TransactionQueue` expects.
+ */
+export function createRpcClientAdapter(server: rpc.Server, networkPassphrase: string): RpcClient {
+  const parse = (xdr: string): Transaction | FeeBumpTransaction =>
+    TransactionBuilder.fromXDR(xdr, networkPassphrase);
+
+  return {
+    async simulateTransaction(xdr: string): Promise<SimulationResult> {
+      const result = await server.simulateTransaction(parse(xdr));
+
+      if (isSimulationError(result)) {
+        return { success: false, resourceFee: "0", error: result.error };
+      }
+      if (!isSimulationSuccess(result)) {
+        return { success: false, resourceFee: "0", error: "Unknown simulation error" };
+      }
+      return { success: true, resourceFee: result.minResourceFee || "0" };
+    },
+
+    async sendTransaction(signedXdr: string) {
+      const result = await server.sendTransaction(parse(signedXdr));
+      return {
+        hash: result.hash,
+        status: result.status,
+        errorResultXdr: result.errorResult?.toXDR("base64"),
+      };
+    },
+
+    async getTransaction(hash: string) {
+      const result = await server.getTransaction(hash);
+      return {
+        status: result.status,
+        errorResultXdr:
+          result.status === rpc.Api.GetTransactionStatus.FAILED
+            ? result.resultXdr.toXDR("base64")
+            : undefined,
+      };
+    },
+  };
 }
 
 /** Options that can be passed per `run()` call to override queue-level defaults. */

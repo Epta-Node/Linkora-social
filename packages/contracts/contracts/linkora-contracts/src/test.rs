@@ -1365,7 +1365,10 @@ fn test_get_pool_admins_returns_some_for_existing_pool() {
     );
 
     let admins = client.get_pool_admins(&pool_id);
-    assert!(admins.is_some(), "get_pool_admins must return Some for an existing pool");
+    assert!(
+        admins.is_some(),
+        "get_pool_admins must return Some for an existing pool"
+    );
     let admins = admins.unwrap();
     assert_eq!(admins.len(), 2);
     assert!(admins.iter().any(|a| a == pool_admin1));
@@ -8078,4 +8081,3 @@ fn test_batch_cleanup_post_emits_event_summary() {
     client.batch_cleanup_post(&post_id, &10);
     assert!(client.get_post(&post_id).is_none());
 }
-

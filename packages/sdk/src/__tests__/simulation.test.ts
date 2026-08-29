@@ -257,7 +257,12 @@ describe("LinkoraClient simulation and fee injection", () => {
         _isSuccess: true,
         minResourceFee: "10000",
         transactionData: null,
-        result: { retval: null },
+        // One simulated result per operation, each carrying its own auth
+        // entries — the shape `buildMultiOpTx` requires since #1250.
+        result: [
+          { auth: [], retval: null },
+          { auth: [], retval: null },
+        ],
       };
       mockSimulateTransaction.mockResolvedValue(mockResult);
 
