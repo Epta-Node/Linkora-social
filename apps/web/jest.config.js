@@ -11,6 +11,10 @@ module.exports = {
     "^linkora-sdk$": "<rootDir>/../../packages/sdk/src/index.ts",
     "^@linkora/types/src/(.*)$": "<rootDir>/../../packages/types/src/$1",
     "^@linkora/types$": "<rootDir>/../../packages/types/src/index.ts",
+    // linkora-sdk's source uses ESM-style ".js" relative imports that
+    // resolve to sibling ".ts" files at build time; strip the extension so
+    // Jest's resolver falls through to moduleFileExtensions.
+    "^(\\.{1,2}/.*)\\.js$": "$1",
   },
   transform: {
     "^.+\\.(ts|tsx)$": [

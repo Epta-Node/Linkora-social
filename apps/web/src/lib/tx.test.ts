@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { signAndSubmitTransaction, buildSignAndSubmit } from "./tx";
 import { signTransaction } from "@stellar/freighter-api";
 import {
@@ -6,50 +5,59 @@ import {
   BASE_FEE,
   Contract,
   Address,
+  Account,
   rpc as StellarRpc,
 } from "@stellar/stellar-sdk";
 
 // Mock Freighter API
-vi.mock("@stellar/freighter-api", () => ({
-  signTransaction: vi.fn(),
+jest.mock("@stellar/freighter-api", () => ({
+  signTransaction: jest.fn(),
 }));
 
-// Mock Stellar SDK
-vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+// Mock Stellar SDK. `Server` always resolves to the same instance so that
+// `new StellarRpc.Server(...)` inside tx.ts returns the object the test
+// configures via `mockServer` below, instead of an unrelated fresh mock.
+jest.mock("@stellar/stellar-sdk", () => {
+  const actual = jest.requireActual("@stellar/stellar-sdk");
+  const mockServerInstance = {
+    getAccount: jest.fn(),
+    simulateTransaction: jest.fn(),
+    sendTransaction: jest.fn(),
+    getTransaction: jest.fn(),
+  };
+  // `buildSignAndSubmit` constructs a real TransactionBuilder (`new
+  // TransactionBuilder(...)`), while `signAndSubmitTransaction` only calls
+  // the static `fromXDR`. Extend the real class so `new` keeps working, and
+  // override just the static method the latter needs to mock.
+  class MockTransactionBuilder extends actual.TransactionBuilder {}
+  MockTransactionBuilder.fromXDR = jest.fn();
+
   return {
     ...actual,
-    TransactionBuilder: {
-      fromXDR: vi.fn(),
-    },
+    TransactionBuilder: MockTransactionBuilder,
     rpc: {
-      Server: vi.fn().mockImplementation(() => ({
-        getAccount: vi.fn(),
-        simulateTransaction: vi.fn(),
-        sendTransaction: vi.fn(),
-        getTransaction: vi.fn(),
-      })),
+      Server: jest.fn(() => mockServerInstance),
       Api: {
-        isSimulationError: vi.fn(),
+        isSimulationError: jest.fn(),
       },
-      assembleTransaction: vi.fn(),
+      assembleTransaction: jest.fn(),
     },
   };
 });
 
 describe("Transaction Utility Functions", () => {
   const mockConfig = {
-    contractId: "CDUMMY",
+    contractId: "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526",
     rpcUrl: "https://soroban-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe("signAndSubmitTransaction", () => {
@@ -115,9 +123,10 @@ describe("Transaction Utility Functions", () => {
 
   describe("buildSignAndSubmit", () => {
     it("should build, sign, and submit contract method call", async () => {
-      const mockAccount = {
-        sequence: "1234567890",
-      };
+      const mockAccount = new Account(
+        "GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO",
+        "1234567890"
+      );
       const mockSimulated = {
         minResourceFee: "100",
         transactionData: null,
@@ -135,8 +144,8 @@ describe("Transaction Utility Functions", () => {
       (mockServer.simulateTransaction as any).mockResolvedValue(mockSimulated);
       (StellarRpc.Api.isSimulationError as any).mockReturnValue(false);
       (StellarRpc.assembleTransaction as any).mockReturnValue({
-        build: vi.fn().mockReturnValue({
-          toXDR: vi.fn().mockReturnValue("unsigned-xdr"),
+        build: jest.fn().mockReturnValue({
+          toXDR: jest.fn().mockReturnValue("unsigned-xdr"),
         }),
       });
       (signTransaction as any).mockResolvedValue(mockSignedXdr);
@@ -146,13 +155,13 @@ describe("Transaction Utility Functions", () => {
       });
 
       const args = [
-        Address.fromString("GABC123").toScVal(),
-        Address.fromString("GDEF456").toScVal(),
+        Address.fromString("GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO").toScVal(),
+        Address.fromString("GBNM7FGFC5BCY6VN6UIFNBYUGNTSLR446YDTWY2BIQU2MHIMAXP2SUM6").toScVal(),
       ];
 
-      const result = await buildSignAndSubmit("test_method", args, "GABC123", mockConfig);
+      const result = await buildSignAndSubmit("test_method", args, "GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO", mockConfig);
 
-      expect(mockServer.getAccount).toHaveBeenCalledWith("GABC123");
+      expect(mockServer.getAccount).toHaveBeenCalledWith("GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO");
       expect(mockServer.simulateTransaction).toHaveBeenCalled();
       expect(signTransaction).toHaveBeenCalled();
       expect(mockServer.sendTransaction).toHaveBeenCalled();
@@ -161,9 +170,10 @@ describe("Transaction Utility Functions", () => {
     });
 
     it("should throw error if simulation fails", async () => {
-      const mockAccount = {
-        sequence: "1234567890",
-      };
+      const mockAccount = new Account(
+        "GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO",
+        "1234567890"
+      );
       const mockSimulated = {
         error: "Simulation error",
       };
@@ -174,11 +184,11 @@ describe("Transaction Utility Functions", () => {
       (StellarRpc.Api.isSimulationError as any).mockReturnValue(true);
 
       const args = [
-        Address.fromString("GABC123").toScVal(),
-        Address.fromString("GDEF456").toScVal(),
+        Address.fromString("GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO").toScVal(),
+        Address.fromString("GBNM7FGFC5BCY6VN6UIFNBYUGNTSLR446YDTWY2BIQU2MHIMAXP2SUM6").toScVal(),
       ];
 
-      await expect(buildSignAndSubmit("test_method", args, "GABC123", mockConfig)).rejects.toThrow(
+      await expect(buildSignAndSubmit("test_method", args, "GCMEDW2SHDHZC3YKI3ZQ574VZPDDHR5SZDYPPZLQVR2V56X7UOYX7ZMO", mockConfig)).rejects.toThrow(
         "Transaction simulation failed"
       );
     });
@@ -190,7 +200,7 @@ describe("Transaction Utility Functions", () => {
       // The old bug was: const _txXdr = client.likePost(...); // XDR discarded
 
       const mockConfig = {
-        contractId: "CDUMMY",
+        contractId: "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526",
         rpcUrl: "https://soroban-testnet.stellar.org",
         networkPassphrase: "Test SDF Network ; September 2015",
       };
