@@ -1097,11 +1097,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
    * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
    */
-  async prepareCreatePostTx(
-    author: string,
-    content: string,
-    horizonUrl?: string
-  ): Promise<string> {
+  async prepareCreatePostTx(author: string, content: string, horizonUrl?: string): Promise<string> {
     ensureAddress(author, "author");
     ensureNonEmptyString(content, "content");
     const sourceAccount = await this.getAccountForTx(author, horizonUrl);
@@ -1160,11 +1156,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
    * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
    */
-  async prepareFollowTx(
-    follower: string,
-    followee: string,
-    horizonUrl?: string
-  ): Promise<string> {
+  async prepareFollowTx(follower: string, followee: string, horizonUrl?: string): Promise<string> {
     ensureAddress(follower, "follower");
     ensureAddress(followee, "followee");
     const sourceAccount = await this.getAccountForTx(follower, horizonUrl);
@@ -1297,8 +1289,8 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "like_post",
       sourceAccount,
-      scvAddress(user),
-      scvU64(postId)
+      nativeToScVal(user, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
@@ -1351,10 +1343,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "tip",
       sourceAccount,
-      scvAddress(tipper),
-      scvU64(postId),
-      scvAddress(token),
-      scvI128(amount)
+      nativeToScVal(tipper, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
@@ -1444,10 +1436,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "pool_deposit",
       sourceAccount,
-      scvAddress(depositor),
-      scvSymbol(poolId),
-      scvAddress(token),
-      scvI128(amount)
+      nativeToScVal(depositor, { type: "address" }),
+      nativeToScVal(poolId, { type: "symbol" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
