@@ -4,7 +4,7 @@ import { Pool as PgPool } from "pg";
 import { Database } from "../db";
 import { logger, requestLoggingMiddleware } from "../logger";
 import { rateLimit, rateLimitWrite, getRateLimitStoreStatus } from "../middleware/rateLimit";
-import { requireStellarAuth } from "../middleware/stellarAuth";
+import { requireStellarAuth, optionalStellarAuth } from "../middleware/stellarAuth";
 import { jsonWithRawBody } from "../middleware/rawBody";
 import { validateBody } from "../middleware/validate";
 import { z } from "zod";
@@ -167,6 +167,19 @@ export function createApp(
     }
   });
 
+  // ── Auth + rate limiting ──────────────────────────────────────────────────
+  //
+  // Issue #1325: the rate-limit middleware selects the per-address bucket only
+  // when `req.context.stellarAddress` is already populated. The old ordering
+  // was `rateLimit` → per-route `requireStellarAuth`, so the address was never
+  // set when the read rate-limiter ran; authenticated reads always fell through
+  // to the lower anon IP-keyed bucket.
+  //
+  // Fix: run `optionalStellarAuth` first for every /api request. It sets
+  // `req.context.stellarAddress` for callers who include a valid StellarSig
+  // header without rejecting unauthenticated requests. The rate-limiter that
+  // follows can then correctly choose the per-address or per-IP bucket.
+  app.use("/api", optionalStellarAuth);
   app.use("/api", rateLimit);
 
   app.use("/api", (req: Request, res: Response, next: NextFunction): void => {
