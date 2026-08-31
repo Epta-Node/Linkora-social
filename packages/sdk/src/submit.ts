@@ -114,9 +114,12 @@ export async function submitTransaction(
 ): Promise<string> {
   const xdrString = typeof xdrOrTx === "string" ? xdrOrTx : xdrOrTx.toEnvelope().toXDR("base64");
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rpcClient = await (client as any).createRpcClient();
+
   const queue = new TransactionQueue({
     signer,
-    rpc: client.createRpcServer(),
+    rpc: rpcClient,
   });
 
   queue.enqueue(xdrString);
