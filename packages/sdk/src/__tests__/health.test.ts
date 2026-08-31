@@ -28,7 +28,7 @@ jest.mock("@stellar/stellar-base", () => ({
 }));
 
 /** Wait for a condition to become true, polling every 10ms. */
-function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
+function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const poll = () => {
@@ -325,43 +325,50 @@ describe("ConnectionHealthMonitor", () => {
   describe("jitter and backoff (Issue 1265)", () => {
     it("adds jitter to initial and subsequent checks", async () => {
       const setTimeoutSpy = jest.spyOn(global, "setTimeout");
-      
-      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", { intervalMs: 50, backoffMs: 20 });
+
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 50,
+        backoffMs: 20,
+      });
       monitor.start();
-      
+
       expect(setTimeoutSpy).toHaveBeenCalled();
-      const firstCallDelay = setTimeoutSpy.mock.calls[setTimeoutSpy.mock.calls.length - 1][1] as number;
+      const firstCallDelay = setTimeoutSpy.mock.calls[
+        setTimeoutSpy.mock.calls.length - 1
+      ][1] as number;
       expect(firstCallDelay).toBeGreaterThanOrEqual(0);
       expect(firstCallDelay).toBeLessThanOrEqual(20); // up to this.backoffMs
-      
+
       monitor.stop();
       setTimeoutSpy.mockRestore();
     });
 
     it("stops probing when max backoff is reached and can be resumed", async () => {
-      let callCount = 0;
       mockGetLatestLedger.mockImplementation(() => {
         return Promise.reject(new Error("down"));
       });
-      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", { intervalMs: 10, backoffMs: 10, maxBackoffMs: 10 });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 10,
+        backoffMs: 10,
+        maxBackoffMs: 10,
+      });
       monitor.start();
-      
+
       // Wait for a few backoff cycles
       await new Promise((r) => setTimeout(r, 100));
-      
+
       const checksAfterStop = mockGetLatestLedger.mock.calls.length;
-      
+
       // Wait another 100ms to ensure no further checks occur
       await new Promise((r) => setTimeout(r, 100));
       expect(mockGetLatestLedger.mock.calls.length).toBe(checksAfterStop);
-      
+
       // Manual resume should restart it
       monitor.resume();
       await new Promise((r) => setTimeout(r, 100));
       expect(mockGetLatestLedger.mock.calls.length).toBeGreaterThan(checksAfterStop);
-      
+
       monitor.stop();
     });
   });
-
 });

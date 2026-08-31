@@ -5,8 +5,9 @@ import { z } from "zod";
 import { offsetPaginationSchema } from "@linkora/types/src/schemas";
 
 const searchPostsQuerySchema = offsetPaginationSchema.extend({
-  q: z.string().min(1, "q is required and must be a non-empty string"),
-});
+  q: z.string().min(1, "q is required and must be a non-empty string").optional(),
+  tag: z.string().optional(),
+}).refine(data => data.q || data.tag, "q or tag is required");
 
 export function createSearchRouter(db: Database): Router {
   const router = Router();
@@ -15,10 +16,11 @@ export function createSearchRouter(db: Database): Router {
     "/posts",
     validateQuery(searchPostsQuerySchema),
     async (req: Request, res: Response): Promise<void> => {
-      const { q, limit, offset } = req.query as unknown as z.infer<typeof searchPostsQuerySchema>;
+      const { q, tag, limit, offset } = req.query as unknown as z.infer<typeof searchPostsQuerySchema>;
 
       const { posts, total } = await db.searchPosts({
         q,
+        tag,
         limit,
         offset,
       });

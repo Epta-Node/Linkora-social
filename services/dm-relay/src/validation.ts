@@ -6,14 +6,38 @@ import {
   conversationIdSchema,
 } from "@linkora/types/src/schemas";
 
-export const SendMessageSchema = z.object({
-  sender: stellarAddressSchema,
-  recipient: stellarAddressSchema,
-  ciphertext_b64: base64Schema.min(1),
-  message_index: z.number().int().min(0).max(2147483647),
-  timestamp: z.number().int().positive(),
-  signature: hex64BytesSchema,
-});
+export const DEFAULT_MAX_MESSAGE_BYTES = 64 * 1024; // 64 KB
+
+export function getMaxMessageBytes(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.MAX_MESSAGE_BYTES || env.MAX_MESSAGE_SIZE;
+  if (!raw) return DEFAULT_MAX_MESSAGE_BYTES;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) || parsed <= 0 ? DEFAULT_MAX_MESSAGE_BYTES : parsed;
+}
+
+export function createSendMessageSchema(maxBytes: number = getMaxMessageBytes()) {
+  const maxBase64Chars = Math.ceil(maxBytes / 3) * 4 + 4;
+  return z.object({
+    sender: stellarAddressSchema,
+    recipient: stellarAddressSchema,
+    ciphertext_b64: base64Schema
+      .min(1)
+      .refine(
+        (val) => {
+          if (val.length > maxBase64Chars) return false;
+          return Buffer.from(val, "base64").length <= maxBytes;
+        },
+        {
+          message: `Ciphertext size exceeds maximum allowed size of ${maxBytes} bytes`,
+        }
+      ),
+    message_index: z.number().int().min(0).max(2147483647),
+    timestamp: z.number().int().positive(),
+    signature: hex64BytesSchema,
+  });
+}
+
+export const SendMessageSchema = createSendMessageSchema();
 
 export const GetMessagesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),

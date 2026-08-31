@@ -244,6 +244,11 @@ describe("LinkoraClient read methods", () => {
       expect(await client.getPoolAdmins("p1")).toEqual(["GA", "GB"]);
       expect(mockCall).toHaveBeenCalledWith("get_pool_admins", val("p1"));
     });
+
+    it("returns null when pool does not exist", async () => {
+      notFound();
+      expect(await client.getPoolAdmins("missing-pool")).toBeNull();
+    });
   });
 
   describe("getFeeBps", () => {

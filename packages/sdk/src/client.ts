@@ -25,6 +25,8 @@ import { GovParameter } from "./generated/types.js";
 import type { GovProposal } from "./generated/types.js";
 import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health.js";
 import { fetchWithTimeout } from "./utils/fetch.js";
+import type { QueueSigner, RunOptions } from "./queue.js";
+import { submitTransaction } from "./submit.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
@@ -100,6 +102,12 @@ function scvString(value: string): xdr.ScVal {
 }
 function scvU32(value: number): xdr.ScVal {
   return nativeToScVal(value, { type: "u32" });
+}
+function _scvU64(value: number | bigint): xdr.ScVal {
+  return nativeToScVal(value, { type: "u64" });
+}
+function _scvSymbol(value: string): xdr.ScVal {
+  return nativeToScVal(value, { type: "symbol" });
 }
 function scvI128(value: number | bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "i128" });
@@ -250,8 +258,24 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /** Build an RPC server handle honoring the insecure-HTTP setting. */
-  private createRpcServer(): rpc.Server {
+  createRpcServer(): rpc.Server {
     return new rpc.Server(this._rpcUrl, { allowHttp: this._allowHttp });
+  }
+
+  /**
+   * Convenience method to sign and submit a transaction using the TransactionQueue.
+   *
+   * @param xdrOrTx The transaction to submit (base64 XDR string or Transaction object).
+   * @param signer The wallet signer.
+   * @param opts Optional run options.
+   * @returns The transaction hash.
+   */
+  async submitTransaction(
+    xdrOrTx: string | Transaction,
+    signer: QueueSigner,
+    opts?: RunOptions
+  ): Promise<string> {
+    return submitTransaction(this, xdrOrTx, signer, opts);
   }
 
   /**
@@ -544,7 +568,26 @@ export class LinkoraClient extends GeneratedLinkoraClient {
 
     // rpc.assembleTransaction only supports single-invoke transactions, so for
     // multi-op transactions apply each op's simulated auth entries manually.
-    const results = simulationResult.result ?? [];
+    const results = Array.isArray(simulationResult.result) ? simulationResult.result : [];
+
+    if (results.length !== ops.length) {
+      throw new SimulationError(
+        `Multi-operation simulation result mismatch: expected ${ops.length} auth entries for ${ops.length} operations, got ${results.length}`,
+        undefined,
+        simulationResult.result
+      );
+    }
+
+    for (let i = 0; i < results.length; i += 1) {
+      const result = results[i] as { auth?: unknown } | undefined;
+      if (!result || !Array.isArray(result.auth)) {
+        throw new SimulationError(
+          `Multi-operation simulation result mismatch: missing auth array for operation ${i} (expected ${ops.length} entries total)`,
+          undefined,
+          result
+        );
+      }
+    }
 
     const realBuilder = new TransactionBuilder(sourceAccount, {
       fee: String(Number(simulationResult.minResourceFee || "0") + 100),
@@ -665,6 +708,27 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    */
   async getPostCount(): Promise<bigint> {
     return super.getPostCount();
+  }
+
+  /**
+   * Fetch the configured maximum post content length from the contract.
+   *
+   * Falls back to the Rust default `MAX_CONTENT_LEN` (280 bytes, defined in
+   * `packages/contracts/contracts/linkora-contracts/src/validation.rs`) when
+   * the contract has no override stored.
+   *
+   * @returns The max post content length in UTF-8 bytes.
+   *
+   * @example
+   * ```ts
+   * const max = await client.getMaxPostContentLen();
+   * console.log(`Max post length: ${max} bytes`);
+   * ```
+   */
+  async getMaxPostContentLen(): Promise<number> {
+    const retval = await this.simulateCallOnContract(this._contractId, "get_max_post_content_len");
+    if (!retval) return 280;
+    return Number(scValToNative(retval));
   }
 
   /**
@@ -1097,11 +1161,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
    * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
    */
-  async prepareCreatePostTx(
-    author: string,
-    content: string,
-    horizonUrl?: string
-  ): Promise<string> {
+  async prepareCreatePostTx(author: string, content: string, horizonUrl?: string): Promise<string> {
     ensureAddress(author, "author");
     ensureNonEmptyString(content, "content");
     const sourceAccount = await this.getAccountForTx(author, horizonUrl);
@@ -1160,11 +1220,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
    * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
    */
-  async prepareFollowTx(
-    follower: string,
-    followee: string,
-    horizonUrl?: string
-  ): Promise<string> {
+  async prepareFollowTx(follower: string, followee: string, horizonUrl?: string): Promise<string> {
     ensureAddress(follower, "follower");
     ensureAddress(followee, "followee");
     const sourceAccount = await this.getAccountForTx(follower, horizonUrl);
@@ -1297,8 +1353,8 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "like_post",
       sourceAccount,
-      scvAddress(user),
-      scvU64(postId)
+      nativeToScVal(user, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
@@ -1351,10 +1407,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "tip",
       sourceAccount,
-      scvAddress(tipper),
-      scvU64(postId),
-      scvAddress(token),
-      scvI128(amount)
+      nativeToScVal(tipper, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
@@ -1444,10 +1500,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "pool_deposit",
       sourceAccount,
-      scvAddress(depositor),
-      scvSymbol(poolId),
-      scvAddress(token),
-      scvI128(amount)
+      nativeToScVal(depositor, { type: "address" }),
+      nativeToScVal(poolId, { type: "symbol" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
     );
     return tx.toEnvelope().toXDR("base64");
   }

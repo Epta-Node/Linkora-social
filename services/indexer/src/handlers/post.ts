@@ -102,7 +102,40 @@ export async function handlePostDeleted(
   }
 }
 
+export async function getFeedPosts(
+  pool: Pool,
+  options: { viewerAddress?: string; limit: number; offset: number }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const { viewerAddress, limit, offset } = options;
+  if (!viewerAddress) {
+    const res = await pool.query(
+      `
+      SELECT p.*
+      FROM posts p
+      WHERE p.deleted_at IS NULL
+      ORDER BY p.created_at DESC
+      LIMIT $1 OFFSET $2
+      `,
+      [limit, offset]
+    );
+    return res.rows;
+  }
 
+  const res = await pool.query(
+    `
+    SELECT p.*
+    FROM posts p
+    LEFT JOIN blocks b ON b.blocker = $1 AND b.blocked = p.author
+    WHERE p.deleted_at IS NULL
+      AND b.blocked IS NULL
+    ORDER BY p.created_at DESC
+    LIMIT $2 OFFSET $3
+    `,
+    [viewerAddress, limit, offset]
+  );
+  return res.rows;
+}
 
 /**
  * Unit test helper: Mock event data

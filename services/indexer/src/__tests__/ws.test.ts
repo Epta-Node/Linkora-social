@@ -41,11 +41,17 @@ interface Harness {
 
 async function startHarness(
   heartbeatMs = 15_000,
-  rateLimit?: WsServerOptions["rateLimit"]
+  rateLimit?: WsServerOptions["rateLimit"],
+  maxPayloadBytes?: number
 ): Promise<Harness> {
   const bus = new EventBus();
   const server = http.createServer();
-  const handle = attachWebSocketServer(server, bus, { path: "/ws", heartbeatMs, rateLimit });
+  const handle = attachWebSocketServer(server, bus, {
+    path: "/ws",
+    heartbeatMs,
+    rateLimit,
+    maxPayloadBytes,
+  });
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const port = (server.address() as AddressInfo).port;
   return { server, handle, bus, port };
@@ -244,4 +250,26 @@ describe("WebSocket fanout", () => {
 
     client.close();
   }, 10_000);
+
+  it("rejects and closes a connection sending an oversized frame", async () => {
+    h = await startHarness(15_000, undefined, 50); // max 50 bytes
+    const client = await connect(h.port);
+    await waitFor(() => h.handle.clientCount() === 1);
+
+    let closeCode: number | undefined;
+    const closed = new Promise<void>((resolve) => {
+      client.on("close", (code) => {
+        closeCode = code;
+        resolve();
+      });
+    });
+
+    const largeMessage = JSON.stringify({ action: "subscribe", types: ["A".repeat(100)] });
+    client.send(largeMessage);
+
+    await closed;
+    expect(closeCode).toBe(1009);
+    await waitFor(() => h.handle.clientCount() === 0);
+  });
 });
+

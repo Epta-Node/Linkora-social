@@ -1329,6 +1329,84 @@ fn test_pool_deposit_correct_token_succeeds() {
     assert_eq!(client.get_pool(&pool_id).unwrap().balance, 150);
 }
 
+// ── Issue #1249: get_pool/get_pool_admins should distinguish missing vs empty pool ──
+
+#[test]
+fn test_get_pool_admins_returns_none_for_missing_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let missing_pool_id = symbol_short!("noexist");
+    assert_eq!(
+        client.get_pool_admins(&missing_pool_id),
+        None,
+        "get_pool_admins must return None for a pool that was never created"
+    );
+}
+
+#[test]
+fn test_get_pool_admins_returns_some_for_existing_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin1);
+
+    let pool_id = symbol_short!("pool_12");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &1,
+    );
+
+    let admins = client.get_pool_admins(&pool_id);
+    assert!(
+        admins.is_some(),
+        "get_pool_admins must return Some for an existing pool"
+    );
+    let admins = admins.unwrap();
+    assert_eq!(admins.len(), 2);
+    assert!(admins.iter().any(|a| a == pool_admin1));
+    assert!(admins.iter().any(|a| a == pool_admin2));
+}
+
+#[test]
+fn test_get_pool_and_admins_distinguish_missing_vs_empty_admin() {
+    // Create a pool with a single admin, then verify both get_pool and
+    // get_pool_admins return meaningful results — and that a missing pool
+    // is distinguishable from an existing one with admins.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let token = setup_token(&env, &pool_admin);
+
+    let pool_id = symbol_short!("exist");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+
+    // Existing pool → get_pool returns Some, get_pool_admins returns Some with 1 admin
+    assert!(client.get_pool(&pool_id).is_some());
+    let admins = client.get_pool_admins(&pool_id).unwrap();
+    assert_eq!(admins.len(), 1);
+
+    // Missing pool → get_pool returns None, get_pool_admins returns None
+    let missing_id = symbol_short!("missing");
+    assert!(client.get_pool(&missing_id).is_none());
+    assert_eq!(client.get_pool_admins(&missing_id), None);
+}
+
 #[test]
 fn test_sequential_posts() {
     let env = Env::default();
@@ -5906,7 +5984,7 @@ fn test_update_credential_root_missing_authority_panics() {
 }
 
 #[test]
-#[should_panic(expected = "signature must not be an all-zero signature")]
+#[should_panic(expected = "signature must not be an all-zero or malformed signature")]
 fn test_update_credential_root_zero_signature_rejected() {
     let env = Env::default();
     env.mock_all_auths();
@@ -5921,6 +5999,24 @@ fn test_update_credential_root_zero_signature_rejected() {
     let zero_signature = BytesN::from_array(&env, &[0u8; 64]);
 
     client.update_credential_root(&user, &new_root, &zero_signature);
+}
+
+#[test]
+#[should_panic(expected = "new_root must not be an all-zero or malformed public key")]
+fn test_update_credential_root_zero_root_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _treasury) = setup_contract(&env);
+
+    let signing_key = credential_authority_signing_key(1);
+    let pubkey = credential_authority_pubkey(&env, &signing_key);
+    client.set_credential_authority(&admin, &pubkey);
+
+    let user = Address::generate(&env);
+    let zero_root = BytesN::from_array(&env, &[0u8; 32]);
+    let dummy_signature = BytesN::from_array(&env, &[1u8; 64]);
+
+    client.update_credential_root(&user, &zero_root, &dummy_signature);
 }
 
 #[test]

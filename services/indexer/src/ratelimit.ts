@@ -111,3 +111,20 @@ export function wsRateLimiterFromEnv(env: NodeJS.ProcessEnv = process.env): Toke
   const burst = env.WS_RATE_LIMIT_BURST ? Number(env.WS_RATE_LIMIT_BURST) : undefined;
   return new TokenBucket({ ratePerSec, burst });
 }
+
+/**
+ * Default maximum inbound WebSocket message frame size in bytes (64 KB).
+ */
+export const DEFAULT_WS_MAX_MESSAGE_BYTES = 64 * 1024;
+
+/**
+ * Get maximum allowed WebSocket frame/message size in bytes from env.
+ *   WS_MAX_MESSAGE_BYTES  — maximum frame size in bytes (default 65536)
+ */
+export function wsMaxMessageBytesFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.WS_MAX_MESSAGE_BYTES || env.WS_MAX_PAYLOAD_BYTES;
+  if (!raw) return DEFAULT_WS_MAX_MESSAGE_BYTES;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) || parsed <= 0 ? DEFAULT_WS_MAX_MESSAGE_BYTES : parsed;
+}
+

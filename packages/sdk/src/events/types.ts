@@ -39,45 +39,60 @@ export interface RentPaidEvent extends BaseLinkoraEvent {
   extended_to_ledger: number;
 }
 
-export type ProfileSetEvent = BaseLinkoraEvent & Omit<Gen.ProfileSetEvent, "type"> & { type: "profile_set" };
+export type ProfileSetEvent = BaseLinkoraEvent &
+  Omit<Gen.ProfileSetEvent, "type"> & { type: "profile_set" };
 
 export type FollowEvent = BaseLinkoraEvent & Omit<Gen.FollowEvent, "type"> & { type: "follow" };
 
-export type UnfollowEvent = BaseLinkoraEvent & Omit<Gen.UnfollowEvent, "type"> & { type: "unfollow" };
+export type UnfollowEvent = BaseLinkoraEvent &
+  Omit<Gen.UnfollowEvent, "type"> & { type: "unfollow" };
 
 export type BlockEvent = BaseLinkoraEvent & Omit<Gen.BlockEvent, "type"> & { type: "block" };
 
 export type UnblockEvent = BaseLinkoraEvent & Omit<Gen.UnblockEvent, "type"> & { type: "unblock" };
 
-export type PostCreatedEvent = BaseLinkoraEvent & Omit<Gen.PostCreatedEvent, "type"> & { type: "post_created" };
+export type PostCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.PostCreatedEvent, "type"> & { type: "post_created" };
 
 export type TipEvent = BaseLinkoraEvent & Omit<Gen.TipEvent, "type"> & { type: "tip" };
 
-export type PoolDepositEvent = BaseLinkoraEvent & Omit<Gen.PoolDepositEvent, "type"> & { type: "pool_deposit" };
+export type PoolDepositEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolDepositEvent, "type"> & { type: "pool_deposit" };
 
-export type PoolWithdrawEvent = BaseLinkoraEvent & Omit<Gen.PoolWithdrawEvent, "type"> & { type: "pool_withdraw" };
+export type PoolWithdrawEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolWithdrawEvent, "type"> & { type: "pool_withdraw" };
 
-export type PoolCreatedEvent = BaseLinkoraEvent & Omit<Gen.PoolCreatedEvent, "type"> & { type: "pool_created" };
+export type PoolCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolCreatedEvent, "type"> & { type: "pool_created" };
 
 export type LikePostEvent = BaseLinkoraEvent & Omit<Gen.LikePostEvent, "type"> & { type: "like" };
 
-export type ContractUpgradedEvent = BaseLinkoraEvent & Omit<Gen.ContractUpgraded, "type"> & { type: "contract_upgraded" };
+export type ContractUpgradedEvent = BaseLinkoraEvent &
+  Omit<Gen.ContractUpgraded, "type"> & { type: "contract_upgraded" };
 
-export type PostDeletedEvent = BaseLinkoraEvent & Omit<Gen.PostDeleted, "type"> & { type: "post_deleted" };
+export type PostDeletedEvent = BaseLinkoraEvent &
+  Omit<Gen.PostDeleted, "type"> & { type: "post_deleted" };
 
-export type ProposalCreatedEvent = BaseLinkoraEvent & Omit<Gen.ProposalCreatedEvent, "type"> & { type: "proposal_created" };
+export type ProposalCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.ProposalCreatedEvent, "type"> & { type: "proposal_created" };
 
-export type ProposalSignedEvent = BaseLinkoraEvent & Omit<Gen.ProposalSignedEvent, "type"> & { type: "proposal_signed" };
+export type ProposalSignedEvent = BaseLinkoraEvent &
+  Omit<Gen.ProposalSignedEvent, "type"> & { type: "proposal_signed" };
 
-export type ProposalExecutedEvent = BaseLinkoraEvent & Omit<Gen.ProposalExecutedEvent, "type"> & { type: "proposal_executed" };
+export type ProposalExecutedEvent = BaseLinkoraEvent &
+  Omit<Gen.ProposalExecutedEvent, "type"> & { type: "proposal_executed" };
 
-export type PoolAdminAddedEvent = BaseLinkoraEvent & Omit<Gen.PoolAdminAddedEvent, "type"> & { type: "pool_admin_added" };
+export type PoolAdminAddedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolAdminAddedEvent, "type"> & { type: "pool_admin_added" };
 
-export type PoolAdminRemovedEvent = BaseLinkoraEvent & Omit<Gen.PoolAdminRemovedEvent, "type"> & { type: "pool_admin_removed" };
+export type PoolAdminRemovedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolAdminRemovedEvent, "type"> & { type: "pool_admin_removed" };
 
-export type PoolThresholdUpdatedEvent = BaseLinkoraEvent & Omit<Gen.PoolThresholdUpdatedEvent, "type"> & { type: "pool_threshold_updated" };
+export type PoolThresholdUpdatedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolThresholdUpdatedEvent, "type"> & { type: "pool_threshold_updated" };
 
-export type DmKeyPublishedEvent = BaseLinkoraEvent & Omit<Gen.DmKeyPublishedEvent, "type"> & { type: "dm_key_published" };
+export type DmKeyPublishedEvent = BaseLinkoraEvent &
+  Omit<Gen.DmKeyPublishedEvent, "type"> & { type: "dm_key_published" };
 
 export interface CredentialRootUpdatedEvent extends BaseLinkoraEvent {
   type: "credential_root_updated";
@@ -91,19 +106,25 @@ export interface CredentialVerifiedEvent extends BaseLinkoraEvent {
   nullifier: string;
 }
 
-export type FeeUpdatedEvent = BaseLinkoraEvent & Omit<Gen.FeeUpdatedEvent, "type"> & { type: "fee_updated" };
+export type FeeUpdatedEvent = BaseLinkoraEvent &
+  Omit<Gen.FeeUpdatedEvent, "type"> & { type: "fee_updated" };
 
-export type TreasuryUpdatedEvent = BaseLinkoraEvent & Omit<Gen.TreasuryUpdatedEvent, "type"> & { type: "treasury_updated" };
+export type TreasuryUpdatedEvent = BaseLinkoraEvent &
+  Omit<Gen.TreasuryUpdatedEvent, "type"> & { type: "treasury_updated" };
 
-export type GovProposalCreatedEvent = BaseLinkoraEvent & Omit<Gen.GovProposalCreatedEvent, "type"> & { type: "gov_proposal_created" };
+export type GovProposalCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.GovProposalCreatedEvent, "type"> & { type: "gov_proposal_created" };
 
 export type GovVoteEvent = BaseLinkoraEvent & Omit<Gen.GovVoteEvent, "type"> & { type: "gov_vote" };
 
-export type GovProposalExecutedEvent = BaseLinkoraEvent & Omit<Gen.GovProposalExecutedEvent, "type"> & { type: "gov_proposal_executed" };
+export type GovProposalExecutedEvent = BaseLinkoraEvent &
+  Omit<Gen.GovProposalExecutedEvent, "type"> & { type: "gov_proposal_executed" };
 
-export type GovProposalVetoedEvent = BaseLinkoraEvent & Omit<Gen.GovProposalVetoedEvent, "type"> & { type: "gov_proposal_vetoed" };
+export type GovProposalVetoedEvent = BaseLinkoraEvent &
+  Omit<Gen.GovProposalVetoedEvent, "type"> & { type: "gov_proposal_vetoed" };
 
-export type EmergencyBypassEvent = BaseLinkoraEvent & Omit<Gen.EmergencyBypassEvent, "type"> & { type: "emergency_bypass" };
+export type EmergencyBypassEvent = BaseLinkoraEvent &
+  Omit<Gen.EmergencyBypassEvent, "type"> & { type: "emergency_bypass" };
 
 export interface AttestationVerifiedEvent extends BaseLinkoraEvent {
   type: "attestation_verified";
@@ -116,20 +137,20 @@ export interface AttestationVerifiedEvent extends BaseLinkoraEvent {
 
 export interface PostReportedEvent extends BaseLinkoraEvent {
   type: "post_reported";
-  post_id: number;
+  post_id: bigint;
   reporter: string;
   stake_amount: bigint;
 }
 
 export interface PostRemovedByModerationEvent extends BaseLinkoraEvent {
   type: "post_removed_by_moderation";
-  post_id: number;
+  post_id: bigint;
   reporter: string;
 }
 
 export interface ReportDismissedEvent extends BaseLinkoraEvent {
   type: "report_dismissed";
-  post_id: number;
+  post_id: bigint;
   reporter: string;
 }
 
@@ -443,7 +464,11 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           meta: eventMeta,
         };
       case "contract_upgraded":
-        return { type: eventType, new_wasm_hash: payload.new_wasm_hash as Uint8Array, meta: eventMeta };
+        return {
+          type: eventType,
+          new_wasm_hash: payload.new_wasm_hash as Uint8Array,
+          meta: eventMeta,
+        };
       case "proposal_created":
         return {
           type: eventType,
