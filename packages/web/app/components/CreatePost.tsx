@@ -45,15 +45,24 @@ export function CreatePost({ onSuccess, compact = false }: CreatePostProps) {
       setError(null);
 
       try {
-        // Simulate wallet signature prompt
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        
         setStatus("submitting");
-        
-        // Simulate blockchain transaction
-        await new Promise((resolve) => setTimeout(resolve, 1500));
 
-        const newPostId = Math.floor(Math.random() * 10000) + 1;
+        const response = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content, author: publicKey }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Transaction failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const newPostId = Number(data.id);
+        if (isNaN(newPostId)) {
+          throw new Error("Invalid post ID received from server");
+        }
+
         setPostId(newPostId);
         setStatus("success");
 
@@ -66,7 +75,7 @@ export function CreatePost({ onSuccess, compact = false }: CreatePostProps) {
         setStatus("error");
       }
     },
-    [isDisabled, publicKey, onSuccess],
+    [content, isDisabled, publicKey, onSuccess],
   );
 
   const handleCreateAnother = () => {

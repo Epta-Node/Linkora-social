@@ -91,11 +91,23 @@ export function PostComposeModal({
       setPublishState({ status: "awaiting_signature", errorMsg: "", postId: null });
 
       try {
-        await new Promise((resolve) => setTimeout(resolve, 800));
         setPublishState((prev) => ({ ...prev, status: "submitting" }));
-        await new Promise((resolve) => setTimeout(resolve, 1500));
 
-        const newPostId = Math.floor(Math.random() * 10000) + 1;
+        const response = await fetch("/api/posts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content, author: publicKey }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Transaction failed: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const newPostId = Number(data.id);
+        if (isNaN(newPostId)) {
+          throw new Error("Invalid post ID received from server");
+        }
 
         setPublishState({
           status: "success",
@@ -115,7 +127,7 @@ export function PostComposeModal({
         });
       }
     },
-    [isDisabled, publicKey, onSuccess]
+    [content, isDisabled, publicKey, onSuccess]
   );
 
   const handleCloseSuccess = () => {
