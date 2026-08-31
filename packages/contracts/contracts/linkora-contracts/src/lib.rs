@@ -12,8 +12,13 @@ mod validation;
 pub use errors::{ContractError, RentError};
 use validation::{
     validate_address_list, validate_amount, validate_gov_parameter, validate_non_default_address,
+<<<<<<< HEAD
     validate_protocol_fee, validate_pubkey_32, validate_report_verdict, validate_signature, validate_u32_range,
     validate_username, MAX_BIO_LEN, MAX_CONTENT_LEN, MAX_FEE_BPS, MAX_QUORUM,
+=======
+    validate_protocol_fee, validate_pubkey_32, validate_report_verdict, validate_signature,
+    validate_u32_range, validate_username, MAX_BIO_LEN, MAX_CONTENT_LEN, MAX_FEE_BPS, MAX_QUORUM,
+>>>>>>> c70cc85 (style: fix rust formatting in contracts package)
 };
 
 // ── Storage Key Enum ──────────────────────────────────────────────────────────
