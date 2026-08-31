@@ -12,12 +12,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   build-docs:
@@ -30,28 +24,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node version is pinned in .node-version (single source of truth
+          # across CI, setup.sh, and package.json engines fields).
+          node-version-file: ".node-version"
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Generate SDK docs
-        run: pnpm --filter sdk docs
+        run: pnpm --filter linkora-sdk docs
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: packages/sdk/docs
-
-  deploy-docs:
-    name: Deploy to GitHub Pages
-    needs: build-docs
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+# deploy-docs job removed — GitHub Pages is not enabled on this repo.
+# Re-add when https://github.com/Epta-Node/Linkora-social/settings/pages is configured.

@@ -4,6 +4,7 @@ const StorageKey = {
   WalletAddress: "wallet_address",
   ConnectionState: "connection_state",
   AuthToken: "auth_token",
+  NetworkSettings: "network_settings",
 };
 
 export interface ConnectionState {
@@ -55,6 +56,18 @@ export async function getConnectionState(): Promise<ConnectionState | null> {
 
 export async function deleteConnectionState(): Promise<void> {
   return deleteItem(StorageKey.ConnectionState);
+}
+
+export async function setNetworkSettings(settings: unknown): Promise<void> {
+  return setItem(StorageKey.NetworkSettings, settings);
+}
+
+export async function getNetworkSettings<T>(): Promise<T | null> {
+  return getItem<T>(StorageKey.NetworkSettings);
+}
+
+export async function deleteNetworkSettings(): Promise<void> {
+  return deleteItem(StorageKey.NetworkSettings);
 }
 
 export { StorageKey, setItem, getItem, deleteItem };

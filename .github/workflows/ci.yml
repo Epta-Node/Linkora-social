@@ -7,6 +7,36 @@ on:
   pull_request:
 
 jobs:
+  js-ci:
+    name: JS/TS — typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Node version is pinned in .node-version (single source of truth
+          # across CI, setup.sh, and package.json engines fields).
+          node-version-file: ".node-version"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check all TypeScript packages
+        run: pnpm typecheck
+
+      - name: Run JS/TS tests
+        run: pnpm test
+
+      - name: Build all packages
+        run: pnpm build
+
   lint:
     name: Lint TypeScript Packages
     runs-on: ubuntu-latest
@@ -21,7 +51,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node version is pinned in .node-version (single source of truth
+          # across CI, setup.sh, and package.json engines fields).
+          node-version-file: ".node-version"
           cache: pnpm
 
       - name: Install dependencies
@@ -29,6 +61,20 @@ jobs:
 
       - name: Run linter
         run: pnpm lint
+
+  secret-scan:
+    name: Secret Scanning (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks secret scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   unit-tests:
     name: Unit Tests
@@ -46,7 +92,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -69,5 +115,19 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
+      - name: Build contract wasm
+        run: |
+          cargo build --target wasm32v1-none --release -p linkora-contracts
+          cp target/wasm32v1-none/release/linkora_contracts.wasm contracts/linkora-contracts/linkora_contracts.wasm
+
       - name: Run unit tests
         run: cargo test
+
+      - name: Run fuzz / invariant property tests
+        run: |
+          cargo test -p linkora-contracts --test fuzz_social_graph
+          cargo test -p linkora-contracts --test invariant_social_graph
+          cargo test -p linkora-contracts --test fuzz_tip
+          cargo test -p linkora-contracts --test fuzz_credential
+          cargo test -p linkora-contracts --test fuzz_governance
+          cargo test -p linkora-contracts --test fuzz_oracle

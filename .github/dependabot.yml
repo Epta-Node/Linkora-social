@@ -14,11 +14,11 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/"
-      - "/packages/web"
       - "/packages/sdk"
       - "/apps/web"
       - "/apps/mobile"
       - "/services/indexer"
+      - "/services/dm-relay"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10

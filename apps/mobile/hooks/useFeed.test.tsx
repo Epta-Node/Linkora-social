@@ -1,0 +1,73 @@
+import { act, renderHook, waitFor } from "@testing-library/react-native";
+import { useFeed } from "./useFeed";
+import { getCachedPosts, initDatabase } from "../utils/db";
+import { fetchAndCachePosts, syncPendingPosts } from "../utils/sync";
+
+jest.mock("../utils/db", () => ({
+  getCachedPosts: jest.fn(),
+  initDatabase: jest.fn(),
+  evictStaleCache: jest.fn(),
+}));
+
+jest.mock("../utils/sync", () => ({
+  fetchAndCachePosts: jest.fn(),
+  syncPendingPosts: jest.fn(),
+}));
+
+const mockedGetCachedPosts = jest.mocked(getCachedPosts);
+const mockedInitDatabase = jest.mocked(initDatabase);
+const mockedFetchAndCachePosts = jest.mocked(fetchAndCachePosts);
+const mockedSyncPendingPosts = jest.mocked(syncPendingPosts);
+
+const post = (id: string) => ({
+  id,
+  author: "GABC",
+  username: "user",
+  content: `post ${id}`,
+  tip_total: 0,
+  timestamp: Number(id),
+  like_count: 0,
+  has_liked: false,
+});
+
+const page = (start: number) =>
+  Array.from({ length: 10 }, (_, index) => post(String(start + index)));
+
+describe("useFeed", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedInitDatabase.mockResolvedValue(undefined);
+    mockedSyncPendingPosts.mockResolvedValue(undefined);
+    mockedGetCachedPosts.mockResolvedValue([post("1"), post("2")]);
+  });
+
+  it("retains the last successful cursor when loading the next page fails", async () => {
+    mockedFetchAndCachePosts
+      .mockResolvedValueOnce(page(1))
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce(page(11));
+    mockedGetCachedPosts
+      .mockResolvedValueOnce(page(1))
+      .mockResolvedValueOnce(page(1))
+      .mockResolvedValueOnce([...page(1), ...page(11)]);
+
+    const { result } = renderHook(() => useFeed());
+
+    await waitFor(() => expect(mockedFetchAndCachePosts).toHaveBeenCalledWith(10, 0));
+    await waitFor(() => expect(mockedSyncPendingPosts).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(mockedFetchAndCachePosts).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(mockedFetchAndCachePosts).toHaveBeenCalledTimes(3));
+    expect(mockedFetchAndCachePosts).toHaveBeenNthCalledWith(2, 10, 20);
+    expect(mockedFetchAndCachePosts).toHaveBeenNthCalledWith(3, 10, 0);
+  });
+});

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       contract_id:
-        description: 'Contract ID to test against (optional)'
+        description: "Contract ID to test against (optional)"
         required: false
         type: string
 
@@ -27,17 +27,60 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node version is pinned in .node-version (single source of truth
+          # across CI, setup.sh, and package.json engines fields).
+          node-version-file: ".node-version"
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contracts
+
+      - name: Install stellar-cli
+        run: |
+          curl -fsSL -o /tmp/stellar-cli.tar.gz \
+            https://github.com/stellar/stellar-cli/releases/download/v27.1.0/stellar-cli-27.1.0-x86_64-unknown-linux-gnu.tar.gz
+          sudo tar -xzf /tmp/stellar-cli.tar.gz -C /usr/local/bin stellar
+          sudo chmod +x /usr/local/bin/stellar
+
+      - name: Verify SDK Codegen
+        run: pnpm codegen:check
+
+      - name: Resolve contract ID
+        id: contract
+        env:
+          INPUT_CONTRACT_ID: ${{ github.event.inputs.contract_id }}
+          VAR_CONTRACT_ID: ${{ vars.TESTNET_CONTRACT_ID }}
+          IS_SCHEDULED: ${{ github.event_name == 'schedule' }}
+        run: |
+          CONTRACT_ID="${INPUT_CONTRACT_ID:-$VAR_CONTRACT_ID}"
+          if [[ -z "$CONTRACT_ID" ]]; then
+            if [[ "$IS_SCHEDULED" == "true" ]]; then
+              echo "::warning::TESTNET_CONTRACT_ID repository variable is not set; skipping SDK E2E tests. Set it (Settings > Secrets and variables > Actions > Variables) or pass 'contract_id' via workflow_dispatch to run them." >&2
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::No contract ID available. Pass workflow_dispatch input 'contract_id' or set the 'TESTNET_CONTRACT_ID' repository variable (Settings > Secrets and variables > Actions > Variables) to the currently deployed testnet contract." >&2
+            exit 1
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "contract_id=$CONTRACT_ID" >> "$GITHUB_OUTPUT"
+
       - name: Run SDK E2E tests
+        if: steps.contract.outputs.skip != 'true'
         working-directory: packages/sdk
         env:
           TESTNET_SECRET_KEY: ${{ secrets.TESTNET_SECRET_KEY }}
-          LINKORA_CONTRACT_ID: ${{ github.event.inputs.contract_id || 'CDLDVFKHEZ2RVB3NG4UQA4VPD3TSHV6XMHXMHP2BSGCJ2IIWVTOHGDSG' }}
+          LINKORA_CONTRACT_ID: ${{ steps.contract.outputs.contract_id }}
         run: pnpm test:e2e
 
       - name: Upload test results

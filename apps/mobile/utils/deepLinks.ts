@@ -9,11 +9,16 @@ export type DeepLinkRoute =
     }
   | {
       type: "pool";
-      path: `/pool/${string}`;
+      path: `/pools/${string}`;
+    }
+  | {
+      type: "dm";
+      path: `/dm/${string}`;
     };
 
 const LINKORA_SCHEME = "linkora:";
 const LINKORA_PREFIX = "linkora://";
+const UNIVERSAL_LINK_PREFIXES = ["https://linkora.social/", "https://www.linkora.social/"];
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const STELLAR_PUBLIC_KEY_PATTERN = /^G[A-Z2-7]{55}$/;
 
@@ -26,21 +31,39 @@ function safeDecode(value: string): string | null {
 }
 
 function getDeepLinkSegments(value: string): Array<string | null> | null {
-  if (!value.startsWith(LINKORA_PREFIX)) {
-    return null;
+  const trimmed = value.trim();
+
+  if (trimmed.startsWith(LINKORA_PREFIX)) {
+    const withoutScheme = trimmed.slice(LINKORA_PREFIX.length);
+    const pathEndIndex = withoutScheme.search(/[?#]/);
+    const rawPath = pathEndIndex === -1 ? withoutScheme : withoutScheme.slice(0, pathEndIndex);
+    const path = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
+    const segments = path.split("/").filter(Boolean);
+
+    if (segments.length !== 2) {
+      return null;
+    }
+
+    return segments.map(safeDecode);
   }
 
-  const withoutScheme = value.slice(LINKORA_PREFIX.length);
-  const pathEndIndex = withoutScheme.search(/[?#]/);
-  const rawPath = pathEndIndex === -1 ? withoutScheme : withoutScheme.slice(0, pathEndIndex);
-  const path = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
-  const segments = path.split("/");
+  for (const prefix of UNIVERSAL_LINK_PREFIXES) {
+    if (trimmed.startsWith(prefix)) {
+      const withoutPrefix = trimmed.slice(prefix.length);
+      const pathEndIndex = withoutPrefix.search(/[?#]/);
+      const rawPath = pathEndIndex === -1 ? withoutPrefix : withoutPrefix.slice(0, pathEndIndex);
+      const path = rawPath.startsWith("/") ? rawPath.slice(1) : rawPath;
+      const segments = path.split("/").filter(Boolean);
 
-  if (segments.length !== 2) {
-    return null;
+      if (segments.length !== 2) {
+        return null;
+      }
+
+      return segments.map(safeDecode);
+    }
   }
 
-  return segments.map(safeDecode);
+  return null;
 }
 
 function isValidId(value: string): boolean {
@@ -52,7 +75,7 @@ function isValidProfileAddress(value: string): boolean {
 }
 
 export function parseDeepLink(value: string): DeepLinkRoute | null {
-  if (!value.startsWith(LINKORA_SCHEME)) {
+  if (!value.startsWith(LINKORA_SCHEME) && !value.startsWith("https://")) {
     return null;
   }
 
@@ -70,7 +93,9 @@ export function parseDeepLink(value: string): DeepLinkRoute | null {
     case "profile":
       return isValidProfileAddress(rawId) ? { type: "profile", path: `/profile/${rawId}` } : null;
     case "pool":
-      return isValidId(rawId) ? { type: "pool", path: `/pool/${rawId}` } : null;
+      return isValidId(rawId) ? { type: "pool", path: `/pools/${rawId}` } : null;
+    case "dm":
+      return isValidProfileAddress(rawId) ? { type: "dm", path: `/dm/${rawId}` } : null;
     default:
       return null;
   }

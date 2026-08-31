@@ -1,6 +1,4 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
+#!/bin/sh
 # Run lint-staged to check TypeScript/JavaScript and Rust files.
 # lint-staged configuration lives in the root package.json.
-npx lint-staged
+npx lint-staged

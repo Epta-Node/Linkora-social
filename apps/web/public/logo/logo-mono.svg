@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" width="100%" height="100%" fill="none">
+  <!-- Icon Section -->
+  <g fill="currentColor">
+    <path d="M 18 8 C 12.477 8 8 12.477 8 18 L 8 36 C 8 41.523 12.477 46 18 46 L 20 46 L 20 36 L 18 36 C 16.895 36 16 35.105 16 34 L 16 18 C 16 16.895 16.895 16 18 16 L 22 16 C 23.105 16 24 16.895 24 18 L 24 34 L 28 34 L 28 18 C 28 12.477 23.523 8 18 8 Z" />
+    <path d="M 24 34 C 18.477 34 14 38.477 14 44 C 14 49.523 18.477 54 24 54 L 42 54 C 47.523 54 52 49.523 52 44 C 52 38.477 47.523 34 42 34 L 24 34 Z M 24 40 L 42 40 C 44.209 40 46 41.791 46 44 C 46 46.209 44.209 48 42 48 L 24 48 C 21.791 48 20 46.209 20 44 C 20 41.791 21.791 40 24 40 Z" />
+  </g>
+  <text x="68" y="43" font-family="Inter, system-ui, -apple-system, sans-serif" font-size="32" font-weight="600" letter-spacing="-0.5" fill="currentColor">Linkora</text>
+</svg>

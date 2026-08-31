@@ -1,4 +1,5 @@
 {
+  "ignorePatterns": ["dist", "node_modules", "coverage", "build"],
   "parser": "@typescript-eslint/parser",
   "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
   "rules": {
@@ -6,9 +7,11 @@
       "error",
       {
         "argsIgnorePattern": "^_",
-        "varsIgnorePattern": "^_"
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_"
       }
-    ]
+    ],
+    "no-empty": ["error", { "allowEmptyCatch": true }]
   },
   "env": {
     "node": true,

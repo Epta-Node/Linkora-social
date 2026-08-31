@@ -24,16 +24,23 @@ ERRORS=0
 # ── Prerequisite checks ───────────────────────────────────────────────────────
 
 check_node() {
+  # .node-version is the single source of truth for the required Node
+  # major version, shared with CI (actions/setup-node node-version-file)
+  # and packages/sdk/package.json engines. Node 20 is the current LTS.
+  local required_major
+  required_major=$(cat "$REPO_ROOT/.node-version" 2>/dev/null | tr -d '[:space:]')
+  required_major="${required_major:-20}"
+
   if ! command -v node &>/dev/null; then
-    error "Node.js is not installed. Install Node.js ≥ 20 from https://nodejs.org"
+    error "Node.js is not installed. Install Node.js ≥ ${required_major} from https://nodejs.org"
     ERRORS=$((ERRORS + 1))
     return
   fi
   local version
   version=$(node --version | sed 's/v//')
   local major="${version%%.*}"
-  if [[ "$major" -lt 20 ]]; then
-    error "Node.js $version found, but ≥ 20 is required. Upgrade at https://nodejs.org"
+  if [[ "$major" -lt "$required_major" ]]; then
+    error "Node.js $version found, but ≥ ${required_major} is required. Upgrade at https://nodejs.org"
     ERRORS=$((ERRORS + 1))
   else
     info "Node.js $version ✓"

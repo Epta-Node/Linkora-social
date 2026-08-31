@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
+
+import { useTheme } from "../theme/useTheme";
 
 interface SearchBarProps {
   value: string;
@@ -12,13 +14,16 @@ export function SearchBar({
   onChangeText,
   placeholder = "Search profiles and pools",
 }: SearchBarProps) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   return (
     <View style={styles.container}>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor="#64748b"
+        placeholderTextColor={theme.colors.text.secondary}
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="search"
@@ -29,20 +34,22 @@ export function SearchBar({
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  input: {
-    minHeight: 48,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155",
-    color: "#f8fafc",
-    fontSize: 15,
-  },
-});
+function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
+  return StyleSheet.create({
+    container: {
+      marginHorizontal: 16,
+      marginTop: 16,
+      marginBottom: 8,
+    },
+    input: {
+      minHeight: 48,
+      borderRadius: 10,
+      paddingHorizontal: 14,
+      backgroundColor: theme.colors.surface.surface1,
+      borderWidth: 1,
+      borderColor: theme.colors.surface.border,
+      color: theme.colors.text.primary,
+      fontSize: 15,
+    },
+  });
+}

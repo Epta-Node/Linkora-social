@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LinkoraMiniAppManifest",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
+      "description": "The name of the mini app"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic versioning string"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Short description of the mini app"
+    },
+    "entryPoint": {
+      "type": "string",
+      "description": "Relative or absolute URL to load the mini app"
+    },
+    "icon": {
+      "type": "string",
+      "description": "URL to the icon image"
+    },
+    "permissions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["wallet.read", "wallet.sign", "profile.read", "post.create"]
+      },
+      "uniqueItems": true,
+      "description": "List of permission scopes requested by the mini app"
+    }
+  },
+  "required": ["name", "version", "entryPoint", "permissions"],
+  "additionalProperties": false
+}

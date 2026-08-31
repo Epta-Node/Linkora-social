@@ -1,51 +1,33 @@
-import { Tabs, useRouter } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useEffect } from "react";
-import { Linking, StyleSheet, Text, TouchableOpacity } from "react-native";
+import { Linking, StyleSheet, Text, View } from "react-native";
+
+import { setupNotificationListeners } from "../notifications/notificationHandler";
+import { registerForPushNotificationsAsync } from "../notifications/registerForPushNotifications";
 
 import { WalletProvider } from "../context/WalletContext";
+import { ToastProvider } from "../context/ToastContext";
+import { NetworkProvider } from "../context/NetworkContext";
+import { useNetwork } from "../hooks/useNetwork";
 import { useWallet } from "../hooks/useWallet";
 import { parseDeepLink } from "../utils/deepLinks";
-
-function shortAddress(address: string): string {
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
-function HeaderWalletAddress() {
-  const router = useRouter();
-  const { address, connected } = useWallet();
-
-  return (
-    <TouchableOpacity
-      style={styles.headerWallet}
-      onPress={() => router.push("/connect" as Parameters<typeof router.push>[0])}
-      accessibilityRole="button"
-      accessibilityLabel={
-        connected && address ? `Connected wallet ${address}` : "Open wallet connection screen"
-      }
-    >
-      <Text style={styles.headerWalletText}>
-        {connected && address ? shortAddress(address) : "Connect"}
-      </Text>
-    </TouchableOpacity>
-  );
-}
+import { HeaderActions } from "./(tabs)/_layout";
 
 /**
- * Root layout — wraps the entire app in WalletProvider and sets up
- * the bottom tab navigator with deep-link handling.
+ * Root layout — wraps the entire app in the providers and mounts a Stack
+ * navigator. The bottom tabs live in the `(tabs)` group (app/(tabs)/_layout.tsx)
+ * and are pushed as a single stack entry, while detail views (post/[id],
+ * profile/[address], pool/[id], dm/[address], ...) push on top of it. Pushing
+ * onto a Stack is what gives detail screens the native iOS swipe-back gesture
+ * and the Android header back button.
  *
- * Screens:
- *   (tabs)/feed        — main post feed
- *   (tabs)/explore     — discovery / search
- *   (tabs)/pools       — community pools
- *   (tabs)/mini-apps   — mini app browser
- *   (tabs)/profile     — user profile
- *
- * Stack screens (detail views) are declared as modal/stack routes
- * alongside the tabs via the Tabs.Screen `href` opt-out pattern.
+ * Deep-link handling, notification listeners and push-token registration are
+ * app-wide concerns and live here.
  */
-export default function RootLayout() {
+function RootNavigator() {
   const router = useRouter();
+  const { address, connected } = useWallet();
+  const { isOffline } = useNetwork();
 
   useEffect(() => {
     let isMounted = true;
@@ -80,11 +62,25 @@ export default function RootLayout() {
     };
   }, [router]);
 
+  useEffect(() => setupNotificationListeners(), []);
+
+  useEffect(() => {
+    if (!connected || !address) {
+      return;
+    }
+
+    void registerForPushNotificationsAsync(address);
+  }, [address, connected]);
+
   return (
-    <WalletProvider>
-      <Tabs
+    <>
+      {isOffline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>No internet connection</Text>
+        </View>
+      )}
+      <Stack
         screenOptions={{
-          headerShown: true,
           headerStyle: {
             backgroundColor: "#0f172a",
           },
@@ -93,53 +89,49 @@ export default function RootLayout() {
             fontWeight: "700",
           },
           headerTintColor: "#f8fafc",
-          headerRight: () => <HeaderWalletAddress />,
-          tabBarActiveTintColor: "#6366f1",
-          tabBarInactiveTintColor: "#9ca3af",
-          tabBarStyle: {
-            backgroundColor: "#0f172a",
-            borderTopColor: "#1e293b",
-          },
+          headerRight: () => <HeaderActions />,
         }}
       >
-        <Tabs.Screen name="(tabs)/feed" options={{ title: "Feed", tabBarLabel: "Feed" }} />
-        <Tabs.Screen name="(tabs)/explore" options={{ title: "Explore", tabBarLabel: "Explore" }} />
-        <Tabs.Screen name="(tabs)/pools" options={{ title: "Pools", tabBarLabel: "Pools" }} />
-        <Tabs.Screen
-          name="(tabs)/mini-apps"
-          options={{ title: "Mini Apps", tabBarLabel: "Mini Apps" }}
-        />
-        <Tabs.Screen name="(tabs)/profile" options={{ title: "Profile", tabBarLabel: "Profile" }} />
-        <Tabs.Screen name="connect" options={{ href: null, title: "Connect Wallet" }} />
-        {/* Detail screens — hidden from tab bar */}
-        <Tabs.Screen name="post/[id]" options={{ href: null, headerShown: true, title: "Post" }} />
-        <Tabs.Screen
-          name="profile/[address]"
-          options={{ href: null, headerShown: true, title: "Profile" }}
-        />
-        <Tabs.Screen name="pool/[id]" options={{ href: null, headerShown: true, title: "Pool" }} />
-      </Tabs>
-    </WalletProvider>
+        {/* The tab navigator renders its own headers. */}
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        {/* Detail screens — pushed on top of the tabs, with a back button. */}
+        <Stack.Screen name="connect" options={{ title: "Connect Wallet" }} />
+        <Stack.Screen name="post/[id]" options={{ title: "Post" }} />
+        <Stack.Screen name="mini-app/[id]" options={{ title: "Mini App" }} />
+        <Stack.Screen name="mini-app/create-post" options={{ title: "Create Post" }} />
+        <Stack.Screen name="profile/[address]" options={{ title: "Profile" }} />
+        <Stack.Screen name="pool/[id]" options={{ title: "Pool" }} />
+        <Stack.Screen name="pools/[id]" options={{ title: "Pool" }} />
+        <Stack.Screen name="dm/[address]" options={{ title: "Direct Message" }} />
+      </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <NetworkProvider>
+      <WalletProvider>
+        <ToastProvider>
+          <RootNavigator />
+        </ToastProvider>
+      </WalletProvider>
+    </NetworkProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  headerWallet: {
-    minHeight: 32,
-    minWidth: 82,
-    borderRadius: 16,
-    marginRight: 12,
-    paddingHorizontal: 12,
+  offlineBanner: {
+    backgroundColor: "#ef4444",
+    paddingTop: 48,
+    paddingBottom: 8,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155",
+    zIndex: 9999,
   },
-  headerWalletText: {
-    color: "#e2e8f0",
-    fontSize: 12,
-    fontWeight: "700",
-    fontFamily: "monospace",
+  offlineBannerText: {
+    color: "#ffffff",
+    fontWeight: "bold",
+    fontSize: 14,
   },
 });

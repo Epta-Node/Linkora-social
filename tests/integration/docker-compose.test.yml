@@ -1,0 +1,141 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Linkora E2E Test Environment
+#
+# Spins up:
+#   1. Local Stellar standalone network (quickstart)
+#   2. PostgreSQL (shared by indexer & dm-relay)
+#   3. Redis (shared rate-limit store for both services)
+#   4. Indexer service (configured for local Stellar)
+#   5. DM relay service
+#
+# All services have health checks; the test runner waits for readiness.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ── Stellar Standalone Network ──────────────────────────────────────────────
+  stellar:
+    image: stellar/quickstart:latest
+    platform: linux/amd64
+    # Unlimited Soroban resource limits: this is an ephemeral test network,
+    # not a mainnet-parity environment.
+    command: ["--local", "--limits", "unlimited"]
+    ports:
+      - "8000:8000" # Horizon API + RPC + friendbot
+      - "11626:11626" # Stellar peer-to-peer
+      - "11625:11625" # Stellar gossip
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -sf -X POST -H ''Content-Type: application/json'' -d ''{"jsonrpc":"2.0","id":1,"method":"getHealth"}'' http://localhost:8000/rpc | grep -q healthy',
+        ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  # ── PostgreSQL (shared) ──────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-linkora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-linkora}
+      POSTGRES_DB: ${POSTGRES_DB:-linkora}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./initdb.sql:/docker-entrypoint-initdb.d/initdb.sql:ro
+      - pg_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-linkora}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ── Redis (shared rate-limit store) ──────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  # ── Indexer ──────────────────────────────────────────────────────────────────
+  indexer:
+    build:
+      context: ../..
+      dockerfile: services/indexer/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-linkora}:${POSTGRES_PASSWORD:-linkora}@postgres:5432/${POSTGRES_DB:-linkora}
+      STELLAR_RPC_URL: http://stellar:8000/rpc
+      CONTRACT_ID: ${CONTRACT_ID:-}
+      # Overridable so CI can start streaming near the chain tip instead of
+      # below the RPC's ledger-retention floor.
+      START_LEDGER: ${E2E_START_LEDGER:-1}
+      PORT: "3000"
+      NODE_ENV: test
+      REDIS_URL: redis://redis:6379
+      # Speed up backfill detection for test
+      BACKFILL_MAX_DEPTH_LEDGERS: "100000"
+      BACKFILL_BATCH_SIZE: "200"
+      RPC_RATE_LIMIT_PER_SEC: "100"
+      MIN_POLL_INTERVAL_MS: "100"
+      MAX_POLL_INTERVAL_MS: "500"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # ── DM Relay ─────────────────────────────────────────────────────────────────
+  dm-relay:
+    build:
+      context: ../..
+      dockerfile: services/dm-relay/Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-linkora}:${POSTGRES_PASSWORD:-linkora}@postgres:5432/${POSTGRES_DB:-linkora}_dm_relay
+      PORT: "3001"
+      NODE_ENV: test
+      REDIS_URL: redis://redis:6379
+      STELLAR_NETWORK: Standalone
+      CORS_ORIGIN: "*"
+      MESSAGE_TTL_DAYS: "1"
+      MAX_TIMESTAMP_SKEW: "3600"
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  pg_test_data:

@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": false,
+    "noEmit": true,
+    "baseUrl": "../..",
+    "paths": {
+      "@linkora/sdk": ["packages/sdk/src"],
+      "@linkora/sdk/*": ["packages/sdk/src/*"],
+      "@linkora/types": ["packages/types/src"],
+      "@linkora/types/*": ["packages/types/src/*"]
+    }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -17,6 +17,8 @@
 - [ ] `cargo test` passes
 - [ ] New tests added for changed behaviour
 - [ ] Manually verified on Testnet (if applicable)
+- [ ] Database migration tested (if applicable)
+- [ ] TypeScript SDK tests passed (if applicable)
 
 ## Checklist
 
