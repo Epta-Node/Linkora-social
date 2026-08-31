@@ -18,6 +18,9 @@
     "test:integration": {
       "cache": false
     },
+    "typecheck": {
+      "cache": false
+    },
     "format": {
       "outputs": []
     }

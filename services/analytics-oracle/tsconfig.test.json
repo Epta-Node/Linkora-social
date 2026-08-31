@@ -1,0 +1,12 @@
+{
+  // ts-jest compiles each file it loads, including workspace sources pulled in
+  // from packages/types. Those live outside `rootDir: "src"`, which tsc rejects
+  // with TS6059 when an emit-capable config is used. Tests never emit, so widen
+  // rootDir to the repo root and turn emit off.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true
+  },
+  "include": ["src"]
+}

@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+
+import { useTheme } from "../theme/useTheme";
 
 export interface ProfileSearchResult {
   address: string;
@@ -18,6 +20,9 @@ function shortAddress(address: string): string {
 }
 
 export function ProfileRow({ profile, onPress }: ProfileRowProps) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
   return (
     <TouchableOpacity
       style={styles.row}
@@ -30,7 +35,7 @@ export function ProfileRow({ profile, onPress }: ProfileRowProps) {
         <Text style={styles.avatarText}>{profile.username.charAt(0).toUpperCase()}</Text>
       </View>
       <View style={styles.content}>
-        <Text style={styles.title}>{profile.username}</Text>
+        <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">{profile.username}</Text>
         <Text style={styles.subtitle}>{profile.bio}</Text>
         <Text style={styles.meta}>{shortAddress(profile.address)}</Text>
       </View>
@@ -38,47 +43,49 @@ export function ProfileRow({ profile, onPress }: ProfileRowProps) {
   );
 }
 
-const styles = StyleSheet.create({
-  row: {
-    minHeight: 76,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1e293b",
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#6366f1",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  avatarText: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-  content: {
-    flex: 1,
-  },
-  title: {
-    color: "#f8fafc",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  subtitle: {
-    color: "#94a3b8",
-    fontSize: 13,
-    marginTop: 2,
-  },
-  meta: {
-    color: "#64748b",
-    fontSize: 11,
-    fontFamily: "monospace",
-    marginTop: 4,
-  },
-});
+function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
+  return StyleSheet.create({
+    row: {
+      minHeight: 76,
+      flexDirection: "row",
+      alignItems: "center",
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.colors.surface.border,
+    },
+    avatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: theme.colors.brand.primary,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+    },
+    avatarText: {
+      color: theme.colors.text.onBrand,
+      fontSize: 16,
+      fontWeight: "800",
+    },
+    content: {
+      flex: 1,
+    },
+    title: {
+      color: theme.colors.text.primary,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    subtitle: {
+      color: theme.colors.text.secondary,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    meta: {
+      color: theme.colors.text.secondary,
+      fontSize: 11,
+      fontFamily: "monospace",
+      marginTop: 4,
+    },
+  });
+}

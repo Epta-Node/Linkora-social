@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, ViewStyle } from "react-native";
 
 import type { WalletProviderKind, WalletState } from "../context/WalletContext";
+import { useTheme } from "../theme/useTheme";
 
 interface WalletButtonProps {
   label: string;
@@ -24,6 +25,8 @@ export function WalletButton({
   disabled = false,
   style,
 }: WalletButtonProps) {
+  const { theme } = useTheme();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const isConnecting = state === "connecting";
 
   return (
@@ -36,7 +39,7 @@ export function WalletButton({
       testID={provider ? `wallet-button-${provider}` : "wallet-button"}
     >
       {isConnecting ? (
-        <ActivityIndicator color="#ffffff" size="small" />
+        <ActivityIndicator color={theme.colors.text.onBrand} size="small" />
       ) : (
         <Text style={[styles.label, variant === "secondary" && styles.secondaryLabel]}>
           {label}
@@ -46,34 +49,36 @@ export function WalletButton({
   );
 }
 
-const styles = StyleSheet.create({
-  button: {
-    minHeight: 48,
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  primary: {
-    backgroundColor: "#6366f1",
-  },
-  secondary: {
-    backgroundColor: "#1e293b",
-    borderWidth: 1,
-    borderColor: "#334155",
-  },
-  danger: {
-    backgroundColor: "#dc2626",
-  },
-  disabled: {
-    opacity: 0.6,
-  },
-  label: {
-    color: "#ffffff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  secondaryLabel: {
-    color: "#e2e8f0",
-  },
-});
+function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
+  return StyleSheet.create({
+    button: {
+      minHeight: 48,
+      borderRadius: 10,
+      paddingHorizontal: 16,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    primary: {
+      backgroundColor: theme.colors.brand.primary,
+    },
+    secondary: {
+      backgroundColor: theme.colors.surface.surface1,
+      borderWidth: 1,
+      borderColor: theme.colors.surface.border,
+    },
+    danger: {
+      backgroundColor: theme.colors.semantic.error,
+    },
+    disabled: {
+      opacity: 0.6,
+    },
+    label: {
+      color: theme.colors.text.onBrand,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    secondaryLabel: {
+      color: theme.colors.text.primary,
+    },
+  });
+}

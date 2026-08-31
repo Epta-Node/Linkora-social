@@ -11,7 +11,7 @@
 packages/contracts/             @Epta-Node/maintainers
 
 # Frontend/Web maintainers
-packages/web/                   @Epta-Node/maintainers
+apps/web/                       @Epta-Node/maintainers
 
 # Documentation maintainers
 docs/                           @Epta-Node/maintainers

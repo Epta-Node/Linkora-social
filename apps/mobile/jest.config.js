@@ -1,14 +1,13 @@
 module.exports = {
-  testEnvironment: 'node',
-  transform: {
-    '^.+\\.(ts|tsx|js|jsx)$': ['babel-jest', { configFile: './babel.config.js' }],
-  },
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  preset: "jest-expo",
+  transformIgnorePatterns: [
+    "node_modules/(?!.pnpm/|(?:.pnpm/[^/]+/node_modules/)?(jest-)?react-native|(?:.pnpm/[^/]+/node_modules/)?@react-native(-community)?/|(?:.pnpm/[^/]+/node_modules/)?@react-native[/+]js-polyfills|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|@unimodules/.*|unimodules|sentry-expo|native-base|react-native-svg|lucide-react-native)",
+  ],
+  setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
-    '^react-native$': '<rootDir>/jest.react-native-mock.js',
-    '^expo-router$': '<rootDir>/jest.expo-router-mock.js',
-    '^@stellar/wallet-kit$': '<rootDir>/jest.wallet-kit-mock.js',
+    "^expo-router$": "<rootDir>/jest.expo-router-mock.js",
+    "^@stellar/wallet-kit$": "<rootDir>/jest.wallet-kit-mock.js",
   },
-  transformIgnorePatterns: ['/node_modules/'],
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
-}
+  collectCoverage: true,
+  coverageReporters: ["json", "lcov", "text", "clover"],
+};

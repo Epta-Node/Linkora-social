@@ -35,7 +35,7 @@ export async function handlePostCreated(
   const { id, author } = event;
   const { timestamp, content } = context;
 
-  // Fetch content from contract state if not provided
+  // Use content from event context
   const postContent = content || "";
 
   const query = `
@@ -102,18 +102,38 @@ export async function handlePostDeleted(
   }
 }
 
-/**
- * Fetch post content from contract state
- * This is a placeholder - implement based on your Stellar SDK setup
- */
-export async function fetchPostContent(_contractId: string, _postId: bigint): Promise<string> {
-  // TODO: Implement contract state fetch using Stellar SDK
-  // Example:
-  // const contract = new Contract(contractId);
-  // const post = await contract.call('get_post', postId);
-  // return post.content;
+export async function getFeedPosts(
+  pool: Pool,
+  options: { viewerAddress?: string; limit: number; offset: number }
+): Promise<any[]> {
+  const { viewerAddress, limit, offset } = options;
+  if (!viewerAddress) {
+    const res = await pool.query(
+      `
+      SELECT p.*
+      FROM posts p
+      WHERE p.deleted_at IS NULL
+      ORDER BY p.created_at DESC
+      LIMIT $1 OFFSET $2
+      `,
+      [limit, offset]
+    );
+    return res.rows;
+  }
 
-  return "";
+  const res = await pool.query(
+    `
+    SELECT p.*
+    FROM posts p
+    LEFT JOIN blocks b ON b.blocker = $1 AND b.blocked = p.author
+    WHERE p.deleted_at IS NULL
+      AND b.blocked IS NULL
+    ORDER BY p.created_at DESC
+    LIMIT $2 OFFSET $3
+    `,
+    [viewerAddress, limit, offset]
+  );
+  return res.rows;
 }
 
 /**

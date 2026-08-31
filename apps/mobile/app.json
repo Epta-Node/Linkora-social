@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Linkora",
+    "slug": "linkora-mobile",
+    "scheme": "linkora",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "bundleIdentifier": "social.linkora.app",
+      "associatedDomains": ["applinks:linkora.social"]
+    },
+    "android": {
+      "package": "social.linkora.app"
+    },
+    "plugins": ["expo-router"]
+  }
+}

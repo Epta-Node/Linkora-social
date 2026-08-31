@@ -25,19 +25,19 @@ export interface TipEventContext {
  * Idempotent: Uses tx_hash uniqueness constraint
  */
 export async function handleTip(
-  pool: Pool,
+  poolOrClient: Pool,
   event: TipEvent,
-  context: TipEventContext
+  context: TipEventContext,
+  options?: { client?: Pool }
 ): Promise<void> {
+  const client = options?.client ?? (await poolOrClient.connect());
   const { tipper, post_id, amount, fee } = event;
   const { txHash, timestamp } = context;
-
-  const client = await pool.connect();
+  const release = options?.client === undefined;
 
   try {
     await client.query("BEGIN");
 
-    // Insert tip record (idempotent via tx_hash unique constraint)
     const insertTipQuery = `
       INSERT INTO tips (post_id, tipper, amount, fee, created_at, tx_hash)
       VALUES ($1, $2, $3, $4, $5, $6)
@@ -45,38 +45,29 @@ export async function handleTip(
       RETURNING id
     `;
 
-    const insertValues = [
+    const insertResult = await client.query(insertTipQuery, [
       post_id.toString(),
       tipper,
       amount.toString(),
       fee.toString(),
       timestamp,
       txHash,
-    ];
+    ]);
 
-    const insertResult = await client.query(insertTipQuery, insertValues);
-
-    if (insertResult.rowCount === 0) {
+    if ((insertResult.rowCount ?? 0) === 0) {
       console.log(`Tip already processed for tx ${txHash} (idempotent skip)`);
       await client.query("COMMIT");
       return;
     }
 
-    // Increment tip_total on post
     const updatePostQuery = `
       UPDATE posts
       SET tip_total = tip_total + $1
       WHERE id = $2 AND deleted_at IS NULL
     `;
 
-    const updateValues = [amount.toString(), post_id.toString()];
-    const updateResult = await client.query(updatePostQuery, updateValues);
-
-    if (updateResult.rowCount === 0) {
-      console.warn(`Post ${post_id} not found or deleted, tip recorded but post not updated`);
-    } else {
-      console.log(`Tip of ${amount} from ${tipper} added to post ${post_id}`);
-    }
+    await client.query(updatePostQuery, [amount.toString(), post_id.toString()]);
+    console.log(`Tip of ${amount} from ${tipper} added to post ${post_id}`);
 
     await client.query("COMMIT");
   } catch (error) {
@@ -84,7 +75,7 @@ export async function handleTip(
     console.error(`Error handling TipEvent for post ${post_id}:`, error);
     throw error;
   } finally {
-    client.release();
+    if (release) (client as import("pg").PoolClient).release();
   }
 }
 

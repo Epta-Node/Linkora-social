@@ -23,6 +23,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -39,7 +41,7 @@ paths:
             type: string
           description: Filter posts by author Stellar address.
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: Paginated list of posts
@@ -48,7 +50,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/PostList"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/ValidationError"
 
   /posts/{id}:
     get:
@@ -70,9 +72,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Post"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/ValidationError"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /follows/{address}/followers:
     get:
@@ -82,7 +86,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/address"
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: Paginated list of followers
@@ -91,7 +95,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/FollowerList"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/ValidationError"
 
   /follows/{address}/following:
     get:
@@ -101,7 +105,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/address"
         - $ref: "#/components/parameters/limit"
-        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/cursor"
       responses:
         "200":
           description: Paginated list of following
@@ -110,7 +114,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/FollowingList"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          $ref: "#/components/responses/ValidationError"
 
   /pools/{id}:
     get:
@@ -131,6 +135,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Pool"
+        "400":
+          $ref: "#/components/responses/ValidationError"
         "404":
           $ref: "#/components/responses/NotFound"
 
@@ -153,15 +159,13 @@ components:
         maximum: 100
         default: 20
       description: Maximum number of items to return.
-    offset:
-      name: offset
+    cursor:
+      name: cursor
       in: query
       required: false
       schema:
-        type: integer
-        minimum: 0
-        default: 0
-      description: Number of items to skip before returning results.
+        type: string
+      description: Cursor for pagination.
 
   schemas:
     Profile:
@@ -202,7 +206,7 @@ components:
 
     PostList:
       type: object
-      required: [posts, total, limit, offset, has_more]
+      required: [posts, total, limit, cursor, has_more]
       properties:
         posts:
           type: array
@@ -212,14 +216,15 @@ components:
           type: integer
         limit:
           type: integer
-        offset:
-          type: integer
+        cursor:
+          type: string
+          nullable: true
         has_more:
           type: boolean
 
     FollowerList:
       type: object
-      required: [address, followers, total, limit, offset, has_more]
+      required: [address, followers, total, limit, cursor, next_cursor]
       properties:
         address:
           type: string
@@ -231,14 +236,16 @@ components:
           type: integer
         limit:
           type: integer
-        offset:
-          type: integer
-        has_more:
-          type: boolean
+        cursor:
+          type: string
+          nullable: true
+        next_cursor:
+          type: string
+          nullable: true
 
     FollowingList:
       type: object
-      required: [address, following, total, limit, offset, has_more]
+      required: [address, following, total, limit, cursor, next_cursor]
       properties:
         address:
           type: string
@@ -250,10 +257,12 @@ components:
           type: integer
         limit:
           type: integer
-        offset:
-          type: integer
-        has_more:
-          type: boolean
+        cursor:
+          type: string
+          nullable: true
+        next_cursor:
+          type: string
+          nullable: true
 
     Pool:
       type: object
@@ -278,31 +287,94 @@ components:
         updated_ledger:
           type: integer
 
-    Error:
+    ErrorBody:
       type: object
-      required: [error, code]
+      required: [code, message]
       properties:
-        error:
-          type: string
         code:
           type: string
+          description: Machine-readable error code from the taxonomy (VALIDATION_ERROR, NOT_FOUND, UNAUTHORIZED, FORBIDDEN, CONFLICT, RATE_LIMITED, INTERNAL_ERROR, SERVICE_UNAVAILABLE).
+        message:
+          type: string
+          description: Human-readable error message.
+        details:
+          type: array
+          description: Optional additional context (e.g. validation errors).
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              message:
+                type: string
+        requestId:
+          type: string
+          description: Request correlation ID for tracing.
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          $ref: "#/components/schemas/ErrorBody"
 
   responses:
+    ValidationError:
+      description: Invalid request parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Invalid request data
+              details:
+                - path: limit
+                  message: Expected integer, received string
+              requestId: abc123
     NotFound:
       description: Resource not found
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: "#/components/schemas/ErrorResponse"
           example:
-            error: Resource not found
-            code: NOT_FOUND
-    BadRequest:
-      description: Invalid request parameters
+            error:
+              code: NOT_FOUND
+              message: Resource not found
+              requestId: abc123
+    Unauthorized:
+      description: Missing or invalid authentication
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            $ref: "#/components/schemas/ErrorResponse"
           example:
-            error: limit must be a positive integer
-            code: INVALID_QUERY
+            error:
+              code: UNAUTHORIZED
+              message: Invalid signature
+              requestId: abc123
+    InternalError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: INTERNAL_ERROR
+              message: Internal server error
+              requestId: abc123
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: RATE_LIMITED
+              message: Too many requests
+              retryAfterSeconds: 45
+              requestId: abc123

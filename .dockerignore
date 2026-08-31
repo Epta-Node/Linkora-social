@@ -1,0 +1,10 @@
+# Keep host artefacts out of Docker build contexts (repo-root contexts are
+# used by tests/integration/docker-compose.test.yml).
+.git
+.github
+**/node_modules
+**/dist
+**/coverage
+**/.turbo
+**/playwright-report
+**/test-results
