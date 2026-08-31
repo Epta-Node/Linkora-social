@@ -113,7 +113,7 @@ export async function submitTransaction(
   opts?: RunOptions
 ): Promise<string> {
   const xdrString = typeof xdrOrTx === "string" ? xdrOrTx : xdrOrTx.toEnvelope().toXDR("base64");
-  
+
   const queue = new TransactionQueue({
     signer,
     rpc: client.createRpcServer(),
@@ -121,11 +121,11 @@ export async function submitTransaction(
 
   queue.enqueue(xdrString);
   await queue.run(opts);
-  
+
   const hashes = queue.submittedHashes;
   if (hashes.length === 0 && !opts?.dryRun) {
     throw new Error("Transaction was not submitted successfully.");
   }
-  
+
   return hashes[0] ?? "";
 }

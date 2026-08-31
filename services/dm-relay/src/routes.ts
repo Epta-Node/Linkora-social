@@ -53,10 +53,10 @@ export function registerWsClient(
     const rawLength = Buffer.isBuffer(data)
       ? data.length
       : Array.isArray(data)
-      ? data.reduce((acc, b) => acc + b.length, 0)
-      : typeof data === "string"
-      ? Buffer.byteLength(data)
-      : (data as ArrayBuffer).byteLength;
+        ? data.reduce((acc, b) => acc + b.length, 0)
+        : typeof data === "string"
+          ? Buffer.byteLength(data)
+          : (data as ArrayBuffer).byteLength;
 
     if (rawLength > maxMessageBytes) {
       logger.warn(

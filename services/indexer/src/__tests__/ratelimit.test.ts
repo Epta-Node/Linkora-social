@@ -99,8 +99,11 @@ describe("wsMaxMessageBytesFromEnv", () => {
 
   it("falls back to default for invalid number", async () => {
     const { wsMaxMessageBytesFromEnv, DEFAULT_WS_MAX_MESSAGE_BYTES } = await import("../ratelimit");
-    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "abc" })).toBe(DEFAULT_WS_MAX_MESSAGE_BYTES);
-    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "-10" })).toBe(DEFAULT_WS_MAX_MESSAGE_BYTES);
+    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "abc" })).toBe(
+      DEFAULT_WS_MAX_MESSAGE_BYTES
+    );
+    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "-10" })).toBe(
+      DEFAULT_WS_MAX_MESSAGE_BYTES
+    );
   });
 });
-
