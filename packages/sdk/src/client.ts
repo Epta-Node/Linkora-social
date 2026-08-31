@@ -262,6 +262,12 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     return new rpc.Server(this._rpcUrl, { allowHttp: this._allowHttp });
   }
 
+  /** Build an RpcClient adapter for use with TransactionQueue. */
+  async createRpcClient(): Promise<import("./queue.js").RpcClient> {
+    const { createRpcClient } = await import("./submit.js");
+    return createRpcClient(this._rpcUrl, this._networkPassphrase, this._allowHttp);
+  }
+
   /**
    * Convenience method to sign and submit a transaction using the TransactionQueue.
    *
