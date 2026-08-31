@@ -25,6 +25,7 @@ import {
 import { signTransaction } from "@stellar/freighter-api";
 import { LinkoraClient } from "linkora-sdk";
 import { buildSignAndSubmit } from "@/lib/tx";
+import { addToBlockedList, removeFromBlockedList } from "@/lib/blockedStore";
 
 const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "CDUMMY";
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || "https://soroban-testnet.stellar.org";
