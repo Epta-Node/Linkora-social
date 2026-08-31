@@ -12,8 +12,9 @@ mod validation;
 pub use errors::{ContractError, RentError};
 use validation::{
     validate_address_list, validate_amount, validate_gov_parameter, validate_non_default_address,
-    validate_protocol_fee, validate_pubkey_32, validate_report_verdict, validate_signature,
-    validate_u32_range, validate_username, MAX_BIO_LEN, MAX_CONTENT_LEN, MAX_FEE_BPS, MAX_QUORUM,
+    validate_protocol_fee, validate_pubkey_32, validate_report_verdict,
+    validate_reporter_can_report, validate_signature, validate_u32_range, validate_username,
+    MAX_BIO_LEN, MAX_CONTENT_LEN, MAX_FEE_BPS, MAX_QUORUM,
 };
 
 // ── Storage Key Enum ──────────────────────────────────────────────────────────
@@ -1104,7 +1105,7 @@ impl LinkoraContract {
             Self::bump(&env, &author_key);
         }
 
-        let remaining_entries: u32 = f_count + following_count + author_posts.len() as u32;
+        let remaining_entries: u32 = f_count + following_count + author_posts.len();
 
         if f_count == 0 && following_count == 0 && author_posts.is_empty() {
             env.storage().persistent().remove(&tombstone_key);
