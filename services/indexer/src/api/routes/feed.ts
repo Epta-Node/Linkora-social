@@ -165,7 +165,9 @@ export function createFeedRouter(dbOrPg: Database | Pool): Router {
     validateQuery(followingFeedQuerySchema),
     async (req: Request, res: Response): Promise<void> => {
       const address = req.params.address;
-      const { limit, cursor, tag } = req.query as unknown as z.infer<typeof followingFeedQuerySchema>;
+      const { limit, cursor, tag } = req.query as unknown as z.infer<
+        typeof followingFeedQuerySchema
+      >;
 
       if (!isPgPool(dbOrPg)) {
         const { posts } = await (dbOrPg as Database).listPosts({ limit, offset: 0 });

@@ -20,17 +20,15 @@ export function createSendMessageSchema(maxBytes: number = getMaxMessageBytes())
   return z.object({
     sender: stellarAddressSchema,
     recipient: stellarAddressSchema,
-    ciphertext_b64: base64Schema
-      .min(1)
-      .refine(
-        (val) => {
-          if (val.length > maxBase64Chars) return false;
-          return Buffer.from(val, "base64").length <= maxBytes;
-        },
-        {
-          message: `Ciphertext size exceeds maximum allowed size of ${maxBytes} bytes`,
-        }
-      ),
+    ciphertext_b64: base64Schema.min(1).refine(
+      (val) => {
+        if (val.length > maxBase64Chars) return false;
+        return Buffer.from(val, "base64").length <= maxBytes;
+      },
+      {
+        message: `Ciphertext size exceeds maximum allowed size of ${maxBytes} bytes`,
+      }
+    ),
     message_index: z.number().int().min(0).max(2147483647),
     timestamp: z.number().int().positive(),
     signature: hex64BytesSchema,

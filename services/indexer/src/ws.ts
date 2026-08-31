@@ -102,10 +102,10 @@ export function attachWebSocketServer(
       const rawLength = Buffer.isBuffer(raw)
         ? raw.length
         : Array.isArray(raw)
-        ? raw.reduce((acc, b) => acc + b.length, 0)
-        : typeof raw === "string"
-        ? Buffer.byteLength(raw)
-        : (raw as ArrayBuffer).byteLength;
+          ? raw.reduce((acc, b) => acc + b.length, 0)
+          : typeof raw === "string"
+            ? Buffer.byteLength(raw)
+            : (raw as ArrayBuffer).byteLength;
 
       if (rawLength > maxPayloadBytes) {
         ws.close(CLOSE_MESSAGE_TOO_LARGE, "message too large");

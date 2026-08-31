@@ -272,4 +272,3 @@ describe("WebSocket fanout", () => {
     await waitFor(() => h.handle.clientCount() === 0);
   });
 });
-
