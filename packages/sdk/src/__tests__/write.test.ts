@@ -33,7 +33,7 @@ jest.mock("@stellar/stellar-base", () => ({
   })),
   scValToNative: jest.fn(),
   TransactionBuilder: jest.fn(() => ({ addOperation: mockAddOperation })),
-  Account: jest.fn(),
+  Account: jest.fn((accountId: string) => ({ _accountId: accountId })),
   Keypair: { random: jest.fn(() => ({ publicKey: () => "GWRITEKEYXXXXXXXXXXXXXXXXXXXXXXXXXX" })) },
   xdr: {},
 }));

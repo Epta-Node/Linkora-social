@@ -166,12 +166,12 @@ impl TokenFactoryContract {
         );
         require_with_error!(
             &env,
-            name.len() > 0 && name.len() <= MAX_NAME_LEN,
+            !name.is_empty() && name.len() <= MAX_NAME_LEN,
             "name must be 1-64 characters"
         );
         require_with_error!(
             &env,
-            symbol.len() > 0 && symbol.len() <= MAX_SYMBOL_LEN,
+            !symbol.is_empty() && symbol.len() <= MAX_SYMBOL_LEN,
             "symbol must be 1-16 characters"
         );
 

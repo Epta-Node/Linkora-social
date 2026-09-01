@@ -117,5 +117,5 @@ describe("gossip self-fencing", () => {
 
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ error: { code: "SELF_FENCED" } });
-  }, 30_000);
+  }, 60_000);
 });

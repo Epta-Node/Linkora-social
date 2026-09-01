@@ -17,6 +17,8 @@ export interface PostComposerProps {
   onAddImages: (files: FileList | File[]) => void;
   onRemoveImage: (id: string) => void;
   isCompressing?: boolean;
+  mediaError?: string | null;
+  mediaLimit?: number;
   linkUrl: string;
   onChangeLinkUrl: (url: string) => void;
   linkPreview: LinkMetadata | null;
@@ -33,6 +35,8 @@ export function PostComposer({
   onAddImages,
   onRemoveImage,
   isCompressing = false,
+  mediaError = null,
+  mediaLimit,
   linkUrl,
   onChangeLinkUrl,
   linkPreview,
@@ -78,6 +82,8 @@ export function PostComposer({
         onAddImages={onAddImages}
         onRemoveImage={onRemoveImage}
         isCompressing={isCompressing}
+        error={mediaError}
+        maxUploadBytes={mediaLimit}
       />
 
       {/* Link Attachment (Plurient) Section */}

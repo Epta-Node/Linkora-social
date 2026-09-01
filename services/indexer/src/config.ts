@@ -132,6 +132,22 @@ export interface IndexerConfig {
 
   // Graceful shutdown drain timeout (ms)
   shutdownTimeoutMs: number;
+
+  // Media uploads
+  mediaUpload: MediaUploadConfig;
+}
+
+export interface MediaUploadConfig {
+  /**
+   * Hard byte cap for a single media upload, in bytes. Files at or above this
+   * size are rejected before the transfer starts (client-side) and during the
+   * transfer (server-side, surfaced as HTTP 413).
+   */
+  maxUploadBytes: number;
+  /** Allowed image MIME types for media uploads. */
+  allowedImageTypes: string[];
+  /** Directory where uploaded media files are stored and served from. */
+  uploadDir: string;
 }
 
 export interface DbPoolConfig {
@@ -251,6 +267,12 @@ export function loadConfig(): IndexerConfig {
     },
 
     shutdownTimeoutMs: optionalInt("SHUTDOWN_TIMEOUT_MS", 30_000),
+
+    mediaUpload: {
+      maxUploadBytes: optionalInt("MEDIA_UPLOAD_MAX_MB", 20) * 1024 * 1024,
+      allowedImageTypes: ["image/jpeg", "image/png", "image/webp"],
+      uploadDir: process.env.MEDIA_UPLOAD_DIR ?? "./uploads/media",
+    },
   };
 
   if (!Number.isFinite(raw.startLedger) || raw.startLedger < 0) {

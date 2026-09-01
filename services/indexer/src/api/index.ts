@@ -18,6 +18,7 @@ import { createGovernanceRouter } from "./routes/governance";
 import { createUsersRouter } from "./routes/users";
 import { createFeedRouter } from "./routes/feed";
 import { createSearchRouter } from "./routes/search";
+import { MediaUploadConfig } from "../config";
 import { isFenced } from "../gossip";
 import { getBackfillState } from "../stream";
 import {
@@ -82,7 +83,8 @@ export function createApp(
   db: Database,
   pg?: PgPool,
   healthMonitor?: HealthMonitor,
-  shutdownState?: { active: boolean }
+  shutdownState?: { active: boolean },
+  mediaUpload?: MediaUploadConfig
 ): express.Application {
   const app = express();
   app.use(helmet());
@@ -184,7 +186,7 @@ export function createApp(
   });
 
   app.use("/api/profiles", createProfilesRouter(db));
-  app.use("/api/posts", createPostsRouter(db));
+  app.use("/api/posts", createPostsRouter(db, mediaUpload));
   app.use("/api/search", createSearchRouter(db));
   app.use("/api/follows", createFollowsRouter(db));
   app.use("/api/pools", createPoolsRouter(db));
@@ -268,7 +270,9 @@ if (require.main === module) {
   const PORT = loadConfig().port;
   const databaseUrl = process.env.DATABASE_URL;
   const pg = databaseUrl ? new PgPool({ connectionString: databaseUrl }) : undefined;
-  const apiApp = pg ? createApp(new PostgresDatabase(pg), pg) : createApp(_stub);
+  const apiApp = pg
+    ? createApp(new PostgresDatabase(pg), pg, undefined, undefined, loadConfig().mediaUpload)
+    : createApp(_stub);
 
   apiApp.listen(PORT, () => {
     console.log(`Indexer API listening on port ${PORT}`);
