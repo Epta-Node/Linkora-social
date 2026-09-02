@@ -362,7 +362,26 @@ describe("TransactionQueue", () => {
 
       const statuses = events.map((e) => e.status);
       expect(statuses).toEqual(["pending", "simulated", "confirmed"]);
-      expect(events.find((e) => e.status === "confirmed")?.resourceFee).toBe("2000");
+
+      const confirmedEvent = events.find((e) => e.status === "confirmed");
+      expect(confirmedEvent?.resourceFee).toBe("2000");
+      // Dry-run "confirmed" must be distinguishable from a real confirmation:
+      expect(confirmedEvent?.dryRun).toBe(true);
+      expect(confirmedEvent?.hash).toBeUndefined();
+    });
+
+    it("marks real confirmations with dryRun:false (or undefined) and a hash", async () => {
+      const rpc = makeRpc();
+      const queue = new TransactionQueue({ signer: makeSigner(), rpc, pollIntervalMs: 0 });
+      const events: TxStatusEvent[] = [];
+      queue.on("status", (e) => events.push(e));
+      queue.enqueue("XDR_LIVE");
+
+      await queue.run({ dryRun: false });
+
+      const confirmedEvent = events.find((e) => e.status === "confirmed");
+      expect(confirmedEvent?.dryRun).not.toBe(true);
+      expect(confirmedEvent?.hash).toBeDefined();
     });
 
     it("dryRun queue-level default is honoured", async () => {

@@ -52,15 +52,20 @@ export async function GET(
       `${indexerUrl}/api/follows/${address}/following?limit=${limit}&offset=${offset}`,
       {
         next: { revalidate: 0 },
+        signal: AbortSignal.timeout(1000),
       }
     );
 
     if (res.ok) {
       const data = await res.json();
       const enrichedFollowing = await Promise.all(
-        (data.following || []).map(async (addr: string) => {
+        (data.following || []).map(async (item: any) => {
+          const addr = typeof item === "string" ? item : item?.address || "";
+          if (!addr) return null;
           try {
-            const pRes = await fetch(`${indexerUrl}/api/profiles/${addr}`);
+            const pRes = await fetch(`${indexerUrl}/api/profiles/${addr}`, {
+              signal: AbortSignal.timeout(1000),
+            });
             if (pRes.ok) {
               const pData = await pRes.json();
               return { address: addr, username: pData.username || `user_${addr.slice(0, 6)}` };
@@ -69,10 +74,11 @@ export async function GET(
           return { address: addr, username: `user_${addr.slice(0, 6)}` };
         })
       );
+      const validFollowing = enrichedFollowing.filter(Boolean);
       return NextResponse.json({
         address: data.address || address,
-        following: enrichedFollowing,
-        total: data.total || 0,
+        following: validFollowing,
+        total: data.total || validFollowing.length,
         limit: data.limit || limit,
         offset: data.offset || offset,
         has_more: data.has_more ?? false,

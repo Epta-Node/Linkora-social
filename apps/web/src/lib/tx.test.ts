@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { signAndSubmitTransaction, buildSignAndSubmit } from "./tx";
 import { signTransaction } from "@stellar/freighter-api";
 import {
@@ -10,29 +9,29 @@ import {
 } from "@stellar/stellar-sdk";
 
 // Mock Freighter API
-vi.mock("@stellar/freighter-api", () => ({
-  signTransaction: vi.fn(),
+jest.mock("@stellar/freighter-api", () => ({
+  signTransaction: jest.fn(),
 }));
 
 // Mock Stellar SDK
-vi.mock("@stellar/stellar-sdk", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@stellar/stellar-sdk")>();
+jest.mock("@stellar/stellar-sdk", () => {
+  const actual = jest.requireActual("@stellar/stellar-sdk");
   return {
     ...actual,
     TransactionBuilder: {
-      fromXDR: vi.fn(),
+      fromXDR: jest.fn(),
     },
     rpc: {
-      Server: vi.fn().mockImplementation(() => ({
-        getAccount: vi.fn(),
-        simulateTransaction: vi.fn(),
-        sendTransaction: vi.fn(),
-        getTransaction: vi.fn(),
+      Server: jest.fn().mockImplementation(() => ({
+        getAccount: jest.fn(),
+        simulateTransaction: jest.fn(),
+        sendTransaction: jest.fn(),
+        getTransaction: jest.fn(),
       })),
       Api: {
-        isSimulationError: vi.fn(),
+        isSimulationError: jest.fn(),
       },
-      assembleTransaction: vi.fn(),
+      assembleTransaction: jest.fn(),
     },
   };
 });
@@ -45,11 +44,11 @@ describe("Transaction Utility Functions", () => {
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    jest.restoreAllMocks();
   });
 
   describe("signAndSubmitTransaction", () => {
@@ -135,8 +134,8 @@ describe("Transaction Utility Functions", () => {
       (mockServer.simulateTransaction as any).mockResolvedValue(mockSimulated);
       (StellarRpc.Api.isSimulationError as any).mockReturnValue(false);
       (StellarRpc.assembleTransaction as any).mockReturnValue({
-        build: vi.fn().mockReturnValue({
-          toXDR: vi.fn().mockReturnValue("unsigned-xdr"),
+        build: jest.fn().mockReturnValue({
+          toXDR: jest.fn().mockReturnValue("unsigned-xdr"),
         }),
       });
       (signTransaction as any).mockResolvedValue(mockSignedXdr);
