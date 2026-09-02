@@ -149,6 +149,25 @@ export async function getCachedPostById(id: string): Promise<Post | null> {
 }
 
 /**
+ * Retrieves multiple cached posts by ID in a single query, keyed by ID.
+ * IDs with no cached row are simply absent from the returned map.
+ */
+export async function getCachedPostsByIds(ids: string[]): Promise<Map<string, Post>> {
+  const map = new Map<string, Post>();
+  if (ids.length === 0) return map;
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = await db.getAllAsync<CachedPostRow>(
+    `SELECT * FROM cached_posts WHERE id IN (${placeholders})`,
+    ids
+  );
+  for (const row of rows) {
+    map.set(row.id, rowToPost(row));
+  }
+  return map;
+}
+
+/**
  * Reconciles remote (chain-confirmed) posts with the local cache.
  *
  * Chain-wins policy:
@@ -156,55 +175,71 @@ export async function getCachedPostById(id: string): Promise<Post | null> {
  *  - If a 'pending' or 'failed' optimistic row exists with the SAME author+content
  *    as a confirmed chain post, delete the optimistic row (chain state supersedes it).
  *  - Stale 'synced' rows not present in the remote set are deleted.
+ *
+ * Runs a fixed number of SQLite statements regardless of feed size: one
+ * multi-row upsert, one multi-condition delete for superseded optimistic
+ * rows, and one stale-eviction delete — instead of two `runAsync` calls per
+ * post inside the transaction.
  */
 export async function reconcilePosts(remotePosts: Post[]): Promise<void> {
-  await db.withTransactionAsync(async () => {
-    for (const post of remotePosts) {
-      // Upsert the confirmed chain post — chain state always wins on conflict.
-      await db.runAsync(
-        `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
-         ON CONFLICT(id) DO UPDATE SET
-           author      = excluded.author,
-           username    = excluded.username,
-           content     = excluded.content,
-           tip_total   = excluded.tip_total,
-           timestamp   = excluded.timestamp,
-           like_count  = excluded.like_count,
-           has_liked   = excluded.has_liked,
-           sync_status = 'synced';`,
-        [
-          String(post.id),
-          post.author,
-          post.username || "stellar_user",
-          post.content,
-          post.tip_total,
-          post.timestamp,
-          post.like_count,
-          post.has_liked ? 1 : 0,
-          Math.floor(Date.now() / 1000),
-        ]
-      );
+  if (remotePosts.length === 0) return;
 
-      // Chain-wins conflict resolution:
-      // If an optimistic (pending/failed) row exists for the same author+content
-      // but with a different local ID, the chain version is the truth — remove the local stub.
-      await db.runAsync(
-        `DELETE FROM cached_posts
-         WHERE sync_status IN ('pending', 'failed')
-           AND author  = ?
-           AND content = ?
-           AND id     != ?`,
-        [post.author, post.content, String(post.id)]
-      );
-    }
+  await db.withTransactionAsync(async () => {
+    const createdAt = Math.floor(Date.now() / 1000);
+
+    // Upsert every confirmed chain post in one multi-row statement — chain
+    // state always wins on conflict.
+    const insertPlaceholders = remotePosts
+      .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)")
+      .join(", ");
+    const insertParams = remotePosts.flatMap((post) => [
+      String(post.id),
+      post.author,
+      post.username || "stellar_user",
+      post.content,
+      post.tip_total,
+      post.timestamp,
+      post.like_count,
+      post.has_liked ? 1 : 0,
+      createdAt,
+    ]);
+    await db.runAsync(
+      `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
+       VALUES ${insertPlaceholders}
+       ON CONFLICT(id) DO UPDATE SET
+         author      = excluded.author,
+         username    = excluded.username,
+         content     = excluded.content,
+         tip_total   = excluded.tip_total,
+         timestamp   = excluded.timestamp,
+         like_count  = excluded.like_count,
+         has_liked   = excluded.has_liked,
+         sync_status = 'synced';`,
+      insertParams
+    );
+
+    // Chain-wins conflict resolution, batched across every post: delete any
+    // optimistic (pending/failed) row that matches a confirmed post's
+    // author+content but has a different local ID.
+    const deleteConditions = remotePosts
+      .map(() => "(author = ? AND content = ? AND id != ?)")
+      .join(" OR ");
+    const deleteParams = remotePosts.flatMap((post) => [
+      post.author,
+      post.content,
+      String(post.id),
+    ]);
+    await db.runAsync(
+      `DELETE FROM cached_posts WHERE sync_status IN ('pending', 'failed') AND (${deleteConditions})`,
+      deleteParams
+    );
 
     // Evict stale synced rows that are no longer in the remote set.
     if (remotePosts.length > 0) {
-      const remoteIds = remotePosts.map((p) => `'${String(p.id)}'`).join(",");
+      const remoteIds = remotePosts.map(() => "?").join(",");
       await db.runAsync(
         `DELETE FROM cached_posts WHERE sync_status = 'synced' AND id NOT IN (${remoteIds})`,
-        []
+        remotePosts.map((post) => String(post.id))
       );
     }
   });

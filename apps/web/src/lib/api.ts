@@ -13,8 +13,23 @@ export interface PoolData {
 }
 
 /**
+ * Fetch the set of post IDs that a user has liked.
+ * Returns a Set for O(1) lookup performance.
+ * Throws an error if the indexer is unreachable.
+ */
+export async function fetchUserLikes(userAddress: string): Promise<Set<string>> {
+  const res = await fetch(`${INDEXER_URL}/api/likes/${userAddress}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch likes: ${res.status} ${res.statusText}`);
+  }
+  const data = await res.json();
+  const likes: string[] = data.likes ?? data.post_ids ?? [];
+  return new Set(likes.map(String));
+}
+
+/**
  * Fetch all pools from the indexer.
- * Falls back to an empty array when the indexer is unreachable.
+ * Throws an error if the indexer is unreachable or returns an error response.
  */
 export async function fetchPools(): Promise<PoolData[]> {
   try {
@@ -32,6 +47,15 @@ export async function fetchPools(): Promise<PoolData[]> {
   } catch {
     return [];
   }
+  const data = await res.json();
+  const list = Array.isArray(data) ? data : data.pools ?? [];
+  return list.map((p: any) => ({
+    id: p.pool_id ?? p.id,
+    token: p.token,
+    balance: BigInt(p.balance ?? 0),
+    adminCount: Array.isArray(p.admins) ? p.admins.length : (p.admin_count ?? 0),
+    threshold: p.threshold ?? 1,
+  }));
 }
 
 /**
@@ -128,4 +152,98 @@ export async function fetchIsPaused(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export interface MediaUploadConfig {
+  max_upload_bytes: number;
+  allowed_image_types: string[];
+}
+
+export class MediaUploadError extends Error {
+  readonly code: string;
+  readonly status: number;
+
+  constructor(message: string, code: string, status: number) {
+    super(message);
+    this.name = "MediaUploadError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+/**
+ * Fetch the server-reported media upload budget and allowed types.
+ *
+ * The server is the single source of truth for the byte limit. Rejects falls
+ * back to a sensible default rather than throwing so the composer still works
+ * when the indexer is unreachable.
+ */
+export async function fetchUploadConfig(): Promise<MediaUploadConfig> {
+  try {
+    const res = await fetch(`${INDEXER_URL}/api/posts/media/config`);
+    if (!res.ok) {
+      return { max_upload_bytes: 20 * 1024 * 1024, allowed_image_types: [] };
+    }
+    const data = await res.json();
+    return {
+      max_upload_bytes: Number(data.max_upload_bytes ?? 20 * 1024 * 1024),
+      allowed_image_types: Array.isArray(data.allowed_image_types) ? data.allowed_image_types : [],
+    };
+  } catch {
+    return { max_upload_bytes: 20 * 1024 * 1024, allowed_image_types: [] };
+  }
+}
+
+/**
+ * Upload a single media file to the indexer and resolve with its public URL.
+ *
+ * Surfaces server-side failures (notably 413 Payload Too Large and truncated
+ * / partial writes) as typed errors so the composer can display them.
+ */
+export async function uploadMediaFile(file: File): Promise<{ url: string; size: number }> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+
+  let res: Response;
+  try {
+    res = await fetch(`${INDEXER_URL}/api/posts/media`, {
+      method: "POST",
+      body: form,
+    });
+  } catch {
+    throw new MediaUploadError(
+      "Network error while uploading media. Please try again.",
+      "NETWORK_ERROR",
+      0
+    );
+  }
+
+  if (res.status === 413) {
+    throw new MediaUploadError(
+      "Upload is too large for the server and was rejected. Choose a smaller image.",
+      "PAYLOAD_TOO_LARGE",
+      413
+    );
+  }
+
+  if (res.status === 415) {
+    throw new MediaUploadError(
+      "This file type is not supported. Accepted formats: JPG, PNG, WebP.",
+      "UNSUPPORTED_MEDIA_TYPE",
+      415
+    );
+  }
+
+  if (!res.ok) {
+    let message = "The server could not save this media. Please try again.";
+    try {
+      const body = await res.json();
+      if (body?.error?.message) message = body.error.message;
+    } catch {
+      /* non-JSON error body — fall back to the generic message */
+    }
+    throw new MediaUploadError(message, "UPLOAD_FAILED", res.status);
+  }
+
+  return res.json();
 }

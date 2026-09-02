@@ -1,64 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useWalletContext } from "@/components/WalletProvider";
 import { useNotificationsContext } from "@/contexts/NotificationsContext";
 
-export type NotificationType = "follow" | "like" | "tip" | "governance";
+export type { NotificationType, Notification } from "@/contexts/NotificationsContext";
 
-export interface Notification {
-  id: string;
-  type: NotificationType;
-  actor: string;
-  postId?: number;
-  proposalId?: number;
-  parameter?: string;
-  amountXlm?: string;
-  excerpt?: string;
-  timestamp: string;
-  read: boolean;
-}
-
-const LS_NOTIFICATIONS_KEY = "linkora:notifications:items";
-const PAGE_SIZE = 10;
-const EXCERPT_LEN = 60;
-const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:3001";
-const INDEXER_WS_URL = INDEXER_URL.replace(/^http/, "ws") + "/ws";
-
-function loadStored(address: string): Notification[] {
-  try {
-    const raw = localStorage.getItem(`${LS_NOTIFICATIONS_KEY}:${address}`);
-    if (!raw) return [];
-    return JSON.parse(raw) as Notification[];
-  } catch {
-    return [];
-  }
-}
-
-function persist(address: string, items: Notification[]): void {
-  localStorage.setItem(`${LS_NOTIFICATIONS_KEY}:${address}`, JSON.stringify(items));
-}
-
-function stroopsToXlm(amount: bigint | string | number): string {
-  return (Number(amount) / 1e7).toFixed(2);
-}
-
-async function fetchPostExcerpt(postId: number): Promise<string | undefined> {
-  try {
-    const res = await fetch(`${INDEXER_URL}/api/posts/${postId}`);
-    if (!res.ok) return undefined;
-    const post = (await res.json()) as { content?: string };
-    if (!post.content) return undefined;
-    const text = post.content.trim();
-    return text.length > EXCERPT_LEN ? `${text.slice(0, EXCERPT_LEN)}…` : text;
-  } catch {
-    return undefined;
-  }
-}
-
+/**
+ * Thin consumer over the canonical NotificationsProvider.
+ *
+ * All notification state (including the indexer WebSocket feed) now lives in
+ * `NotificationsContext`, so this hook lets existing callers keep reading the
+ * inbox without owning their own copy of the data.
+ */
 export function useNotifications() {
   const { address } = useWalletContext();
-  const { incrementUnread, resetUnread } = useNotificationsContext();
+  const { incrementUnread, decrementUnread, resetUnread } = useNotificationsContext();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [page, setPage] = useState(1);
   const addressRef = useRef<string | null>(null);
@@ -185,6 +140,27 @@ export function useNotifications() {
     resetUnread();
   }, [resetUnread]);
 
+  /**
+   * Mark a single notification as read and keep the global unread counter in
+   * sync. Unread state is preserved until the user explicitly reads an item
+   * (or uses "Mark all read"); it is never cleared just by visiting the page.
+   */
+  const markRead = useCallback(
+    (id: string) => {
+      if (!addressRef.current) return;
+      const target = notifications.find((n) => n.id === id);
+      if (target?.read) return;
+
+      setNotifications((prev) => {
+        const next = prev.map((n) => (n.id === id ? { ...n, read: true } : n));
+        persist(addressRef.current!, next);
+        return next;
+      });
+      decrementUnread();
+    },
+    [decrementUnread, notifications]
+  );
+
   const loadMore = useCallback(() => {
     setPage((p) => p + 1);
   }, []);
@@ -193,5 +169,12 @@ export function useNotifications() {
   const hasMore = notifications.length > page * PAGE_SIZE;
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  return { notifications: visibleNotifications, hasMore, unreadCount, markAllRead, loadMore };
+  return {
+    notifications: visibleNotifications,
+    hasMore,
+    unreadCount,
+    markAllRead,
+    markRead,
+    loadMore,
+  };
 }

@@ -34,7 +34,16 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
   const [maxContentLen, setMaxContentLen] = useState<number>(280);
   const [isOverLimit, setIsOverLimit] = useState(false);
 
-  const { images, addImages, removeImage, clearImages, isCompressing } = useMediaUpload();
+  const {
+    images,
+    addImages,
+    removeImage,
+    clearImages,
+    isCompressing,
+    error: mediaError,
+    maxUploadBytes: mediaLimit,
+    hasIncompleteMedia,
+  } = useMediaUpload();
   const {
     url: linkUrl,
     linkPreview,
@@ -95,11 +104,16 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
   const handleSubmit = useCallback(async () => {
     if ((!content.trim() && images.length === 0) || isSubmitting) return;
 
+    // Never submit media that has not fully uploaded or failed to upload.
+    const hasIncompleteMedia =
+      isCompressing || images.some((img) => img.uploading || img.error || !img.url);
+    if (hasIncompleteMedia) return;
+
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      const imageUrls = images.map((img) => img.previewUrl);
+      const imageUrls = images.map((img) => img.url).filter((url): url is string => !!url);
       if (onSubmit) {
         await onSubmit({
           content,
@@ -125,6 +139,7 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
     images,
     linkUrl,
     isSubmitting,
+    isCompressing,
     onSubmit,
     clearImages,
     clearLinkPreview,
@@ -146,6 +161,7 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
   }, [isOpen, handleSubmit]);
 
   const isPostDisabled =
+    (!content.trim() && images.length === 0) || isSubmitting || isCompressing || hasIncompleteMedia;
     (!content.trim() && images.length === 0) || isSubmitting || isCompressing || isOverLimit;
 
   return (
@@ -209,6 +225,8 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
                     onAddImages={addImages}
                     onRemoveImage={removeImage}
                     isCompressing={isCompressing}
+                    mediaError={mediaError}
+                    mediaLimit={mediaLimit}
                     linkUrl={linkUrl}
                     onChangeLinkUrl={handleLinkUrlChange}
                     linkPreview={linkPreview}

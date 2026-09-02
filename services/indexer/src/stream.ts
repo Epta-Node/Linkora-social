@@ -22,6 +22,12 @@ import { detectGap } from "./gap";
 import type { BackfillCoordinator } from "./services/backfill-coordinator";
 import type { BackfillConfig } from "./config";
 import { isSerializationConflict } from "./pipeline";
+import {
+  StreamCircuitBreaker,
+  isRetriableStreamError,
+  DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
+  DEFAULT_CIRCUIT_BREAKER_PROBE_INTERVAL_MS,
+} from "./stream-circuit";
 
 export interface RawEvent {
   type: string;
@@ -52,6 +58,17 @@ export interface StreamConfig {
   maxRetries?: number;
   backoffBaseMs?: number;
   backoffMaxMs?: number;
+  /**
+   * Consecutive *persistent* failures required to open the circuit breaker.
+   * Transient transport faults never count toward it. Defaults to 10; set
+   * from `STREAM_CIRCUIT_BREAKER_THRESHOLD`.
+   */
+  circuitBreakerThreshold?: number;
+  /**
+   * How long the breaker stays open before letting a single probe through.
+   * Defaults to 30s; set from `STREAM_CIRCUIT_BREAKER_PROBE_INTERVAL_MS`.
+   */
+  circuitBreakerProbeIntervalMs?: number;
   /**
    * Optional backfill configuration used by the mid-stream gap detector to
    * enforce depth limits and emit alerts. When omitted, the legacy unbounded
@@ -405,8 +422,11 @@ export async function streamEvents(
   let cursor = config.initialCursor ?? 0;
   let startLedger = config.startLedger;
   let pagingCursor: string | undefined;
-  let consecutiveFailures = 0;
-  const circuitBreakerThreshold = 10;
+  const breaker = new StreamCircuitBreaker({
+    threshold: config.circuitBreakerThreshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
+    probeIntervalMs:
+      config.circuitBreakerProbeIntervalMs ?? DEFAULT_CIRCUIT_BREAKER_PROBE_INTERVAL_MS,
+  });
 
   console.log(
     `[stream] Starting from ledger ${startLedger} (cursor ${cursor}), contract=${config.contractId}`
@@ -424,7 +444,7 @@ export async function streamEvents(
         signal
       );
 
-      consecutiveFailures = 0;
+      breaker.recordSuccess();
 
       if (signal.aborted) break;
 
@@ -522,14 +542,27 @@ export async function streamEvents(
         continue;
       }
 
-      consecutiveFailures += 1;
-      if (consecutiveFailures >= circuitBreakerThreshold) {
-        console.error(
-          `[stream] Circuit breaker triggered after ${consecutiveFailures} consecutive failures. Stopping stream.`
-        );
-        break;
+      if (isRetriableStreamError(err)) {
+        // Transport blip (RPC restart, reset, timeout, 429/5xx). Retried
+        // indefinitely: these are expected in normal operation and must not
+        // be able to halt the indexer on their own.
+        breaker.recordRetriableFailure(err);
+        await waitWithAbort(poll.intervalMs, signal);
+        continue;
       }
+
+      const opened = breaker.recordPersistentFailure(err);
       console.error("[stream] Error processing batch:", err);
+
+      if (opened) {
+        // Open: wait out the probe interval, then go half-open so the next
+        // loop iteration is a single probe. The stream is never terminated —
+        // recovery no longer needs an operator.
+        await waitWithAbort(breaker.probeIntervalMs, signal);
+        breaker.beginProbe();
+        continue;
+      }
+
       await waitWithAbort(poll.intervalMs, signal);
     }
   }

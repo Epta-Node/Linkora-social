@@ -3,7 +3,7 @@
  * deterministic and instant.
  */
 
-import { TokenBucket } from "../ratelimit";
+import { TokenBucket, wsMaxMessageBytesFromEnv, DEFAULT_WS_MAX_MESSAGE_BYTES } from "../ratelimit";
 
 /** Controllable clock + sleep where sleeping advances the clock. */
 function fakeTime() {
@@ -82,23 +82,19 @@ describe("TokenBucket", () => {
 });
 
 describe("wsMaxMessageBytesFromEnv", () => {
-  it("returns default when no env var is set", async () => {
-    const { wsMaxMessageBytesFromEnv, DEFAULT_WS_MAX_MESSAGE_BYTES } = await import("../ratelimit");
+  it("returns default when no env var is set", () => {
     expect(wsMaxMessageBytesFromEnv({})).toBe(DEFAULT_WS_MAX_MESSAGE_BYTES);
   });
 
-  it("parses WS_MAX_MESSAGE_BYTES from env", async () => {
-    const { wsMaxMessageBytesFromEnv } = await import("../ratelimit");
+  it("parses WS_MAX_MESSAGE_BYTES from env", () => {
     expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "1024" })).toBe(1024);
   });
 
-  it("parses WS_MAX_PAYLOAD_BYTES from env fallback", async () => {
-    const { wsMaxMessageBytesFromEnv } = await import("../ratelimit");
+  it("parses WS_MAX_PAYLOAD_BYTES from env fallback", () => {
     expect(wsMaxMessageBytesFromEnv({ WS_MAX_PAYLOAD_BYTES: "2048" })).toBe(2048);
   });
 
-  it("falls back to default for invalid number", async () => {
-    const { wsMaxMessageBytesFromEnv, DEFAULT_WS_MAX_MESSAGE_BYTES } = await import("../ratelimit");
+  it("falls back to default for invalid number", () => {
     expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "abc" })).toBe(
       DEFAULT_WS_MAX_MESSAGE_BYTES
     );

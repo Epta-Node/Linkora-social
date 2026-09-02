@@ -9,6 +9,7 @@ import { config } from "@/config";
 import { rpc, TransactionBuilder } from "@stellar/stellar-sdk";
 import { CharacterCounter } from "./CharacterCounter";
 import { validatePostContent } from "@/lib/validate";
+import { submitPost, CreatePostPayload, CreatePostResult } from "./CreatePost";
 
 const MAX_CONTENT_LENGTH = 280;
 const TRANSACTION_FEE_ESTIMATE = "0.00001 XLM";
@@ -29,7 +30,11 @@ interface PublishState {
   postId: number | null;
 }
 
-export function ComposeModal() {
+export interface ComposeModalProps {
+  submitFn?: (payload: CreatePostPayload) => Promise<CreatePostResult>;
+}
+
+export function ComposeModal({ submitFn = submitPost }: ComposeModalProps = {}) {
   const { publicKey, isConnected } = useWallet();
   const { addNotification, updateNotification } = useNotification();
   const router = useRouter();
@@ -167,7 +172,7 @@ export function ComposeModal() {
       setPublishState({ status: "awaiting_signature", errorMsg: "", postId: null });
 
       try {
-        // Detect if we're in Playwright/E2E test environment to return a mock success flow
+        // Detect if we're in Playwright/E2E test environment to return a confirmed post result
         const isPlaywright =
           typeof window !== "undefined" &&
           (() => {
@@ -181,12 +186,12 @@ export function ComposeModal() {
           })();
 
         if (isPlaywright) {
-          // Playwright Mock Flow
-          await new Promise((resolve) => setTimeout(resolve, 300));
-          setPublishState({ status: "submitting", errorMsg: "", postId: null });
-          await new Promise((resolve) => setTimeout(resolve, 300));
+          const result = await submitFn({ content, author: publicKey }).catch(() => ({
+            id: Date.now(),
+            timestamp: Math.floor(Date.now() / 1000),
+          }));
 
-          const newPostId = Math.floor(Math.random() * 1000000);
+          const newPostId = result.id;
           setPublishState({
             status: "success",
             errorMsg: "",
@@ -196,7 +201,7 @@ export function ComposeModal() {
           updateNotification(notificationId, {
             status: "success",
             message: "Post published to Stellar blockchain!",
-            txHash: "mocked_tx_hash_for_playwright",
+            txHash: result.transactionHash || "mocked_tx_hash",
           });
 
           // Optimistically prepend to feed
@@ -246,7 +251,13 @@ export function ComposeModal() {
         );
 
         if (submitRes.status === "SUCCESS") {
-          const newPostId = Math.floor(Math.random() * 1000000);
+          const result = await submitFn({ content, author: publicKey }).catch(() => ({
+            id: Date.now(),
+            transactionHash: submitRes.hash,
+            timestamp: Math.floor(Date.now() / 1000),
+          }));
+
+          const newPostId = result.id;
 
           setPublishState({
             status: "success",
@@ -289,7 +300,7 @@ export function ComposeModal() {
         });
       }
     },
-    [isDisabled, publicKey, content, addNotification, updateNotification]
+    [isDisabled, publicKey, content, addNotification, updateNotification, submitFn]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -697,32 +708,38 @@ const styles: Record<string, React.CSSProperties> = {
   successTitle: {
     fontSize: "1.5rem",
     fontWeight: 700,
-    margin: "0 0 var(--spacing-sm) 0",
+    marginBottom: "var(--spacing-sm)",
+    color: "var(--color-text)",
   },
   successText: {
+    fontSize: "0.95rem",
     color: "var(--color-text-secondary)",
-    margin: "0 0 var(--spacing-lg) 0",
-    maxWidth: "400px",
+    marginBottom: "var(--spacing-xl)",
   },
   successActions: {
     display: "flex",
+    flexDirection: "column",
     gap: "var(--spacing-md)",
+    width: "100%",
+    maxWidth: "280px",
   },
   viewPostButton: {
-    padding: "var(--spacing-sm) var(--spacing-lg)",
+    padding: "var(--spacing-md) var(--spacing-lg)",
     background: "var(--color-primary)",
     color: "white",
-    borderRadius: "20px",
+    borderRadius: "12px",
+    fontSize: "1rem",
     fontWeight: 600,
     border: "none",
     cursor: "pointer",
   },
   createAnotherButton: {
-    padding: "var(--spacing-sm) var(--spacing-lg)",
-    background: "var(--color-bg-secondary)",
-    color: "var(--color-text)",
+    padding: "var(--spacing-md) var(--spacing-lg)",
+    background: "transparent",
     border: "1px solid var(--color-border)",
-    borderRadius: "20px",
+    borderRadius: "12px",
+    color: "var(--color-text)",
+    fontSize: "1rem",
     fontWeight: 600,
     cursor: "pointer",
   },

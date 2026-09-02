@@ -9,11 +9,35 @@ const CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID ?? "";
 
 type ProposalWithQuorum = GovProposal & { effectiveQuorum: number };
 const GOVERNANCE_PARAMETERS = Object.values(GovParameter) as GovParameter[];
+const PAGE_SIZE = 10;
+
+// ── Shared Client Instance ───────────────────────────────────────────────────
+// Hoist a single LinkoraClient to module scope so all handlers reuse one client
+// and one underlying rpc.Server connection, avoiding per-action overhead.
+const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
+
+// ── Shared Client Instance ───────────────────────────────────────────────────
+// Hoist a single LinkoraClient to module scope so all handlers reuse one client
+// and one underlying rpc.Server connection, avoiding per-action overhead.
+const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
+
+// ── Shared Client Instance ───────────────────────────────────────────────────
+// Hoist a single LinkoraClient to module scope so all handlers reuse one client
+// and one underlying rpc.Server connection, avoiding per-action overhead.
+const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
+
+// ── Shared Client Instance ───────────────────────────────────────────────────
+// Hoist a single LinkoraClient to module scope so all handlers reuse one client
+// and one underlying rpc.Server connection, avoiding per-action overhead.
+const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
 
 export default function GovernancePage() {
   const { address, connected } = useWalletContext();
   const [proposals, setProposals] = useState<ProposalWithQuorum[]>([]);
   const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"Active" | "Passed" | "Executed" | "History">(
     "Active"
   );
@@ -23,34 +47,54 @@ export default function GovernancePage() {
   const [formValue, setFormValue] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const fetchProposals = async () => {
+  const fetchProposals = async (targetPage: number = 1) => {
     if (!CONTRACT_ID) return;
     setLoading(true);
+    setFetchError(null);
     try {
-      const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
       const fetched: ProposalWithQuorum[] = [];
-      let id = 1n;
-      while (true) {
+      // Bounded page scan: fetch at most PAGE_SIZE proposals per request instead
+      // of scanning forever with while(true). "End of list" is detected by an id
+      // lookup failure, but only ever advances one page at a time.
+      const startId = (targetPage - 1) * PAGE_SIZE + 1;
+      const endId = startId + PAGE_SIZE - 1;
+      let foundAny = false;
+      for (let n = startId; n <= endId; n++) {
+        const id = BigInt(n);
         try {
           const prop = await client.govGetProposal(id);
           const quorum = await client.effectiveQuorum(id);
           fetched.push({ ...prop, effectiveQuorum: quorum });
-          id++;
-        } catch (e) {
-          // If it throws, we've likely hit the end of the proposals
+          foundAny = true;
+        } catch {
+          // Likely hit the end of the proposal list. Stop scanning this page.
           break;
         }
       }
-      setProposals(fetched.reverse()); // Newest first
+      setProposals((prev) => {
+        const combined = targetPage === 1 ? fetched : [...prev, ...fetched];
+        const seen = new Set<string>();
+        return combined.filter((p) => {
+          const key = (p as { id?: { toString?: () => string } }).id?.toString?.() ?? "";
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
+      const reachedEnd = fetched.length < PAGE_SIZE;
+      setHasMore(foundAny && !reachedEnd);
+      setPage(targetPage);
     } catch (e) {
-      console.error("Failed to fetch proposals", e);
+      // A transient RPC failure should not wipe the already-loaded list. Surface
+      // it so the boundary can render feedback while keeping existing proposals.
+      setFetchError(e instanceof Error ? e.message : "Failed to fetch proposals");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchProposals();
+    fetchProposals(1);
   }, []);
 
   const handlePropose = async (e: React.FormEvent) => {
@@ -58,7 +102,6 @@ export default function GovernancePage() {
     if (!address || !CONTRACT_ID) return;
     setIsSubmitting(true);
     try {
-      const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
       await client.govPropose(address, formParam, BigInt(formValue), null);
       setFormValue("");
       await fetchProposals();
@@ -73,7 +116,6 @@ export default function GovernancePage() {
   const handleVote = async (proposalId: bigint, support: boolean) => {
     if (!address || !CONTRACT_ID) return;
     try {
-      const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
       await client.govVote(address, proposalId, support);
       await fetchProposals();
     } catch (error) {
@@ -85,7 +127,6 @@ export default function GovernancePage() {
   const handleExecute = async (proposalId: bigint) => {
     if (!CONTRACT_ID) return;
     try {
-      const client = new LinkoraClient({ rpcUrl: RPC_URL, contractId: CONTRACT_ID });
       await client.govExecute(proposalId);
       await fetchProposals();
     } catch (error) {
@@ -238,6 +279,27 @@ export default function GovernancePage() {
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {fetchError && (
+            <div
+              className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"
+              data-testid="proposals-error"
+            >
+              Could not refresh proposals: {fetchError}
+            </div>
+          )}
+
+          {hasMore && !loading && (
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={() => fetchProposals(page + 1)}
+                className="rounded-lg border border-[var(--border)] px-5 py-2 text-sm font-medium text-[var(--text-muted)] hover:border-violet-500/60 hover:text-violet-400 transition-colors"
+                data-testid="load-more"
+              >
+                Load more proposals
+              </button>
             </div>
           )}
         </div>

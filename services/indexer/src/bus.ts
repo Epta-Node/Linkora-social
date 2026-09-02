@@ -33,22 +33,44 @@ export interface BusEvent {
 
 /** Channel that receives every event regardless of type. */
 export const ALL_EVENTS = "*";
+export const DEFAULT_MAX_LISTENERS = 100;
 
 export type BusListener = (event: BusEvent) => void;
 
 export class EventBus {
   private readonly emitter = new EventEmitter();
 
-  constructor() {
-    // Downstream consumers can be numerous (every WS client adds one). Lift
-    // the default 10-listener cap and rely on explicit unsubscribe instead.
-    this.emitter.setMaxListeners(0);
+  constructor(maxListeners: number = DEFAULT_MAX_LISTENERS) {
+    // Downstream consumers can be numerous (e.g. WS clients). Set a sane max listeners
+    // threshold so leaked subscribers trigger warnings instead of being silently ignored.
+    this.emitter.setMaxListeners(maxListeners);
+  }
+
+  /**
+   * Set max listeners allowed before warning of potential memory leaks.
+   */
+  setMaxListeners(n: number): void {
+    this.emitter.setMaxListeners(n);
+  }
+
+  /**
+   * Get current max listeners setting.
+   */
+  getMaxListeners(): number {
+    return this.emitter.getMaxListeners();
   }
 
   /**
    * Subscribe to a specific event type. Returns an unsubscribe function.
    */
   on(type: string, listener: BusListener): () => void {
+    const max = this.emitter.getMaxListeners();
+    if (max > 0 && this.emitter.listenerCount(type) >= max) {
+      console.warn(
+        `[bus] MaxListenersExceededWarning: Possible EventBus memory leak detected. ` +
+          `Listener count on channel "${type}" reached limit of ${max}.`
+      );
+    }
     this.emitter.on(type, listener);
     return () => this.emitter.off(type, listener);
   }

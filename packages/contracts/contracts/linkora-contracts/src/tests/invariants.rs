@@ -1,4 +1,5 @@
 #![cfg(test)]
+extern crate std;
 
 use crate::test::{
     credential_authority_pubkey, credential_authority_signing_key, sign_credential_root,
@@ -411,6 +412,75 @@ fn invariant_existing_pool_admins_are_some() {
     let admins = client.get_pool_admins(&pool_id).unwrap();
     assert_eq!(admins.len(), 1);
     assert!(admins.iter().any(|a| a == pool_admin));
+}
+
+#[test]
+fn invariant_pool_threshold_cannot_exceed_admin_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_test_env(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let token = setup_token_in_env(&env, &pool_admin1);
+
+    let pool_id = soroban_sdk::symbol_short!("inv_th");
+
+    // Invariant: Pool creation fails if threshold > initial admins count
+    let bad_create = client.try_create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &3,
+    );
+    assert!(
+        bad_create.is_err(),
+        "create_pool with threshold > admins must fail"
+    );
+
+    // Create a valid 2-of-2 pool
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+
+    // Invariant: Pool threshold <= admin count after valid creation
+    let pool = client.get_pool(&pool_id).unwrap();
+    assert!(pool.threshold <= pool.admins.len());
+
+    // Invariant: update_pool_threshold fails if new threshold > admins count
+    let bad_update = client.try_update_pool_threshold(
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &pool_id,
+        &3,
+    );
+    assert!(
+        bad_update.is_err(),
+        "update_pool_threshold with threshold > admins must fail"
+    );
+
+    // Invariant: threshold remains <= admin count after rejected update
+    let pool_after = client.get_pool(&pool_id).unwrap();
+    assert!(pool_after.threshold <= pool_after.admins.len());
+
+    // Invariant: remove_pool_admin fails if removal would cause admins count < threshold
+    let bad_remove = client.try_remove_pool_admin(
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &pool_id,
+        &pool_admin2,
+    );
+    assert!(
+        bad_remove.is_err(),
+        "remove_pool_admin causing admins < threshold must fail"
+    );
+
+    // Invariant: threshold remains <= admin count after rejected admin removal
+    let pool_final = client.get_pool(&pool_id).unwrap();
+    assert!(pool_final.threshold <= pool_final.admins.len());
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -52,9 +52,12 @@ function InteractivePostCard({
   const [isTipping, setIsTipping] = useState(false);
   const postId = String(post.id);
 
+  // Determine initial liked state from the fetched user likes
+  const initialIsLiked = userLikes.has(postId);
+
   // Optimistic Like State
   const likeState = useOptimisticLike(currentUserAddress, postId, {
-    isLiked: false, // fallback truth would come from contract/indexer hasLiked API
+    isLiked: initialIsLiked,
     likeCount: Number(post.like_count ?? 0),
   });
 
@@ -159,12 +162,18 @@ export default function FeedPage() {
   const [error, setError] = useState<string | null>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
+  // User's liked posts set (for seeding initial like state)
+  const [userLikes, setUserLikes] = useState<Set<string>>(new Set());
+  const [likesLoading, setLikesLoading] = useState(false);
+
   // Real-time updates via WebSocket
   const [hasNewPosts, setHasNewPosts] = useState(false);
 
   // Whether the current user follows nobody (following tab empty state)
   const [followsNobody, setFollowsNobody] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
 
   // Tipping modal state
   const [tippingPost, setTippingPost] = useState<Post | null>(null);
@@ -193,6 +202,9 @@ export default function FeedPage() {
 
         const newPosts = append ? [...posts, ...fetchedPosts] : fetchedPosts;
         persistFeed({ posts: newPosts, cursor: cursorParam, hasMore: data.has_more ?? false });
+
+        // Reconcile optimistic state against the fresh server response (#1203)
+        OptimisticStore.reconcileFeed(currentUserAddress, newPosts);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -200,7 +212,7 @@ export default function FeedPage() {
         setLoadingMore(false);
       }
     },
-    [posts, persistFeed]
+    [posts, persistFeed, currentUserAddress]
   );
 
   const fetchFollowingFeed = useCallback(
@@ -229,6 +241,8 @@ export default function FeedPage() {
           setFollowsNobody(true);
           setLoading(false);
           setLoadingMore(false);
+          // No visible posts — prune all optimistic entries (#1203)
+          OptimisticStore.reconcileFeed(currentUserAddress, []);
           return;
         }
         setFollowsNobody(false);
@@ -265,6 +279,9 @@ export default function FeedPage() {
           cursor: cursorParam,
           hasMore: startIdx + paginated.length < allFetchedPosts.length,
         });
+
+        // Reconcile optimistic state against the fresh server response (#1203)
+        OptimisticStore.reconcileFeed(currentUserAddress, newPosts);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -361,17 +378,23 @@ export default function FeedPage() {
 
   useEffect(() => {
     const wsUrl = indexerUrl.replace(/^http/, "ws") + "/ws";
+    isMountedRef.current = true;
 
     const connectWs = () => {
+      if (!isMountedRef.current) return;
+
       const socket = new WebSocket(wsUrl);
       socketRef.current = socket;
 
       socket.onopen = () => {
+        if (!isMountedRef.current) return;
         // Subscribe to PostCreated events
         socket.send(JSON.stringify({ action: "subscribe", types: ["PostCreated"] }));
       };
 
       socket.onmessage = (event) => {
+        if (!isMountedRef.current) return;
+
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === "PostCreated") {
@@ -381,20 +404,46 @@ export default function FeedPage() {
       };
 
       socket.onerror = () => {
+        if (!isMountedRef.current) return;
         socket.close();
       };
 
       socket.onclose = () => {
-        // Try reconnecting after 5 seconds
-        setTimeout(connectWs, 5000);
+        if (!isMountedRef.current) return;
+
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+        }
+
+        reconnectTimerRef.current = setTimeout(() => {
+          if (!isMountedRef.current) {
+            reconnectTimerRef.current = null;
+            return;
+          }
+
+          reconnectTimerRef.current = null;
+          connectWs();
+        }, 5000);
       };
     };
 
     connectWs();
 
     return () => {
+      isMountedRef.current = false;
+
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+
       if (socketRef.current) {
+        socketRef.current.onopen = null;
+        socketRef.current.onmessage = null;
+        socketRef.current.onerror = null;
+        socketRef.current.onclose = null;
         socketRef.current.close();
+        socketRef.current = null;
       }
     };
   }, []);

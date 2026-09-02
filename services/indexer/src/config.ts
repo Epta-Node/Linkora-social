@@ -14,6 +14,14 @@
  *                               limiting (default 100 ms).
  * BACKFILL_ALERT_THRESHOLD    — Alert when the detected gap (in ledgers) exceeds
  *                               this value (default 5 000).
+ * STREAM_CIRCUIT_BREAKER_THRESHOLD
+ *                             — Consecutive *persistent* live-stream failures
+ *                               before the circuit breaker opens (default 10).
+ *                               Transient transport faults (ECONNREFUSED,
+ *                               ETIMEDOUT, 429/5xx, ...) never count toward it.
+ * STREAM_CIRCUIT_BREAKER_PROBE_INTERVAL_MS
+ *                             — How long the stream breaker stays open before
+ *                               letting a single probe through (default 30000).
  * BACKFILL_CIRCUIT_BREAKER_MAX_FAILURES
  *                             — Stop backfilling and require manual intervention
  *                               after this many consecutive failures (default 5).
@@ -104,6 +112,10 @@ export interface IndexerConfig {
   rpcRateLimitPerSec: number | undefined;
   minPollIntervalMs: number | undefined;
   maxPollIntervalMs: number | undefined;
+  /** Consecutive persistent stream failures before the circuit breaker opens. */
+  streamCircuitBreakerThreshold: number;
+  /** How long the stream breaker stays open before probing once. */
+  streamCircuitBreakerProbeIntervalMs: number;
 
   // Database connection pool
   pgPoolMin: number;
@@ -120,6 +132,22 @@ export interface IndexerConfig {
 
   // Graceful shutdown drain timeout (ms)
   shutdownTimeoutMs: number;
+
+  // Media uploads
+  mediaUpload: MediaUploadConfig;
+}
+
+export interface MediaUploadConfig {
+  /**
+   * Hard byte cap for a single media upload, in bytes. Files at or above this
+   * size are rejected before the transfer starts (client-side) and during the
+   * transfer (server-side, surfaced as HTTP 413).
+   */
+  maxUploadBytes: number;
+  /** Allowed image MIME types for media uploads. */
+  allowedImageTypes: string[];
+  /** Directory where uploaded media files are stored and served from. */
+  uploadDir: string;
 }
 
 export interface DbPoolConfig {
@@ -207,6 +235,12 @@ export function loadConfig(): IndexerConfig {
       ? parseInt(process.env.MAX_POLL_INTERVAL_MS, 10)
       : undefined,
 
+    streamCircuitBreakerThreshold: optionalInt("STREAM_CIRCUIT_BREAKER_THRESHOLD", 10),
+    streamCircuitBreakerProbeIntervalMs: optionalInt(
+      "STREAM_CIRCUIT_BREAKER_PROBE_INTERVAL_MS",
+      30_000
+    ),
+
     pgPoolMin: optionalInt("PG_POOL_MIN", 2),
     pgPoolMax: optionalInt("PG_POOL_MAX", 10),
 
@@ -233,6 +267,12 @@ export function loadConfig(): IndexerConfig {
     },
 
     shutdownTimeoutMs: optionalInt("SHUTDOWN_TIMEOUT_MS", 30_000),
+
+    mediaUpload: {
+      maxUploadBytes: optionalInt("MEDIA_UPLOAD_MAX_MB", 20) * 1024 * 1024,
+      allowedImageTypes: ["image/jpeg", "image/png", "image/webp"],
+      uploadDir: process.env.MEDIA_UPLOAD_DIR ?? "./uploads/media",
+    },
   };
 
   if (!Number.isFinite(raw.startLedger) || raw.startLedger < 0) {

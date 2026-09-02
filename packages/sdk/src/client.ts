@@ -6,6 +6,7 @@ import {
   Transaction,
   TransactionBuilder,
   Account,
+  Address,
   Keypair,
   Operation,
   StrKey,
@@ -20,7 +21,11 @@ import {
   ValidationError,
   InvalidInputError,
   NetworkError,
+  LinkoraError,
+  VersionMismatchError,
+  ReadResult,
 } from "./errors.js";
+import { ClassicAccountClient, ClassicBalance } from "./classic.js";
 import { GovParameter } from "./generated/types.js";
 import type { GovProposal } from "./generated/types.js";
 import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health.js";
@@ -111,6 +116,12 @@ function scvSymbol(value: string): xdr.ScVal {
 }
 function scvI128(value: number | bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "i128" });
+}
+function scvAddressVec(value: string[]): xdr.ScVal {
+  return nativeToScVal(
+    value.map((addr) => Address.fromString(addr)),
+    { type: "vec" }
+  );
 }
 
 function ensureNonEmptyString(value: string, fieldName: string): void {
@@ -228,6 +239,7 @@ export interface SetProfileWithNewTokenParams {
  * error handling, and type conversions (e.g. bigint ↔ number).
  */
 export class LinkoraClient extends GeneratedLinkoraClient {
+  public readonly classic: ClassicAccountClient;
   private tokenFactoryId?: string;
   private readonly _rpcUrl: string;
   private readonly _networkPassphrase: string;
@@ -236,6 +248,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   private readonly _timeoutMs: number;
   private readonly _allowHttp: boolean;
   private readonly _horizonUrl?: string;
+  private readonly _rpcServer: rpc.Server;
 
   constructor(config: ClientConfig) {
     super({
@@ -252,14 +265,27 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     this._allowHttp = resolveAllowHttp({ rpcUrl: config.rpcUrl, allowHttp: config.allowHttp });
     this._horizonUrl = config.horizonUrl;
 
+    this._rpcServer = new rpc.Server(this._rpcUrl, { allowHttp: this._allowHttp });
+
+    this.classic = new ClassicAccountClient({
+      networkPassphrase: this._networkPassphrase,
+      horizonUrl: this._horizonUrl,
+      timeoutMs: this._timeoutMs,
+    });
+
     const { autoStart, ...healthCfg } = config.healthCheck ?? {};
-    this._healthMonitor = new ConnectionHealthMonitor(this._rpcUrl, healthCfg);
+    this._healthMonitor = new ConnectionHealthMonitor(this._rpcUrl, healthCfg, this._rpcServer);
     if (autoStart) this._healthMonitor.start();
   }
 
-  /** Build an RPC server handle honoring the insecure-HTTP setting. */
-  createRpcServer(): rpc.Server {
-    return new rpc.Server(this._rpcUrl, { allowHttp: this._allowHttp });
+  /** Get the shared client-wide RPC server instance. */
+  public get rpcServer(): rpc.Server {
+    return this._rpcServer;
+  }
+
+  /** Return the client-wide RPC server handle. */
+  public createRpcServer(): rpc.Server {
+    return this._rpcServer;
   }
 
   /** Build an RpcClient adapter for use with TransactionQueue. */
@@ -370,7 +396,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * ```
    */
   async simulate(method: string, ...args: xdr.ScVal[]): Promise<SimulationResult> {
-    const server = this.createRpcServer();
+    const server = this._rpcServer;
     const contract = new Contract(this._contractId);
     const buildOp = () => contract.call(method, ...args);
 
@@ -462,8 +488,22 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     sourceAccount: Account,
     ...args: xdr.ScVal[]
   ): Promise<Transaction> {
+    return this.prepareTransactionOnContract(method, this._contractId, sourceAccount, ...args);
+  }
+
+  /**
+   * Like {@link prepareTransaction}, but builds the Soroban invocation against an
+   * arbitrary contract (e.g. a SEP-41 token contract) instead of the Linkora
+   * contract. Used to prepare the token `increase_allowance` pre-approval step.
+   */
+  private async prepareTransactionOnContract(
+    method: string,
+    contractId: string,
+    sourceAccount: Account,
+    ...args: xdr.ScVal[]
+  ): Promise<Transaction> {
     const server = this.createRpcServer();
-    const contract = new Contract(this._contractId);
+    const contract = new Contract(contractId);
 
     const rawTx = new TransactionBuilder(sourceAccount, {
       fee: "100",
@@ -540,7 +580,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     sourceAccount: Account,
     ops: Array<{ method: string; args: xdr.ScVal[] }>
   ): Promise<Transaction> {
-    const server = this.createRpcServer();
+    const server = this._rpcServer;
     const contract = new Contract(this._contractId);
 
     const tempSource = Keypair.random();
@@ -754,15 +794,116 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Execute a read function and wrap the outcome into a discriminated ReadResult<T>.
+   * Callers can distinguish valid values, missing/empty data, and transport errors.
+   */
+  async executeReadResult<T>(fn: () => Promise<T | null>): Promise<ReadResult<T>> {
+    try {
+      const value = await fn();
+      if (value === null) {
+        return { ok: true, value: null, absent: true };
+      }
+      return { ok: true, value };
+    } catch (error: unknown) {
+      const linkoraErr = error instanceof LinkoraError ? error : mapError(error);
+      if (linkoraErr instanceof NotFoundError) {
+        return { ok: true, value: null, absent: true };
+      }
+      return { ok: false, error: linkoraErr };
+    }
+  }
+
+  /**
+   * Batch multiple contract read/simulation operations into a single RPC roundtrip.
+   *
+   * @param ops Array of contract operations specifying function method and ScVal arguments.
+   * @returns Array of ScVal return values (or null for empty results).
+   */
+  async batchSimulate(
+    ops: Array<{ contractId?: string; method: string; args: xdr.ScVal[] }>
+  ): Promise<Array<xdr.ScVal | null>> {
+    if (ops.length === 0) return [];
+
+    const tempSource = Keypair.random();
+    const tempAccount = new Account(tempSource.publicKey(), "0");
+    const tempBuilder = new TransactionBuilder(tempAccount, {
+      fee: "100",
+      networkPassphrase: this._networkPassphrase,
+    });
+
+    for (const opDef of ops) {
+      const targetContractId = opDef.contractId ?? this._contractId;
+      const contract = new Contract(targetContractId);
+      tempBuilder.addOperation(contract.call(opDef.method, ...opDef.args));
+    }
+
+    const tempTx = tempBuilder.setTimeout(DEFAULT_TIMEOUT).build();
+    const simulationResult = await this._rpcServer.simulateTransaction(tempTx);
+
+    if (isSimulationError(simulationResult)) {
+      throw mapError(simulationResult.error);
+    }
+
+    if (!isSimulationSuccess(simulationResult) || !simulationResult.result) {
+      return ops.map(() => null);
+    }
+
+    const results = simulationResult.result ?? [];
+    return ops.map((_, i) => {
+      const entry = (results as unknown as Array<{ retval?: xdr.ScVal }>)[i];
+      return entry?.retval ?? null;
+    });
+  }
+
+  /**
+   * Read the contract version or capability marker from the connected contract.
+   * Returns the version string if supported by the contract, or "unknown".
+   */
+  async getContractVersion(): Promise<string> {
+    try {
+      const retval = await this.simulateCallOnContract(this._contractId, "version");
+      if (!retval) return "unknown";
+      return (scValToNative(retval) as string) ?? "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
+   * Verify that the contract version matches the expected capability version.
+   *
+   * @param expectedVersion The required contract version.
+   * @throws {VersionMismatchError} If the deployed contract version does not match.
+   */
+  async verifyContractVersion(expectedVersion: string): Promise<boolean> {
+    const actualVersion = await this.getContractVersion();
+    if (actualVersion !== "unknown" && actualVersion !== expectedVersion) {
+      throw new VersionMismatchError(
+        `Contract version mismatch: expected "${expectedVersion}", but deployed contract returned "${actualVersion}".`,
+        { expected: expectedVersion, actual: actualVersion }
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Fetch classic Stellar account balances (native XLM and tokens) via Horizon.
+   */
+  getClassicAccountBalances(address: string): Promise<ClassicBalance[]> {
+    return this.classic.getAccountBalances(address);
+  }
+
+  /**
+   * Fetch non-native asset trustlines for a classic account via Horizon.
+   */
+  getClassicAccountTrustlines(address: string): Promise<ClassicBalance[]> {
+    return this.classic.getAccountTrustlines(address);
+  }
+
+  /**
    * Get the current treasury address where protocol fees are sent.
    *
    * @returns The treasury Stellar public key, or null if not set.
-   *
-   * @example
-   * ```ts
-   * const treasury = await client.getTreasury();
-   * console.log(`Treasury address: ${treasury}`);
-   * ```
    */
   async getTreasury(): Promise<string | null> {
     try {
@@ -1459,6 +1600,44 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Build a submittable create_pool transaction with the caller as the proper
+   * source account.
+   *
+   * @param admin The Stellar public key of the pool creator/initial admin.
+   * @param poolId The unique identifier for the pool.
+   * @param token The contract ID of the token used in this pool.
+   * @param initialAdmins Array of Stellar public keys of the initial admins.
+   * @param threshold The required signature threshold for pool actions.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareCreatePoolTx(
+    admin: string,
+    poolId: string,
+    token: string,
+    initialAdmins: string[],
+    threshold: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(admin, "admin");
+    ensureNonEmptyString(poolId, "poolId");
+    ensureAddress(token, "token");
+    ensureAddressList(initialAdmins, "initialAdmins");
+    ensureInteger(threshold, "threshold", 1);
+    const sourceAccount = await this.getAccountForTx(admin, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "create_pool",
+      sourceAccount,
+      scvAddress(admin),
+      scvSymbol(poolId),
+      scvAddress(token),
+      scvAddressVec(initialAdmins),
+      scvU32(Number(threshold))
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
    * Deposit tokens into a pool.
    *
    * @param depositor The Stellar public key of the user depositing tokens.
@@ -1515,6 +1694,41 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Build a submittable SEP-41 `increase_allowance` transaction against the
+   * token contract, authorizing the pool contract to spend the depositor's
+   * tokens during `pool_deposit`.
+   *
+   * @param depositor The Stellar public key of the token holder granting the allowance.
+   * @param token The contract ID of the SEP-41 token.
+   * @param spender The contract / account authorized to spend (the pool contract).
+   * @param amount The amount to approve in stroops.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareIncreaseAllowanceTx(
+    depositor: string,
+    token: string,
+    spender: string,
+    amount: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(depositor, "depositor");
+    ensureAddress(token, "token");
+    ensureAddress(spender, "spender");
+    ensurePositiveInteger(amount, "amount");
+    const sourceAccount = await this.getAccountForTx(depositor, horizonUrl);
+    const tx = await this.prepareTransactionOnContract(
+      "increase_allowance",
+      token,
+      sourceAccount,
+      scvAddress(depositor),
+      scvAddress(spender),
+      scvI128(amount)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
    * Withdraw tokens from a pool (requires multi-sig authorization).
    *
    * @param signers Array of Stellar public keys of the admins authorizing the withdrawal.
@@ -1545,6 +1759,40 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     ensurePositiveInteger(amount, "amount");
     ensureAddress(recipient, "recipient");
     return super.poolWithdraw(signers, poolId, BigInt(amount), recipient);
+  }
+
+  /**
+   * Build a submittable pool_withdraw transaction with the caller as the proper
+   * source account.
+   *
+   * @param signers Array of Stellar public keys of the admins authorizing the withdrawal.
+   * @param poolId The ID of the pool.
+   * @param amount The amount to withdraw.
+   * @param recipient The Stellar public key to receive the tokens.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async preparePoolWithdrawTx(
+    signers: string[],
+    poolId: string,
+    amount: number | bigint,
+    recipient: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddressList(signers, "signers");
+    ensureNonEmptyString(poolId, "poolId");
+    ensurePositiveInteger(amount, "amount");
+    ensureAddress(recipient, "recipient");
+    const sourceAccount = await this.getAccountForTx(signers[0], horizonUrl);
+    const tx = await this.prepareTransaction(
+      "pool_withdraw",
+      sourceAccount,
+      scvAddressVec(signers),
+      scvSymbol(poolId),
+      scvI128(amount),
+      scvAddress(recipient)
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1919,7 +2167,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     method: string,
     ...args: xdr.ScVal[]
   ): Promise<xdr.ScVal | null> {
-    const server = this.createRpcServer();
+    const server = this._rpcServer;
     const contract = new Contract(contractId);
     const op = contract.call(method, ...args);
 

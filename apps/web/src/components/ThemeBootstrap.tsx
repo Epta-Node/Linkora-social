@@ -31,7 +31,10 @@ export function storeThemePreference(theme: ThemePreference) {
 
 export function ThemeBootstrap() {
   useEffect(() => {
-    applyThemePreference(getStoredThemePreference());
+    // Only apply if the inline script in layout.tsx hasn't already set it
+    if (!document.documentElement.dataset.theme) {
+      applyThemePreference(getStoredThemePreference());
+    }
   }, []);
 
   return null;

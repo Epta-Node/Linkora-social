@@ -70,7 +70,7 @@ export function TxStatusBanner({
         <div style={styles.text}>
           <strong>{actionLabel} successful!</strong>
           <span style={styles.sub}>
-            Ledger #{result.ledger} ·{" "}
+            {result.ledger !== undefined ? `Ledger #${result.ledger} · ` : ""}
             <a
               href={`${STELLAR_EXPERT_BASE}/${result.hash}`}
               target="_blank"

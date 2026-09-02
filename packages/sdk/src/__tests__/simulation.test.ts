@@ -257,10 +257,7 @@ describe("LinkoraClient simulation and fee injection", () => {
         _isSuccess: true,
         minResourceFee: "10000",
         transactionData: null,
-        result: [
-          { auth: [{ _auth: true }] },
-          { auth: [{ _auth: true }] },
-        ],
+        result: [{ auth: [] }, { auth: [] }],
       };
       mockSimulateTransaction.mockResolvedValue(mockResult);
 

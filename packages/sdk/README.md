@@ -71,11 +71,37 @@ try {
 The lower-level primitives (`backoffWithJitter`, `CircuitBreaker`,
 `parseRetryAfter`, `withRetry`) are exported directly for reuse.
 
+### Dry-run status events
+
+`TransactionQueue` emits status events via `queue.on("status", ...)`. When run
+in **dry-run** mode (`run({ dryRun: true })` or a queue-level `dryRun: true`),
+each step is simulated but never submitted. The queue still emits a `confirmed`
+event at the end of each step to mark it complete, but that event:
+
+- carries `dryRun: true`, and
+- has **no** `hash` (nothing was broadcast).
+
+Consumers listening for on-chain confirmations should check the `dryRun` flag to
+avoid mistaking a simulated flow for a real submission:
+
+```ts
+queue.on("status", (e) => {
+  if (e.status === "confirmed") {
+    if (e.dryRun) {
+      // Simulated — do not show as "submitted to network".
+    } else {
+      // Real confirmation — e.hash is present.
+    }
+  }
+});
+```
+
 ## API Semantics
 
 The SDK exposes two distinct paths for mutative (write) operations:
 
 ### 1. `prepare*Tx` (Submittable)
+
 Methods like `prepareCreatePostTx`, `prepareFollowTx`, and `prepareDmKeyTx` are the **intended path for client-side applications**.
 They fetch the actual account sequence from Horizon, simulate the transaction to discover footprint/fees, and return a base64-encoded `TransactionEnvelope` XDR that is fully ready to be signed (e.g. by Freighter) and submitted to the network.
 
@@ -85,6 +111,7 @@ const txXdr = await client.prepareCreatePostTx("GBFOY...", "Hello!");
 ```
 
 ### 2. Base Write Methods (Throwaway XDR)
+
 Methods like `createPost`, `follow`, and `tip` **do not fetch sequence numbers** and return XDR built using a throwaway `Keypair`.
 **These are not directly submittable.** They exist primarily to easily extract the Soroban `Operation` for batching (e.g., passing to `buildMultiOpTx`) or for server-side queueing where sequence management is handled by a background worker (like `TransactionQueue`).
 

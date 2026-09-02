@@ -125,6 +125,7 @@ export function useAllPools() {
   const [pools, setPools] = useState<PoolData[]>([]);
   const [state, setState] = useState<FetchState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
 
   const fetch = useCallback(async () => {
     setState("loading");
@@ -133,17 +134,22 @@ export function useAllPools() {
       const data = await contractGetAllPools();
       setPools(data);
       setState("success");
+      setIsStale(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load pools");
       setState("error");
+      // Mark existing data as stale but keep it visible
+      if (pools.length > 0) {
+        setIsStale(true);
+      }
     }
-  }, []);
+  }, [pools.length]);
 
   useEffect(() => {
     fetch();
   }, [fetch]);
 
-  return { pools, state, error, refresh: fetch };
+  return { pools, state, error, isStale, refresh: fetch };
 }
 
 export function usePool(poolId: string | null) {

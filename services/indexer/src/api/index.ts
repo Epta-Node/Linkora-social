@@ -4,7 +4,7 @@ import { Pool as PgPool } from "pg";
 import { Database } from "../db";
 import { logger, requestLoggingMiddleware } from "../logger";
 import { rateLimit, rateLimitWrite, getRateLimitStoreStatus } from "../middleware/rateLimit";
-import { requireStellarAuth } from "../middleware/stellarAuth";
+import { requireStellarAuth, optionalStellarAuth } from "../middleware/stellarAuth";
 import { jsonWithRawBody } from "../middleware/rawBody";
 import { validateBody } from "../middleware/validate";
 import { z } from "zod";
@@ -18,6 +18,7 @@ import { createGovernanceRouter } from "./routes/governance";
 import { createUsersRouter } from "./routes/users";
 import { createFeedRouter } from "./routes/feed";
 import { createSearchRouter } from "./routes/search";
+import { MediaUploadConfig } from "../config";
 import { isFenced } from "../gossip";
 import { getBackfillState } from "../stream";
 import {
@@ -82,7 +83,8 @@ export function createApp(
   db: Database,
   pg?: PgPool,
   healthMonitor?: HealthMonitor,
-  shutdownState?: { active: boolean }
+  shutdownState?: { active: boolean },
+  mediaUpload?: MediaUploadConfig
 ): express.Application {
   const app = express();
   app.use(helmet());
@@ -167,6 +169,19 @@ export function createApp(
     }
   });
 
+  // ── Auth + rate limiting ──────────────────────────────────────────────────
+  //
+  // Issue #1325: the rate-limit middleware selects the per-address bucket only
+  // when `req.context.stellarAddress` is already populated. The old ordering
+  // was `rateLimit` → per-route `requireStellarAuth`, so the address was never
+  // set when the read rate-limiter ran; authenticated reads always fell through
+  // to the lower anon IP-keyed bucket.
+  //
+  // Fix: run `optionalStellarAuth` first for every /api request. It sets
+  // `req.context.stellarAddress` for callers who include a valid StellarSig
+  // header without rejecting unauthenticated requests. The rate-limiter that
+  // follows can then correctly choose the per-address or per-IP bucket.
+  app.use("/api", optionalStellarAuth);
   app.use("/api", rateLimit);
 
   app.use("/api", (req: Request, res: Response, next: NextFunction): void => {
@@ -184,7 +199,7 @@ export function createApp(
   });
 
   app.use("/api/profiles", createProfilesRouter(db));
-  app.use("/api/posts", createPostsRouter(db));
+  app.use("/api/posts", createPostsRouter(db, mediaUpload));
   app.use("/api/search", createSearchRouter(db));
   app.use("/api/follows", createFollowsRouter(db));
   app.use("/api/pools", createPoolsRouter(db));
@@ -270,7 +285,9 @@ if (require.main === module) {
   const PORT = loadConfig().port;
   const databaseUrl = process.env.DATABASE_URL;
   const pg = databaseUrl ? new PgPool({ connectionString: databaseUrl }) : undefined;
-  const apiApp = pg ? createApp(new PostgresDatabase(pg), pg) : createApp(_stub);
+  const apiApp = pg
+    ? createApp(new PostgresDatabase(pg), pg, undefined, undefined, loadConfig().mediaUpload)
+    : createApp(_stub);
 
   apiApp.listen(PORT, () => {
     console.log(`Indexer API listening on port ${PORT}`);

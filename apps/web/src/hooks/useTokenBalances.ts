@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { ClassicAccountClient } from "@linkora/sdk";
 
-const HORIZON_TESTNET = "https://horizon-testnet.stellar.org";
 const CACHE_TTL_MS = 30_000;
+const classicClient = new ClassicAccountClient();
 
 export interface TokenBalance {
   asset_type: string;
-  asset_code: string;
-  asset_issuer: string;
+  asset_code?: string;
+  asset_issuer?: string;
   balance: string;
   limit?: string;
 }
@@ -67,7 +68,8 @@ export function useTokenBalances(address: string | null) {
     setError(null);
 
     try {
-      const res = await fetch(`${HORIZON_TESTNET}/accounts/${address}`, {
+      const horizonUrl = classicClient.getHorizonUrl();
+      const res = await fetch(`${horizonUrl}/accounts/${address}`, {
         signal: controller.signal,
       });
 
