@@ -9,6 +9,7 @@ import {
   NetworkError,
   SigningError,
   ContractError,
+  SimulationError,
   mapError,
 } from "../errors";
 
@@ -180,6 +181,20 @@ describe("mapError", () => {
 
     it("matches 'host function'", () => {
       expect(mapError("host function invocation failed")).toBeInstanceOf(ContractError);
+    });
+
+    it("preserves SimulationError instance directly", () => {
+      const simErr = new SimulationError(
+        "Simulation failed",
+        undefined,
+        undefined,
+        "Trap error",
+        "ARITH_COUNT"
+      );
+      const result = mapError(simErr);
+      expect(result).toBe(simErr);
+      expect(result).toBeInstanceOf(SimulationError);
+      expect((result as SimulationError).hostError).toBe("ARITH_COUNT");
     });
   });
 

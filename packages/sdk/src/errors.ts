@@ -65,12 +65,19 @@ export class InvalidManifestError extends LinkoraError {
  * Thrown when transaction simulation fails. Contains the full diagnostic event log.
  */
 export class SimulationError extends LinkoraError {
+  public error?: string;
+  public hostError?: string;
+
   constructor(
     message: string,
     public readonly eventLog?: unknown,
-    originalError?: unknown
+    originalError?: unknown,
+    error?: string,
+    hostError?: string
   ) {
     super(message, "SIMULATION_FAILED", undefined, originalError);
+    this.error = error;
+    this.hostError = hostError;
   }
 }
 
@@ -343,8 +350,10 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
   return new LinkoraError(msg, "LINKORA_ERROR", undefined, err);
 }
 
-// TODO(#1043): Add instanceof SimulationError check before regex fallback
 export function mapError(err: unknown): LinkoraError {
+  if (err instanceof SimulationError) {
+    return err;
+  }
   const codeMapped = tryMapByErrorCode(err);
   if (codeMapped) return codeMapped;
 

@@ -56,25 +56,29 @@ jest.mock("next/navigation", () => ({
 }));
 
 // Mock LinkoraClient and linkora-sdk utilities
-jest.mock("linkora-sdk", () => ({
-  LinkoraClient: jest.fn().mockImplementation(() => ({
-    getProfile: jest.fn().mockResolvedValue({
-      username: "testuser",
-      creator_token: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+jest.mock("linkora-sdk", () => {
+  const actual = jest.requireActual("linkora-sdk");
+  return {
+    ...actual,
+    LinkoraClient: jest.fn().mockImplementation(() => ({
+      getProfile: jest.fn().mockResolvedValue({
+        username: "testuser",
+        creator_token: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      }),
+      getDmKey: jest.fn().mockResolvedValue(null),
+      setProfile: jest.fn().mockReturnValue("mockXDR"),
+      publishDmKey: jest.fn().mockReturnValue("mockXDR"),
+      deleteProfile: jest.fn().mockReturnValue("mockXDR"),
+      blockUser: jest.fn().mockReturnValue("mockXDR"),
+      unblockUser: jest.fn().mockReturnValue("mockXDR"),
+    })),
+    generateDmKeypair: jest.fn().mockReturnValue({
+      publicKey: new Uint8Array(32),
+      privateKey: new Uint8Array(32),
     }),
-    getDmKey: jest.fn().mockResolvedValue(null),
-    setProfile: jest.fn().mockReturnValue("mockXDR"),
-    publishDmKey: jest.fn().mockReturnValue("mockXDR"),
-    deleteProfile: jest.fn().mockReturnValue("mockXDR"),
-    blockUser: jest.fn().mockReturnValue("mockXDR"),
-    unblockUser: jest.fn().mockReturnValue("mockXDR"),
-  })),
-  generateDmKeypair: jest.fn().mockReturnValue({
-    publicKey: new Uint8Array(32),
-    privateKey: new Uint8Array(32),
-  }),
-  utf8Bytes: (value: string) => Buffer.from(value, "utf8").length,
-}));
+    utf8Bytes: (value: string) => Buffer.from(value, "utf8").length,
+  };
+});
 
 // Mock @stellar/stellar-sdk
 jest.mock("@stellar/stellar-sdk", () => ({
