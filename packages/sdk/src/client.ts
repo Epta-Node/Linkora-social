@@ -108,7 +108,7 @@ function scvString(value: string): xdr.ScVal {
 function scvU32(value: number): xdr.ScVal {
   return nativeToScVal(value, { type: "u32" });
 }
-function scvU64(value: number | bigint): xdr.ScVal {
+function _scvU64(value: number | bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "u64" });
 }
 function scvSymbol(value: string): xdr.ScVal {

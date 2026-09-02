@@ -445,7 +445,7 @@ describe("applyStateRootDelta benchmark — per-batch cost is near-constant", ()
     const rowHashes = new Map<string, string>();
 
     // Seed the accumulator and row-hash table with preseededRows existing posts.
-    const { createHash } = require("crypto") as typeof import("crypto");
+    const { createHash } = await import("crypto");
     for (let i = 0; i < preseededRows; i++) {
       const h = createHash("sha256").update(`seed:${i}`).digest("hex");
       rowHashes.set(`posts:post:${i}`, h);

@@ -142,6 +142,7 @@ export function useFeed(): UseFeedReturn {
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Subscribe to feed updates (e.g. from optimistic creation or sync confirmation)

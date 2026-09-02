@@ -598,7 +598,7 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "post_reported":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           reporter: str(payload.reporter),
           stake_amount: big(payload.stake_amount),
           meta: eventMeta,
@@ -606,14 +606,14 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "post_removed_by_moderation":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           reporter: str(payload.reporter),
           meta: eventMeta,
         };
       case "report_dismissed":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           reporter: str(payload.reporter),
           meta: eventMeta,
         };
