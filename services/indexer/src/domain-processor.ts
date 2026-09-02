@@ -244,6 +244,9 @@ export function createDomainProcessor(
         const fee = asBigInt(data.fee);
         const txHash = asString(data.txHash ?? data.tx_hash);
 
+        // Pass the pipeline's shared transaction client directly. handleTip
+        // detects it is not a Pool (no .connect method) and issues no
+        // BEGIN/COMMIT, preserving batch atomicity.
         await handleTip(
           client as never,
           {
@@ -256,9 +259,6 @@ export function createDomainProcessor(
             txHash,
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          {
-            client: client as never,
           }
         );
 
@@ -272,6 +272,9 @@ export function createDomainProcessor(
         const postId = asBigInt(data.post_id);
         const txHash = asString(data.txHash ?? data.tx_hash);
 
+        // Pass the pipeline's shared transaction client directly. handleLike
+        // detects it is not a Pool (no .connect method) and issues no
+        // BEGIN/COMMIT, preserving batch atomicity.
         await handleLike(
           client as never,
           {
@@ -282,9 +285,6 @@ export function createDomainProcessor(
             txHash,
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          {
-            client: client as never,
           }
         );
 
