@@ -54,6 +54,7 @@ export function useFeed(): UseFeedReturn {
   const loadingRef = useRef(false);
   const loadedPostsRef = useRef(0);
   const postsLengthRef = useRef(0);
+  const hasMoreRef = useRef(true);
 
   // Load posts from SQLite cache
   const loadFromCache = useCallback(async (limit: number, replace: boolean) => {
@@ -69,6 +70,7 @@ export function useFeed(): UseFeedReturn {
         return next;
       });
       setHasMore(cached.length >= limit);
+      hasMoreRef.current = cached.length >= limit;
     } catch (err) {
       console.warn("Failed to load posts from SQLite cache:", err);
     }
@@ -103,6 +105,7 @@ export function useFeed(): UseFeedReturn {
         loadedPostsRef.current = cached.length;
         postsLengthRef.current = cached.length;
         setHasMore(cached.length >= currentLoadedCount);
+        hasMoreRef.current = cached.length >= currentLoadedCount;
 
         // 5. Fire background sync for pending posts
         void syncPendingPosts().then(() => {
@@ -139,7 +142,7 @@ export function useFeed(): UseFeedReturn {
     return () => {
       active = false;
     };
-  }, [loadFromCache, syncWithNetwork]);
+  }, []);
 
   // Subscribe to feed updates (e.g. from optimistic creation or sync confirmation)
   useEffect(() => {
@@ -154,10 +157,10 @@ export function useFeed(): UseFeedReturn {
   }, []);
 
   const loadMore = useCallback(() => {
-    if (!loadingRef.current && hasMore) {
+    if (!loadingRef.current && hasMoreRef.current) {
       void syncWithNetwork(false);
     }
-  }, [hasMore, syncWithNetwork]);
+  }, [syncWithNetwork]);
 
   const refresh = useCallback(() => {
     void syncWithNetwork(true);
