@@ -53,6 +53,7 @@ jest.mock("../generated/client", () => ({
     rpcUrl: string;
     networkPassphrase: string;
     contract: { call: jest.Mock };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(config: any) {
       this.contractId = config.contractId;
       this.rpcUrl = config.rpcUrl;
@@ -181,9 +182,6 @@ describe("LinkoraClient write methods", () => {
     mockToEnvelope.mockReturnValue({ toXDR: mockToXDR });
     mockToXDR.mockReturnValue(XDR);
   });
-
-  const addr = (s: string) => expect.objectContaining({ _val: s });
-  const val = (v: unknown) => expect.objectContaining({ _val: v });
 
   it("setProfile", () => {
     expect(client.setProfile("GUSER", "alice", "GTOKEN")).toBe(XDR);
