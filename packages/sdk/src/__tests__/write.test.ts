@@ -9,18 +9,13 @@ const mockToXDR = jest.fn();
 const mockAddOperation = jest.fn();
 const mockSetTimeout = jest.fn();
 
-const XDR = "AAAAfakexdrbase64encodedstring";
-
 jest.mock("@stellar/stellar-sdk/rpc", () => ({
   Server: jest.fn(),
   Api: { isSimulationError: jest.fn(), isSimulationSuccess: jest.fn() },
 }));
 
 jest.mock("@stellar/stellar-base", () => ({
-  Contract: jest.fn(() => ({
-    call: mockCall,
-    address: () => ({ toScAddress: () => ({ _scAddress: true }) }),
-  })),
+  Contract: jest.fn(() => ({ call: mockCall })),
   Address: {
     fromString: jest.fn((v: string) => ({
       toScVal: () => ({ _type: "scval", _val: v, _opts: { type: "address" } }),
@@ -46,129 +41,7 @@ jest.mock("@stellar/stellar-base", () => ({
   xdr: {},
 }));
 
-// Mock the generated client helper functions
-jest.mock("../generated/client", () => ({
-  GeneratedLinkoraClient: class {
-    contractId: string;
-    rpcUrl: string;
-    networkPassphrase: string;
-    contract: { call: jest.Mock };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    constructor(config: any) {
-      this.contractId = config.contractId;
-      this.rpcUrl = config.rpcUrl;
-      this.networkPassphrase = config.networkPassphrase || "Test SDF Network ; September 2015";
-      this.contract = { call: mockCall };
-    }
-    async getProfile() {
-      return null;
-    }
-    async getPost() {
-      return null;
-    }
-    async getProfileCount() {
-      return 0n;
-    }
-    async getPostCount() {
-      return 0n;
-    }
-    async getLikeCount() {
-      return 0n;
-    }
-    async getTreasury() {
-      return null;
-    }
-    async getPool() {
-      return null;
-    }
-    async getDmKey() {
-      return null;
-    }
-    publishDmKey() {
-      return XDR;
-    }
-    govPropose() {
-      return XDR;
-    }
-    govVote() {
-      return XDR;
-    }
-    govExecute() {
-      return XDR;
-    }
-    async govGetProposal() {
-      return null;
-    }
-    async effectiveQuorum() {
-      return 0;
-    }
-    govVeto() {
-      return XDR;
-    }
-    deletePost() {
-      return XDR;
-    }
-    deleteProfile() {
-      return XDR;
-    }
-    createPost() {
-      return XDR;
-    }
-    follow() {
-      return XDR;
-    }
-    unfollow() {
-      return XDR;
-    }
-    blockUser() {
-      return XDR;
-    }
-    unblockUser() {
-      return XDR;
-    }
-    likePost() {
-      return XDR;
-    }
-    tip() {
-      return XDR;
-    }
-    poolDeposit() {
-      return XDR;
-    }
-    poolWithdraw() {
-      return XDR;
-    }
-    setProfile() {
-      return XDR;
-    }
-    createPool() {
-      return XDR;
-    }
-    addPoolAdmin() {
-      return XDR;
-    }
-    removePoolAdmin() {
-      return XDR;
-    }
-    updatePoolThreshold() {
-      return XDR;
-    }
-    setFee() {
-      return XDR;
-    }
-    setTreasury() {
-      return XDR;
-    }
-    setTipCooldownWindow() {
-      return XDR;
-    }
-    verifyAnalyticsAttestation() {
-      return XDR;
-    }
-  },
-  scvAddress: (v: string) => ({ _type: "scval", _val: v, _opts: { type: "address" } }),
-  scvString: (v: string) => ({ _type: "scval", _val: v, _opts: undefined }),
-}));
+const XDR = "AAAAfakexdrbase64encodedstring";
 
 describe("LinkoraClient write methods", () => {
   let client: LinkoraClient;
@@ -183,84 +56,158 @@ describe("LinkoraClient write methods", () => {
     mockToXDR.mockReturnValue(XDR);
   });
 
+  const addr = (s: string) => expect.objectContaining({ _val: s });
+  const val = (v: unknown) => expect.objectContaining({ _val: v });
+
   it("setProfile", () => {
     expect(client.setProfile("GUSER", "alice", "GTOKEN")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "set_profile",
+      addr("GUSER"),
+      val("alice"),
+      addr("GTOKEN")
+    );
   });
 
   it("deleteProfile", () => {
     expect(client.deleteProfile("GUSER")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("delete_profile", addr("GUSER"));
   });
 
   it("createPost", () => {
     expect(client.createPost("GAUTHOR", "hello")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("create_post", addr("GAUTHOR"), val("hello"));
   });
 
   it("deletePost", () => {
     expect(client.deletePost("GAUTHOR", 5)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("delete_post", addr("GAUTHOR"), val(5n));
   });
 
   it("follow", () => {
     expect(client.follow("GA", "GB")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("follow", addr("GA"), addr("GB"));
   });
 
   it("unfollow", () => {
     expect(client.unfollow("GA", "GB")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("unfollow", addr("GA"), addr("GB"));
   });
 
   it("blockUser", () => {
     expect(client.blockUser("GA", "GB")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("block_user", addr("GA"), addr("GB"));
   });
 
   it("unblockUser", () => {
     expect(client.unblockUser("GA", "GB")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("unblock_user", addr("GA"), addr("GB"));
   });
 
   it("likePost", () => {
     expect(client.likePost("GUSER", 7)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("like_post", addr("GUSER"), val(7n));
   });
 
   it("tip includes token argument", () => {
     expect(client.tip("GSENDER", 3, "GTOKEN", 500)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "tip",
+      addr("GSENDER"),
+      val(3n),
+      addr("GTOKEN"),
+      val(500n)
+    );
   });
 
   it("tip accepts bigint amount", () => {
     expect(client.tip("GSENDER", 3, "GTOKEN", 1000n)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "tip",
+      addr("GSENDER"),
+      val(3n),
+      addr("GTOKEN"),
+      val(1000n)
+    );
   });
 
   it("createPool includes pool_id", () => {
     expect(client.createPool("GADMIN", "pool1", "GTOKEN", ["GA", "GB"], 2)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "create_pool",
+      addr("GADMIN"),
+      val("pool1"),
+      addr("GTOKEN"),
+      expect.anything(),
+      val(2)
+    );
   });
 
   it("poolDeposit", () => {
     expect(client.poolDeposit("GDEPOSITOR", "pool1", "GTOKEN", 1000)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "pool_deposit",
+      addr("GDEPOSITOR"),
+      val("pool1"),
+      addr("GTOKEN"),
+      val(1000n)
+    );
   });
 
   it("poolWithdraw", () => {
     expect(client.poolWithdraw(["GA", "GB"], "pool1", 500, "GRECIPIENT")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "pool_withdraw",
+      expect.anything(),
+      val("pool1"),
+      val(500n),
+      addr("GRECIPIENT")
+    );
   });
 
   it("addPoolAdmin", () => {
     expect(client.addPoolAdmin(["GA"], "pool1", "GNEWADMIN")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "add_pool_admin",
+      expect.anything(),
+      val("pool1"),
+      addr("GNEWADMIN")
+    );
   });
 
   it("removePoolAdmin", () => {
     expect(client.removePoolAdmin(["GA"], "pool1", "GADMIN")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "remove_pool_admin",
+      expect.anything(),
+      val("pool1"),
+      addr("GADMIN")
+    );
   });
 
   it("updatePoolThreshold", () => {
     expect(client.updatePoolThreshold(["GA", "GB"], "pool1", 1)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "update_pool_threshold",
+      expect.anything(),
+      val("pool1"),
+      val(1)
+    );
   });
 
   it("setFee", () => {
     expect(client.setFee(250)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("set_fee", val(250));
   });
 
   it("setTreasury", () => {
     expect(client.setTreasury("GTREASURY")).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("set_treasury", addr("GTREASURY"));
   });
 
   it("setTipCooldownWindow", () => {
     expect(client.setTipCooldownWindow(17280)).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith("set_tip_cooldown_window", val(17280));
   });
 
   it("verifyAnalyticsAttestation builds tx with correct args", () => {
@@ -270,6 +217,15 @@ describe("LinkoraClient write methods", () => {
     expect(
       client.verifyAnalyticsAttestation("default", reportCbor, signature, "GCREATOR", 1000, 2000)
     ).toBe(XDR);
+    expect(mockCall).toHaveBeenCalledWith(
+      "verify_analytics_attestation",
+      val("default"),
+      expect.objectContaining({ _val: expect.anything() }),
+      expect.objectContaining({ _val: expect.anything() }),
+      addr("GCREATOR"),
+      val(1000),
+      val(2000)
+    );
   });
 
   it("rejects malformed addresses before building tx", () => {
