@@ -30,7 +30,12 @@ import { GovParameter } from "./generated/types.js";
 import type { GovProposal } from "./generated/types.js";
 import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health.js";
 import { fetchWithTimeout } from "./utils/fetch.js";
-import type { QueueSigner, RunOptions } from "./queue.js";
+import {
+  createRpcClientAdapter,
+  type QueueSigner,
+  type RpcClient,
+  type RunOptions,
+} from "./queue.js";
 import { submitTransaction } from "./submit.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
@@ -292,6 +297,11 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   async createRpcClient(): Promise<import("./queue.js").RpcClient> {
     const { createRpcClient } = await import("./submit.js");
     return createRpcClient(this._rpcUrl, this._networkPassphrase, this._allowHttp);
+  }
+
+  /** Build a string-XDR {@link RpcClient} adapter for use with `TransactionQueue`. */
+  createRpcClient(): RpcClient {
+    return createRpcClientAdapter(this.createRpcServer(), this._networkPassphrase);
   }
 
   /**

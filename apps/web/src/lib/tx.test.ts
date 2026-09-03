@@ -36,7 +36,7 @@ const StellarRpc = require("@stellar/stellar-sdk").rpc;
 
 describe("Transaction Utility Functions", () => {
   const mockConfig = {
-    contractId: "CDUMMY",
+    contractId: "CAAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQCAIBAEAQC526",
     rpcUrl: "https://soroban-testnet.stellar.org",
     networkPassphrase: "Test SDF Network ; September 2015",
   };
