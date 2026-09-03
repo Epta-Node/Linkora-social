@@ -37,7 +37,7 @@ const ALL_TABLES = [
 
 function makePool(tables: string[], hasContentTsv = true): Pool {
   const pool = { query: jest.fn() } as unknown as Pool;
-  (pool.query as jest.Mock).mockImplementation((sql: string, params?: unknown[]) => {
+  (pool.query as jest.Mock).mockImplementation((sql: string, _params?: unknown[]) => {
     if (typeof sql === "string" && sql.includes("pg_tables")) {
       return Promise.resolve({ rows: tables.map((t) => ({ tablename: t })) });
     }

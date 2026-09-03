@@ -291,7 +291,7 @@ describe("ConnectionHealthMonitor", () => {
   describe("LinkoraClient integration", () => {
     let LinkoraClient: typeof import("../client").LinkoraClient;
     const { Server: MockServer } = jest.mocked(
-      require("@stellar/stellar-sdk/rpc")
+      (await import("@stellar/stellar-sdk/rpc")).Server
     );
     beforeAll(async () => {
       ({ LinkoraClient } = await import("../client"));

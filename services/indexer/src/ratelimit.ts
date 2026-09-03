@@ -127,4 +127,3 @@ export function wsMaxMessageBytesFromEnv(env: NodeJS.ProcessEnv = process.env): 
   const parsed = parseInt(raw, 10);
   return isNaN(parsed) || parsed <= 0 ? DEFAULT_WS_MAX_MESSAGE_BYTES : parsed;
 }
-

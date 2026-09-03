@@ -127,7 +127,7 @@ export class PostgresDatabase implements Database {
 
   async insertPost(post: Post): Promise<void> {
     const content = (post as { content?: string }).content ?? "";
-    const tags = Array.from(new Set((content.match(/#[\w]+/g) || []).map(t => t.toLowerCase())));
+    const tags = Array.from(new Set((content.match(/#[\w]+/g) || []).map((t) => t.toLowerCase())));
 
     await this.pool.query(
       `
@@ -274,7 +274,7 @@ export class PostgresDatabase implements Database {
 
     if (tag || (q && q.startsWith("#"))) {
       const searchTag = (tag || q!).toLowerCase();
-      
+
       const totalRes = await this.pool.query(
         `
         SELECT COUNT(*)::int AS total

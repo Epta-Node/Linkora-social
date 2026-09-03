@@ -102,7 +102,7 @@ describe("gossip self-fencing", () => {
     app.use(express.json());
     app.use(requestLoggingMiddleware);
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
     app.use("/api", (_req: any, res: any, _next: any) => {
       res.status(503).json({
         error: {

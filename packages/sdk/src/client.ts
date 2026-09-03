@@ -108,7 +108,7 @@ function scvString(value: string): xdr.ScVal {
 function scvU32(value: number): xdr.ScVal {
   return nativeToScVal(value, { type: "u32" });
 }
-function scvU64(value: number | bigint): xdr.ScVal {
+function _scvU64(value: number | bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "u64" });
 }
 function scvSymbol(value: string): xdr.ScVal {
@@ -286,6 +286,12 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   /** Return the client-wide RPC server handle. */
   public createRpcServer(): rpc.Server {
     return this._rpcServer;
+  }
+
+  /** Build an RpcClient adapter for use with TransactionQueue. */
+  async createRpcClient(): Promise<import("./queue.js").RpcClient> {
+    const { createRpcClient } = await import("./submit.js");
+    return createRpcClient(this._rpcUrl, this._networkPassphrase, this._allowHttp);
   }
 
   /**
@@ -1494,8 +1500,8 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "like_post",
       sourceAccount,
-      scvAddress(user),
-      scvU64(postId)
+      nativeToScVal(user, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
@@ -1548,10 +1554,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "tip",
       sourceAccount,
-      scvAddress(tipper),
-      scvU64(postId),
-      scvAddress(token),
-      scvI128(amount)
+      nativeToScVal(tipper, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
     );
     return tx.toEnvelope().toXDR("base64");
   }
@@ -1679,10 +1685,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     const tx = await this.prepareTransaction(
       "pool_deposit",
       sourceAccount,
-      scvAddress(depositor),
-      scvSymbol(poolId),
-      scvAddress(token),
-      scvI128(amount)
+      nativeToScVal(depositor, { type: "address" }),
+      nativeToScVal(poolId, { type: "symbol" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
     );
     return tx.toEnvelope().toXDR("base64");
   }

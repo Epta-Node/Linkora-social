@@ -106,7 +106,7 @@ const rawEventsRetentionManager = new RawEventsRetentionManager(pgPool, cfg.rawE
  * function leaves it untouched — run migration 012 to convert it.  Fresh
  * deployments get the partitioned layout from the start.
  */
-async function ensureSchema(): Promise<void> {
+async function _ensureSchema(): Promise<void> {
   // ── raw_events ─────────────────────────────────────────────────────────────
   // Only create the partitioned parent when raw_events does not yet exist at
   // all.  If it already exists (partitioned or not) we leave it in place;

@@ -15,7 +15,6 @@ import {
   reconcileDmThread,
   sendDmMessageWithOutbox,
   syncPendingPosts,
-  SyncPendingPostsOptions,
 } from "../sync";
 
 jest.mock("../db", () => ({
@@ -180,7 +179,8 @@ describe("sendDmMessageWithOutbox", () => {
       ...outboxMessage,
       syncStatus: "failed",
       errorMessage: "401 invalid signature",
-});
+    });
+  });
 });
 
 describe("syncPendingPosts", () => {

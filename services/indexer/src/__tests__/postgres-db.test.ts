@@ -15,6 +15,7 @@ describe("PostgresDatabase analytics and governance counters", () => {
             { total_deposited: "150", total_withdrawn: "25", volume_7d: "90", volume_30d: "150" },
           ],
         }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
 
     const db = new PostgresDatabase(pool);
@@ -32,6 +33,7 @@ describe("PostgresDatabase analytics and governance counters", () => {
   it("updates proposal vote tallies in a single transactional statement", async () => {
     const pool = {
       query: jest.fn().mockResolvedValue({ rowCount: 1, rows: [{ proposal_id: "9" }] }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any;
 
     const db = new PostgresDatabase(pool);

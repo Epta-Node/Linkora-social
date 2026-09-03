@@ -362,7 +362,6 @@ describe("IngestPipeline — exactly-once", () => {
 // ---------------------------------------------------------------------------
 
 import { createDomainProcessor } from "../domain-processor";
-import { Database } from "../db";
 import { NotificationService } from "../notifications/service";
 
 type TipLikeStore = {

@@ -81,7 +81,12 @@ describe("GET /search/posts", () => {
     expect(b.has_more).toBe(false);
     expect((b.posts as unknown[]).length).toBe(1);
 
-    expect(db.searchPosts).toHaveBeenCalledWith({ q: "hello", tag: undefined, limit: 10, offset: 0 });
+    expect(db.searchPosts).toHaveBeenCalledWith({
+      q: "hello",
+      tag: undefined,
+      limit: 10,
+      offset: 0,
+    });
   });
 
   it("calculates has_more correctly when more results exist", async () => {
@@ -99,7 +104,12 @@ describe("GET /search/posts", () => {
     const app = buildApp(db);
 
     await request(app).get("/search/posts?q=test");
-    expect(db.searchPosts).toHaveBeenCalledWith({ q: "test", tag: undefined, limit: 20, offset: 0 });
+    expect(db.searchPosts).toHaveBeenCalledWith({
+      q: "test",
+      tag: undefined,
+      limit: 20,
+      offset: 0,
+    });
   });
 
   it("passes tag to db.searchPosts", async () => {
@@ -107,6 +117,11 @@ describe("GET /search/posts", () => {
     const app = buildApp(db);
 
     await request(app).get("/search/posts?tag=Stellar");
-    expect(db.searchPosts).toHaveBeenCalledWith({ q: undefined, tag: "Stellar", limit: 20, offset: 0 });
+    expect(db.searchPosts).toHaveBeenCalledWith({
+      q: undefined,
+      tag: "Stellar",
+      limit: 20,
+      offset: 0,
+    });
   });
 });

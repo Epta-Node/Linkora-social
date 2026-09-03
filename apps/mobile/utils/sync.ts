@@ -13,7 +13,6 @@ import {
 } from "./db";
 import { Post } from "../components/PostCard";
 import { LinkoraClient } from "linkora-sdk";
-import { rpc, TransactionBuilder } from "@stellar/stellar-sdk";
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;

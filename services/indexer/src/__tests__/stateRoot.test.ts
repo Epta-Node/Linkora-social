@@ -331,6 +331,7 @@ describe("applyStateRootDelta", () => {
   it("returns a 64-char hex root for an empty batch", async () => {
     const pg = buildIncrementalMockPg();
     // Mark bootstrapped to skip full scan
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pg as any)._accumulators["__bootstrap_done__"] = "1".padStart(64, "0");
 
     const root = await applyStateRootDelta(pg, 1, []);
@@ -339,8 +340,10 @@ describe("applyStateRootDelta", () => {
 
   it("produces different roots when different rows are touched", async () => {
     const pg1 = buildIncrementalMockPg();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pg1 as any)._accumulators["__bootstrap_done__"] = "1".padStart(64, "0");
     const pg2 = buildIncrementalMockPg();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pg2 as any)._accumulators["__bootstrap_done__"] = "1".padStart(64, "0");
 
     const eventsA = [makeEvent("post_created", { id: "1", author: "GA", content: "hello" })];
@@ -354,16 +357,19 @@ describe("applyStateRootDelta", () => {
 
   it("is idempotent: applying the same delta twice restores the accumulator", async () => {
     const pg = buildIncrementalMockPg();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pg as any)._accumulators["__bootstrap_done__"] = "1".padStart(64, "0");
 
     const events = [makeEvent("post_created", { id: "10", author: "GA", content: "x" })];
 
     // First apply seeds the hash.
     await applyStateRootDelta(pg, 1, events);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const after1 = (pg as any)._accumulators["posts"] as string;
 
     // Second apply with same event data: old hash == new hash → no net change.
     await applyStateRootDelta(pg, 2, events);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const after2 = (pg as any)._accumulators["posts"] as string;
 
     expect(after1).toBe(after2);
@@ -371,13 +377,16 @@ describe("applyStateRootDelta", () => {
 
   it("XOR-out works: adding then removing a row restores original accumulator", async () => {
     const pg = buildIncrementalMockPg();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pg as any)._accumulators["__bootstrap_done__"] = "1".padStart(64, "0");
 
     // Track whether the follow row "exists" in the mock DB.
     let followExists = true;
-    const originalImpl = (pg as any).query.getMockImplementation() as Function;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const originalImpl = (pg as any).query.getMockImplementation() as (...args: unknown[]) => unknown;
 
     // Override pool query to consult `followExists` for follows lookups.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (pg as any).query = jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
       if (/FROM follows\s+WHERE follower/.test(sql)) {
         if (!followExists) return { rows: [], rowCount: 0 };
@@ -390,6 +399,7 @@ describe("applyStateRootDelta", () => {
 
     // Add follow (row exists)
     await applyStateRootDelta(pg, 1, [makeEvent("follow", { follower: "GA", followee: "GB" })]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const after1 = (pg as any)._accumulators["follows"] as string;
     expect(after1).not.toBe("0".repeat(64)); // accumulator changed
 
@@ -397,6 +407,7 @@ describe("applyStateRootDelta", () => {
     followExists = false;
 
     await applyStateRootDelta(pg, 2, [makeEvent("unfollow", { follower: "GA", followee: "GB" })]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const after2 = (pg as any)._accumulators["follows"] as string;
     // XOR-out: the stored hash for this row is XOR'd out, restoring ZERO
     expect(after2).toBe("0".repeat(64));
@@ -434,7 +445,7 @@ describe("applyStateRootDelta benchmark — per-batch cost is near-constant", ()
     const rowHashes = new Map<string, string>();
 
     // Seed the accumulator and row-hash table with preseededRows existing posts.
-    const { createHash } = require("crypto") as typeof import("crypto");
+    const { createHash } = await import("crypto");
     for (let i = 0; i < preseededRows; i++) {
       const h = createHash("sha256").update(`seed:${i}`).digest("hex");
       rowHashes.set(`posts:post:${i}`, h);

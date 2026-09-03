@@ -248,7 +248,9 @@ export function createApp(
       "Unhandled error"
     );
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (typeof (err as any).statusCode === "number") {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const appErr = err as any;
       res.status(appErr.statusCode).json({
         error: {
