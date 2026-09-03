@@ -127,7 +127,7 @@ export class PostgresDatabase implements Database {
 
   async insertPost(post: Post): Promise<void> {
     const content = (post as { content?: string }).content ?? "";
-    const tags = Array.from(new Set((content.match(/#[\w]+/g) || []).map(t => t.toLowerCase())));
+    const tags = Array.from(new Set((content.match(/#[\w]+/g) || []).map((t) => t.toLowerCase())));
 
     await this.pool.query(
       `
@@ -274,7 +274,7 @@ export class PostgresDatabase implements Database {
 
     if (tag || (q && q.startsWith("#"))) {
       const searchTag = (tag || q!).toLowerCase();
-      
+
       const totalRes = await this.pool.query(
         `
         SELECT COUNT(*)::int AS total
@@ -621,7 +621,11 @@ export class PostgresDatabase implements Database {
         address,
         amount,
         ledger,
-        created_at
+        created_at,
+        COALESCE(SUM(CASE WHEN type = 'deposit' AND created_at >= NOW() - INTERVAL '7 days' THEN amount ELSE 0 END) OVER (), 0) AS volume_7d,
+        COALESCE(SUM(CASE WHEN type = 'deposit' AND created_at >= NOW() - INTERVAL '30 days' THEN amount ELSE 0 END) OVER (), 0) AS volume_30d,
+        COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE 0 END) OVER (), 0) AS total_deposited,
+        COALESCE(SUM(CASE WHEN type = 'withdraw' THEN amount ELSE 0 END) OVER (), 0) AS total_withdrawn
       FROM pool_events
       WHERE pool_id = $1
       ORDER BY ledger DESC
@@ -643,6 +647,16 @@ export class PostgresDatabase implements Database {
 
     const totalDeposited = deposits.reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
     const totalWithdrawn = withdrawals.reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
+    const volume7d =
+      BigInt(eventsRes.rows[0]?.volume_7d ?? "0") ||
+      deposits
+        .filter((e) => new Date(e.timestamp).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+        .reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
+    const volume30d =
+      BigInt(eventsRes.rows[0]?.volume_30d ?? "0") ||
+      deposits
+        .filter((e) => new Date(e.timestamp).getTime() >= Date.now() - 30 * 24 * 60 * 60 * 1000)
+        .reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
 
     const uniqueContributors = new Set(events.map((e) => e.address));
 
@@ -651,8 +665,8 @@ export class PostgresDatabase implements Database {
       total_withdrawn: totalWithdrawn.toString(),
       contributor_count: uniqueContributors.size,
       recent_events: events.slice(0, 20),
-      volume_7d: totalDeposited.toString(),
-      volume_30d: totalDeposited.toString(),
+      volume_7d: volume7d.toString(),
+      volume_30d: volume30d.toString(),
     };
   }
 
@@ -752,37 +766,39 @@ export class PostgresDatabase implements Database {
   async insertGovernanceVote(vote: GovernanceVote): Promise<boolean> {
     const res = await this.pool.query(
       `
-      INSERT INTO governance_votes (proposal_id, voter, support, ledger)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (proposal_id, voter) DO NOTHING
-      RETURNING proposal_id
+      WITH inserted AS (
+        INSERT INTO governance_votes (proposal_id, voter, support, ledger)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (proposal_id, voter) DO NOTHING
+        RETURNING proposal_id, support
+      )
+      UPDATE governance_proposals gp
+      SET
+        votes_for = gp.votes_for + (
+          SELECT COUNT(*)::int
+          FROM inserted
+          WHERE inserted.proposal_id = gp.proposal_id AND inserted.support = TRUE
+        ),
+        votes_against = gp.votes_against + (
+          SELECT COUNT(*)::int
+          FROM inserted
+          WHERE inserted.proposal_id = gp.proposal_id AND inserted.support = FALSE
+        ),
+        updated_ledger = $5
+      WHERE gp.proposal_id = $6
+      RETURNING gp.proposal_id
       `,
-      [vote.proposal_id.toString(), vote.voter, vote.support, vote.ledger]
+      [
+        vote.proposal_id.toString(),
+        vote.voter,
+        vote.support,
+        vote.ledger,
+        vote.ledger,
+        vote.proposal_id.toString(),
+      ]
     );
 
-    const inserted = (res.rowCount ?? 0) > 0;
-    if (inserted) {
-      if (vote.support) {
-        await this.pool.query(
-          `
-          UPDATE governance_proposals
-          SET votes_for = votes_for + 1, updated_ledger = $1
-          WHERE proposal_id = $2
-          `,
-          [vote.ledger, vote.proposal_id.toString()]
-        );
-      } else {
-        await this.pool.query(
-          `
-          UPDATE governance_proposals
-          SET votes_against = votes_against + 1, updated_ledger = $1
-          WHERE proposal_id = $2
-          `,
-          [vote.ledger, vote.proposal_id.toString()]
-        );
-      }
-    }
-    return inserted;
+    return (res.rowCount ?? 0) > 0;
   }
 
   async listGovernanceProposals(filters: {

@@ -3,7 +3,6 @@
  * Handles PostReportedEvent, ReportDismissedEvent, and PostRemovedByModerationEvent
  */
 
-import { Pool } from "pg";
 import { Database } from "../db";
 
 export interface PostReportedEvent {
@@ -37,10 +36,9 @@ export interface ModerationEventContext {
  * Idempotent: Uses ON CONFLICT to prevent duplicate reports from same reporter
  */
 export async function handlePostReported(
-  pool: Pool,
+  db: Database,
   event: PostReportedEvent,
-  _context: ModerationEventContext,
-  db: Database
+  _context: ModerationEventContext
 ): Promise<void> {
   const { post_id, reporter_address, reason } = event;
   const now = new Date();
@@ -71,10 +69,9 @@ export async function handlePostReported(
  * Idempotent: Only updates if status is still 'pending'
  */
 export async function handleReportDismissed(
-  pool: Pool,
+  db: Database,
   event: ReportDismissedEvent,
-  _context: ModerationEventContext,
-  db: Database
+  _context: ModerationEventContext
 ): Promise<void> {
   const { post_id, reporter_address, moderator_address, moderator_notes } = event;
 
@@ -105,10 +102,9 @@ export async function handleReportDismissed(
  * Idempotent: Only updates reports with 'pending' status
  */
 export async function handlePostRemovedByModeration(
-  pool: Pool,
+  db: Database,
   event: PostRemovedByModerationEvent,
-  context: ModerationEventContext,
-  db: Database
+  context: ModerationEventContext
 ): Promise<void> {
   const { post_id, moderator_address, reason } = event;
   const { ledgerSeq } = context;

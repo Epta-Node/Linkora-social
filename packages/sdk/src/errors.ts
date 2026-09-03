@@ -65,12 +65,19 @@ export class InvalidManifestError extends LinkoraError {
  * Thrown when transaction simulation fails. Contains the full diagnostic event log.
  */
 export class SimulationError extends LinkoraError {
+  public error?: string;
+  public hostError?: string;
+
   constructor(
     message: string,
     public readonly eventLog?: unknown,
-    originalError?: unknown
+    originalError?: unknown,
+    error?: string,
+    hostError?: string
   ) {
     super(message, "SIMULATION_FAILED", undefined, originalError);
+    this.error = error;
+    this.hostError = hostError;
   }
 }
 
@@ -148,6 +155,25 @@ export class CircuitBreakerError extends LinkoraError {
   }
 }
 
+/**
+ * Thrown when the deployed contract version or capability marker does not match SDK expectation.
+ */
+export class VersionMismatchError extends LinkoraError {
+  constructor(message: string, details?: Record<string, unknown>, originalError?: unknown) {
+    super(message, "VERSION_MISMATCH", details, originalError);
+  }
+}
+
+/**
+ * Discriminated result type for on-chain read operations.
+ * Callers can explicitly distinguish valid data, genuinely empty/absent data, and errors.
+ */
+export type ReadResult<T> =
+  | { ok: true; value: T; absent?: false }
+  | { ok: true; value: null; absent: true }
+  | { ok: false; error: LinkoraError };
+
+
 // ── Contract error codes ──────────────────────────────────────────────────────
 
 export enum ContractErrorCode {
@@ -201,6 +227,78 @@ function tryMapByErrorCode(err: unknown): LinkoraError | null {
   return new Ctor(msg, undefined, err);
 }
 
+// ── Transport / network error detection ───────────────────────────────────
+
+/**
+ * Error codes that indicate a transport / connectivity failure. Matches Node's
+ * `errno` socket codes (thrown by undici/axios when an RPC or Horizon endpoint
+ * is unreachable or times out) and the browser `fetch` error codes. These are
+ * surfaced as the `code` property on `AxiosError` / `TypeError` instances that
+ * `@stellar/stellar-sdk` propagates verbatim when the network is unavailable.
+ */
+const NETWORK_ERROR_CODE =
+  /^(?:ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETDOWN|ENETUNREACH|EHOSTUNREACH|EADDRINUSE|EADDRNOTAVAIL|EPIPE|EPROTO|ECANCELED|ERR_NETWORK|ERR_HTTP_REQUEST_TIMEOUT|ERR_ABORTED)(?:\s|$)/i;
+
+/**
+ * Transport-specific markers used to recognize a connectivity failure from the
+ * error message (and its `cause` chain) without hijacking unrelated contract,
+ * validation or signing messages.
+ */
+const NETWORK_MESSAGE_PATTERN =
+  /ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ENETDOWN|fetch failed|load failed|network error|net::ERR_|unreachable/i;
+
+/**
+ * Walk the `cause` chain (Node 16.9+/undici wrap the real socket error as
+ * `TypeError: fetch failed → cause: Error: connect ECONNREFUSED …`) so the
+ * underlying transport signal is not lost when only the wrapper is inspected.
+ */
+function collectCauseMessages(err: unknown): string[] {
+  const messages: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; current && typeof current === "object" && depth < 10; depth += 1) {
+    if (current instanceof Error && current.message) {
+      messages.push(current.message);
+    }
+    const next = (current as { cause?: unknown }).cause;
+    if (!next || next === current) break;
+    current = next;
+  }
+  return messages;
+}
+
+/**
+ * Map transport-level failures thrown by `rpc.Server` / http calls when the
+ * RPC is unreachable (ECONNREFUSED, timeouts, DNS failures) into a typed
+ * {@link NetworkError} so callers of simulate/prepareTransaction can classify
+ * them instead of receiving the raw socket error.
+ */
+function tryMapTransportError(err: unknown): NetworkError | null {
+  if (typeof err !== "object" || err === null) return null;
+
+  // String `code` fields (axios `errno` codes, undici/Node socket codes).
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === "string" && NETWORK_ERROR_CODE.test(code)) {
+    return new NetworkError(
+      err instanceof Error ? err.message : code,
+      { code, cause: collectCauseMessages(err) } as Record<string, unknown>,
+      err
+    );
+  }
+
+  // Message-only transport signals, searched across the whole `cause` chain.
+  const chainMessages = collectCauseMessages(err);
+  const text = chainMessages.join("\n");
+  if (NETWORK_MESSAGE_PATTERN.test(text)) {
+    return new NetworkError(
+      err instanceof Error ? err.message : (chainMessages[chainMessages.length - 1] ?? text),
+      undefined,
+      err
+    );
+  }
+
+  return null;
+}
+
 function mapByRegex(msg: string, err: unknown): LinkoraError {
   if (/allowance|insufficient allowance/i.test(msg)) {
     return new InsufficientBalanceError(
@@ -241,17 +339,26 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
   if (/simulation failed|trap|contract error|host function/i.test(msg)) {
     return new ContractError(msg, undefined, err);
   }
-  if (/connection|network|timeout|ECONNREFUSED|fetch failed/i.test(msg)) {
+  if (
+    /connection|network|timeout|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ENETDOWN|fetch (?:failed|to connect)|load failed|net::ERR_|unreachable/i.test(
+      msg
+    )
+  ) {
     return new NetworkError(msg, undefined, err);
   }
 
   return new LinkoraError(msg, "LINKORA_ERROR", undefined, err);
 }
 
-// TODO(#1043): Add instanceof SimulationError check before regex fallback
 export function mapError(err: unknown): LinkoraError {
+  if (err instanceof SimulationError) {
+    return err;
+  }
   const codeMapped = tryMapByErrorCode(err);
   if (codeMapped) return codeMapped;
+
+  const networkMapped = tryMapTransportError(err);
+  if (networkMapped) return networkMapped;
 
   const msg = err instanceof Error ? err.message : String(err);
   return mapByRegex(msg, err);

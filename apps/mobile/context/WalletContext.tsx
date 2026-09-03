@@ -164,13 +164,42 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
       return res as WalletSignResult;
     },
 
-    async signAndSubmitTransaction({ txXdr }: { txXdr: string; rpcUrl?: string }) {
+    async signAndSubmitTransaction({ txXdr, rpcUrl }: { txXdr: string; rpcUrl?: string }) {
       const signed = await adapter.signTransaction?.({ txXdr });
       const signedXdr = signed?.signedTxXdr || signed?.signedXdr || signed?.signed;
       if (!signedXdr) throw new Error("Wallet did not return signed transaction XDR");
 
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-      return { hash: `mock-tx:${signedXdr.slice(0, 12)}:${Date.now()}` };
+      if (!rpcUrl) throw new Error("rpcUrl is required to broadcast a transaction");
+
+      // Broadcast the signed XDR to the Soroban RPC
+      const response = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "sendTransaction",
+          params: [{ transaction: signedXdr }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`RPC HTTP error ${response.status}: ${response.statusText}`);
+      }
+
+      const json = (await response.json()) as {
+        result?: { hash: string; status: string };
+        error?: { message: string };
+      };
+
+      if (json.error) {
+        throw new Error(`RPC error: ${json.error.message}`);
+      }
+
+      const hash = json.result?.hash;
+      if (!hash) throw new Error("RPC returned no transaction hash");
+
+      return { hash };
     },
   };
 

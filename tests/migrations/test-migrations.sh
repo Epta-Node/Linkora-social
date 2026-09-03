@@ -12,8 +12,10 @@
 #   5. re-applying every migration is idempotent (no errors),
 #   6. the seed data survives that second pass unchanged,
 #   7. a later migration failing does not undo earlier ones,
-#   8. resuming migrations onto a partially-migrated DB preserves its data, and
-#   9. concurrent migration runs don't corrupt the schema.
+#   8. resuming migrations onto a partially-migrated DB preserves its data,
+#   9. concurrent migration runs don't corrupt the schema, and
+#  10. assertSchemaVersion() sentinel tables/columns are present after all
+#      migrations (and absent on a partially-migrated DB).
 #
 # Runs identically locally and in CI. Requires only docker (compose v2) — psql
 # and pg_dump are invoked inside the postgres container, so no local client or
@@ -326,6 +328,61 @@ else
     log "schema is consistent after concurrent migration runs"
 fi
 rm -f err.log conc_a.log conc_b.log
+
+step "Step 10/10: Schema-version guard — assertSchemaVersion() sentinel tables and columns"
+# Mirrors the logic in services/indexer/src/schema-version.ts so any drift
+# between the guard and the migrations is caught in CI before it reaches
+# production.
+
+SENTINEL_TABLES=(
+    "raw_events"
+    "indexer_cursor"
+    "indexer_state"
+    "device_tokens"
+    "sent_notifications"
+    "blocks"
+    "dm_keys"
+    "notification_preferences"
+)
+
+GUARD_OK=1
+for t in "${SENTINEL_TABLES[@]}"; do
+    COUNT="$(psql_value "SELECT count(*)::int FROM pg_tables WHERE schemaname='public' AND tablename='$t';")"
+    if [[ "$COUNT" -ne 1 ]]; then
+        fail "schema-version sentinel table missing after migrations: $t"
+        GUARD_OK=0
+    fi
+done
+
+# Column sentinel: posts.content_tsv added by 009_posts_fts.sql
+COL_COUNT="$(psql_value "SELECT count(*)::int FROM information_schema.columns WHERE table_schema='public' AND table_name='posts' AND column_name='content_tsv';")"
+if [[ "$COL_COUNT" -ne 1 ]]; then
+    fail "schema-version sentinel column missing: posts.content_tsv (009_posts_fts)"
+    GUARD_OK=0
+fi
+
+if [[ $GUARD_OK -eq 1 ]]; then
+    log "all assertSchemaVersion() sentinel tables and columns are present"
+fi
+
+# Negative check: on a fresh empty database the guard must detect a missing table.
+GUARD_DB="${DB}_guard_negative"
+psql_value "DROP DATABASE IF EXISTS ${GUARD_DB};" >/dev/null
+psql_value "CREATE DATABASE ${GUARD_DB} OWNER ${DB_USER};" >/dev/null
+
+# Apply only the first migration (profiles) — notification_preferences must be missing.
+if ! psql_file_db "$GUARD_DB" "${MIGRATIONS[0]}" >/dev/null 2>err.log; then
+    fail "could not prime guard-negative DB with first migration"
+    sed 's/^/        /' err.log
+else
+    MISSING_COUNT="$(psql_value_db "$GUARD_DB" "SELECT count(*)::int FROM pg_tables WHERE schemaname='public' AND tablename='notification_preferences';")"
+    if [[ "$MISSING_COUNT" -eq 0 ]]; then
+        log "confirmed: notification_preferences absent on a partially-migrated DB (guard would reject it)"
+    else
+        fail "notification_preferences unexpectedly present after only one migration — guard negative test invalid"
+    fi
+fi
+rm -f err.log
 
 ELAPSED=$((SECONDS - START_TS))
 echo

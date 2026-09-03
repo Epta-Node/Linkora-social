@@ -105,6 +105,7 @@ export async function handlePostDeleted(
 export async function getFeedPosts(
   pool: Pool,
   options: { viewerAddress?: string; limit: number; offset: number }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
   const { viewerAddress, limit, offset } = options;
   if (!viewerAddress) {

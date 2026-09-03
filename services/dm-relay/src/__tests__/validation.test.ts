@@ -27,12 +27,8 @@ describe("DM relay validation & size limits", () => {
     });
 
     it("falls back to default for invalid number", () => {
-      expect(getMaxMessageBytes({ MAX_MESSAGE_BYTES: "invalid" })).toBe(
-        DEFAULT_MAX_MESSAGE_BYTES
-      );
-      expect(getMaxMessageBytes({ MAX_MESSAGE_BYTES: "-50" })).toBe(
-        DEFAULT_MAX_MESSAGE_BYTES
-      );
+      expect(getMaxMessageBytes({ MAX_MESSAGE_BYTES: "invalid" })).toBe(DEFAULT_MAX_MESSAGE_BYTES);
+      expect(getMaxMessageBytes({ MAX_MESSAGE_BYTES: "-50" })).toBe(DEFAULT_MAX_MESSAGE_BYTES);
     });
   });
 
@@ -65,7 +61,9 @@ describe("DM relay validation & size limits", () => {
       const result = smallSchema.safeParse(largePayload);
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error.errors[0].message).toContain("Ciphertext size exceeds maximum allowed size");
+        expect(result.error.errors[0].message).toContain(
+          "Ciphertext size exceeds maximum allowed size"
+        );
       }
     });
 
@@ -99,6 +97,7 @@ describe("DM relay validation & size limits", () => {
       const validFrame = JSON.stringify({ type: "typing_status", recipient: validRecipient });
       (ws as unknown as MockWebSocket).emit("message", Buffer.from(validFrame));
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((ws as any).close).not.toHaveBeenCalled();
     });
 
@@ -110,6 +109,7 @@ describe("DM relay validation & size limits", () => {
       const oversizedFrame = Buffer.alloc(100, "a");
       (ws as unknown as MockWebSocket).emit("message", oversizedFrame);
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((ws as any).close).toHaveBeenCalledWith(1009, "Message too large");
     });
   });

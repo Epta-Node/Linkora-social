@@ -31,6 +31,7 @@ function makeDb(): jest.Mocked<Database> {
   return {
     upsertProfile: jest.fn().mockResolvedValue(undefined),
     getProfile: jest.fn().mockResolvedValue(null),
+    deleteProfile: jest.fn().mockResolvedValue(undefined),
     insertFollow: jest.fn().mockResolvedValue(undefined),
     deleteFollow: jest.fn().mockResolvedValue(undefined),
     getFollowers: jest.fn().mockResolvedValue({ followers: [], total: 0 }),
@@ -41,15 +42,31 @@ function makeDb(): jest.Mocked<Database> {
     addPostTipTotal: jest.fn().mockResolvedValue(undefined),
     getPost: jest.fn().mockResolvedValue(null),
     listPosts: jest.fn().mockResolvedValue({ posts: [], total: 0 }),
+    listPostsCursor: jest.fn().mockResolvedValue({ posts: [], total: 0, hasMore: false }),
     searchPosts: jest.fn().mockResolvedValue({ posts: [], total: 0 }),
+    getFeed: jest.fn().mockResolvedValue({ posts: [], total: 0 }),
     upsertLike: jest.fn().mockResolvedValue(true),
     insertTip: jest.fn().mockResolvedValue(undefined),
+    insertReport: jest.fn().mockResolvedValue(undefined),
+    updateReportStatus: jest.fn().mockResolvedValue(undefined),
+    getPostReports: jest.fn().mockResolvedValue([]),
     upsertPool: jest.fn().mockResolvedValue(undefined),
     adjustPoolBalance: jest.fn().mockResolvedValue(undefined),
     insertPool: jest.fn().mockResolvedValue(undefined),
     getPool: jest.fn().mockResolvedValue(null),
+    listPools: jest.fn().mockResolvedValue([]),
+    getPoolAnalytics: jest.fn().mockResolvedValue(null),
     addPoolAdmin: jest.fn().mockResolvedValue(undefined),
     removePoolAdmin: jest.fn().mockResolvedValue(undefined),
+    upsertGovernanceProposal: jest.fn().mockResolvedValue(undefined),
+    updateGovernanceProposalStatus: jest.fn().mockResolvedValue(undefined),
+    insertGovernanceVote: jest.fn().mockResolvedValue(true),
+    listGovernanceProposals: jest.fn().mockResolvedValue({ proposals: [], total: 0 }),
+    insertBlock: jest.fn().mockResolvedValue(undefined),
+    deleteBlock: jest.fn().mockResolvedValue(undefined),
+    getBlockedUsers: jest.fn().mockResolvedValue({ blocked: [], total: 0 }),
+    upsertDmKey: jest.fn().mockResolvedValue(undefined),
+    getDmKey: jest.fn().mockResolvedValue(null),
   } as jest.Mocked<Database>;
 }
 
@@ -311,5 +328,268 @@ describe("domain-processor: unknown topic", () => {
     expect(db.upsertProfile).not.toHaveBeenCalled();
     expect(db.insertPost).not.toHaveBeenCalled();
     expect(db.markPostDeleted).not.toHaveBeenCalled();
+  });
+});
+
+// ── governance events ─────────────────────────────────────────────────────────
+
+describe("domain-processor: gov_proposal_created", () => {
+  it("calls db.upsertGovernanceProposal with mapped fields", async () => {
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+    const client = makePgClient();
+
+    await processor(
+      client,
+      makeIngestEvent("gov_proposal_created", {
+        proposal_id: 7n,
+        proposer: "GPROPOSER",
+        parameter: "FeeBps",
+        new_value: 500n,
+      })
+    );
+
+    expect(db.upsertGovernanceProposal).toHaveBeenCalledWith({
+      proposal_id: 7n,
+      proposer: "GPROPOSER",
+      parameter: "FeeBps",
+      new_value: 500n,
+      status: "Active",
+      created_ledger: 100,
+      updated_ledger: 100,
+    });
+  });
+
+  it("does nothing when db is not provided", async () => {
+    const processor = createDomainProcessor(makePool(), makeNotificationService());
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("gov_proposal_created", { proposal_id: 1n, proposer: "G1" })
+      )
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("domain-processor: gov_vote", () => {
+  it("calls db.insertGovernanceVote with mapped fields", async () => {
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+    const client = makePgClient();
+
+    await processor(
+      client,
+      makeIngestEvent("gov_vote", {
+        proposal_id: 7n,
+        voter: "GVOTER",
+        support: true,
+      })
+    );
+
+    expect(db.insertGovernanceVote).toHaveBeenCalledWith({
+      proposal_id: 7n,
+      voter: "GVOTER",
+      support: true,
+      ledger: 100,
+    });
+  });
+
+  it("does not throw TypeError — db methods are callable", async () => {
+    // Regression guard: before the fix, client as never was passed as db,
+    // causing TypeError: db.insertGovernanceVote is not a function.
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("gov_vote", { proposal_id: 3n, voter: "GVOTER", support: false })
+      )
+    ).resolves.toBeUndefined();
+
+    expect(db.insertGovernanceVote).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when db is not provided", async () => {
+    const processor = createDomainProcessor(makePool(), makeNotificationService());
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("gov_vote", { proposal_id: 1n, voter: "G1", support: true })
+      )
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("domain-processor: gov_proposal_executed", () => {
+  it("calls db.updateGovernanceProposalStatus with Executed", async () => {
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await processor(
+      makePgClient(),
+      makeIngestEvent("gov_proposal_executed", { proposal_id: 7n, parameter: "FeeBps", new_value: 500n })
+    );
+
+    expect(db.updateGovernanceProposalStatus).toHaveBeenCalledWith(7n, "Executed", 100);
+  });
+
+  it("does nothing when db is not provided", async () => {
+    const processor = createDomainProcessor(makePool(), makeNotificationService());
+    await expect(
+      processor(makePgClient(), makeIngestEvent("gov_proposal_executed", { proposal_id: 1n }))
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("domain-processor: gov_proposal_vetoed", () => {
+  it("calls db.updateGovernanceProposalStatus with Vetoed", async () => {
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await processor(
+      makePgClient(),
+      makeIngestEvent("gov_proposal_vetoed", { proposal_id: 9n })
+    );
+
+    expect(db.updateGovernanceProposalStatus).toHaveBeenCalledWith(9n, "Vetoed", 100);
+  });
+});
+
+// ── moderation events ─────────────────────────────────────────────────────────
+
+describe("domain-processor: post_reported", () => {
+  it("calls db.insertReport with mapped fields", async () => {
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await processor(
+      makePgClient(),
+      makeIngestEvent("post_reported", {
+        post_id: 55n,
+        reporter_address: "GREPORTER",
+        reason: "Spam",
+        tx_hash: "0xaaa",
+      })
+    );
+
+    expect(db.insertReport).toHaveBeenCalledTimes(1);
+    const arg = (db.insertReport as jest.Mock).mock.calls[0][0];
+    expect(arg.post_id).toBe(55n);
+    expect(arg.reporter_address).toBe("GREPORTER");
+    expect(arg.reason).toBe("Spam");
+    expect(arg.status).toBe("pending");
+  });
+
+  it("does not throw TypeError — db methods are callable", async () => {
+    // Regression guard: before the fix, pool as never was passed as db,
+    // causing TypeError: db.insertReport is not a function.
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("post_reported", {
+          post_id: 1n,
+          reporter_address: "GREPORTER",
+          reason: "Spam",
+        })
+      )
+    ).resolves.toBeUndefined();
+
+    expect(db.insertReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when db is not provided", async () => {
+    const processor = createDomainProcessor(makePool(), makeNotificationService());
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("post_reported", { post_id: 1n, reporter_address: "G1", reason: "x" })
+      )
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("domain-processor: report_dismissed", () => {
+  it("calls db.updateReportStatus with dismissed", async () => {
+    const db = makeDb();
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await processor(
+      makePgClient(),
+      makeIngestEvent("report_dismissed", {
+        post_id: 55n,
+        reporter_address: "GREPORTER",
+        moderator_address: "GMOD",
+        moderator_notes: "Looks fine",
+      })
+    );
+
+    expect(db.updateReportStatus).toHaveBeenCalledWith(
+      55n,
+      "GREPORTER",
+      "dismissed",
+      "GMOD",
+      "Looks fine"
+    );
+  });
+
+  it("does nothing when db is not provided", async () => {
+    const processor = createDomainProcessor(makePool(), makeNotificationService());
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("report_dismissed", {
+          post_id: 1n,
+          reporter_address: "G1",
+          moderator_address: "GMOD",
+        })
+      )
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("domain-processor: post_removed_by_moderation", () => {
+  it("calls db.markPostDeleted and db.getPostReports + db.updateReportStatus for pending reports", async () => {
+    const db = makeDb();
+    (db.getPostReports as jest.Mock).mockResolvedValue([
+      { post_id: 10n, reporter_address: "GREPORTER", status: "pending" },
+    ]);
+    const processor = createDomainProcessor(makePool(), makeNotificationService(), db);
+
+    await processor(
+      makePgClient(),
+      makeIngestEvent("post_removed_by_moderation", {
+        post_id: 10n,
+        moderator_address: "GMOD",
+        reason: "Violates guidelines",
+      })
+    );
+
+    expect(db.markPostDeleted).toHaveBeenCalledWith(10n, 100);
+    expect(db.getPostReports).toHaveBeenCalledWith(10n);
+    expect(db.updateReportStatus).toHaveBeenCalledWith(
+      10n,
+      "GREPORTER",
+      "action_taken",
+      "GMOD",
+      "Violates guidelines"
+    );
+  });
+
+  it("does nothing when db is not provided", async () => {
+    const processor = createDomainProcessor(makePool(), makeNotificationService());
+    await expect(
+      processor(
+        makePgClient(),
+        makeIngestEvent("post_removed_by_moderation", {
+          post_id: 1n,
+          moderator_address: "GMOD",
+          reason: "x",
+        })
+      )
+    ).resolves.toBeUndefined();
   });
 });

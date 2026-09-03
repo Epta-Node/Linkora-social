@@ -68,6 +68,20 @@ pub fn validate_address_list(env: &Env, label: &str, addresses: &Vec<Address>) {
     }
 }
 
+/// Ensures no duplicate addresses appear in the list. Duplicate signers could
+/// let a subset of admins exceed the M-of-N threshold weight.
+pub fn validate_unique_signers(env: &Env, label: &str, addresses: &Vec<Address>) {
+    for i in 0..addresses.len() {
+        for j in (i + 1)..addresses.len() {
+            require_with_error!(
+                env,
+                addresses.get_unchecked(i) != addresses.get_unchecked(j),
+                format!("{label} must not contain duplicate addresses")
+            );
+        }
+    }
+}
+
 fn validate_string_max_len(env: &Env, label: &str, value: &String, max: u32) {
     require_with_error!(
         env,

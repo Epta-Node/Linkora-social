@@ -8,7 +8,8 @@ test.describe("Pool Flow", () => {
 
   test("pools page loads with heading", async ({ page }) => {
     await page.goto("/pools");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
     await expect(page.getByRole("heading", { name: "Community Pools" })).toBeVisible({
       timeout: 10000,
     });
@@ -16,7 +17,8 @@ test.describe("Pool Flow", () => {
 
   test("pools page renders content area", async ({ page }) => {
     await page.goto("/pools");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
     const main = page.locator("main").first();
     await expect(main).toBeVisible({ timeout: 10000 });
   });

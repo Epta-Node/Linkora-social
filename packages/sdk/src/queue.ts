@@ -12,15 +12,28 @@
  * every step is simulated but never submitted. This is useful for preflight
  * checks and fee estimation without consuming sequence numbers or fees.
  *
+ * In dry-run mode the queue still emits a `confirmed` event at the end of each
+ * step (as a completion marker), but the event carries `dryRun: true` and no
+ * `hash`. Consumers can therefore distinguish a simulated `confirmed` from a
+ * real on-chain confirmation by checking the `dryRun` flag.
+ *
  * ### Per-step timeout
  * `stepTimeoutMs` (config or per-`run()` override) caps the total wall-clock
  * time spent on a single step (signing + submission + confirmation). When the
  * deadline is exceeded the step is treated as a failure and rollbacks fire.
  */
 
+import * as rpc from "@stellar/stellar-sdk/rpc";
+import {
+  TransactionBuilder,
+  type Transaction,
+  type FeeBumpTransaction,
+} from "@stellar/stellar-base";
 import { CircuitBreakerError, NetworkError, SigningError, SimulationError } from "./errors.js";
 import { resolveRetryConfig, type RetryConfig } from "./config.js";
 import { CircuitBreaker, withRetry, type RetryLogger } from "./utils/retry.js";
+
+const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
 export type TxStatus = "pending" | "simulated" | "submitted" | "confirmed" | "failed";
 
@@ -32,6 +45,13 @@ export interface TxStatusEvent {
   error?: string;
   /** Resource fee returned by simulation (present when status is "simulated" or later). */
   resourceFee?: string;
+  /**
+   * When `true`, the event reflects a dry-run (simulate-only) execution rather
+   * than a real on-chain submission. A dry-run `confirmed` event carries no
+   * `hash`; consumers can use this flag to distinguish simulated success from an
+   * actual broadcast.
+   */
+  dryRun?: boolean;
 }
 
 export type TxStatusListener = (event: TxStatusEvent) => void;
@@ -75,6 +95,50 @@ export interface RpcClient {
   ): Promise<{ hash: string; status: string; errorResultXdr?: string }>;
 
   getTransaction(hash: string): Promise<{ status: string; errorResultXdr?: string }>;
+}
+
+/**
+ * Adapts a raw `@stellar/stellar-sdk` RPC server handle — whose methods take
+ * parsed `Transaction` objects — to the string-XDR {@link RpcClient} shape
+ * `TransactionQueue` expects.
+ */
+export function createRpcClientAdapter(server: rpc.Server, networkPassphrase: string): RpcClient {
+  const parse = (xdr: string): Transaction | FeeBumpTransaction =>
+    TransactionBuilder.fromXDR(xdr, networkPassphrase);
+
+  return {
+    async simulateTransaction(xdr: string): Promise<SimulationResult> {
+      const result = await server.simulateTransaction(parse(xdr));
+
+      if (isSimulationError(result)) {
+        return { success: false, resourceFee: "0", error: result.error };
+      }
+      if (!isSimulationSuccess(result)) {
+        return { success: false, resourceFee: "0", error: "Unknown simulation error" };
+      }
+      return { success: true, resourceFee: result.minResourceFee || "0" };
+    },
+
+    async sendTransaction(signedXdr: string) {
+      const result = await server.sendTransaction(parse(signedXdr));
+      return {
+        hash: result.hash,
+        status: result.status,
+        errorResultXdr: result.errorResult?.toXDR("base64"),
+      };
+    },
+
+    async getTransaction(hash: string) {
+      const result = await server.getTransaction(hash);
+      return {
+        status: result.status,
+        errorResultXdr:
+          result.status === rpc.Api.GetTransactionStatus.FAILED
+            ? result.resultXdr.toXDR("base64")
+            : undefined,
+      };
+    },
+  };
 }
 
 /** Options that can be passed per `run()` call to override queue-level defaults. */
@@ -252,7 +316,8 @@ export class TransactionQueue {
    *   2. Signs the XDR via the configured signer.
    *   3. Simulates the signed transaction via `rpc.simulateTransaction` (unless
    *      `skipSimulation` is true). Emits `simulated` on success.
-   *   4. In `dryRun` mode, stops here and does not submit.
+   *   4. In `dryRun` mode, stops here and does not submit. Emits a `confirmed`
+   *      event with `dryRun: true` and no hash to mark the step complete.
    *   5. Submits via `rpc.sendTransaction`. Emits `submitted` with the hash.
    *   6. Polls `rpc.getTransaction` until `SUCCESS` or failure. Emits `confirmed`.
    *
@@ -365,8 +430,10 @@ export class TransactionQueue {
 
     // ── 3. Dry-run exit ──────────────────────────────────────────────────────
     if (isDryRun) {
-      // Simulation succeeded; mark as confirmed for tracking purposes (no hash).
-      this.emit({ index: i, xdr: step.xdr, status: "confirmed", resourceFee });
+      // Simulation succeeded; report a dry-run "confirmed" (no hash was
+      // produced) so callers can track the step without mistaking it for a
+      // real on-chain confirmation.
+      this.emit({ index: i, xdr: step.xdr, status: "confirmed", resourceFee, dryRun: true });
       completed.push(i);
       return;
     }

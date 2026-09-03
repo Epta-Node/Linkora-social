@@ -1,4 +1,4 @@
 #!/bin/sh
 # Run lint-staged to check TypeScript/JavaScript and Rust files.
 # lint-staged configuration lives in the root package.json.
-npx lint-staged
+npx lint-staged

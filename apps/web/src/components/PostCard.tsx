@@ -22,6 +22,7 @@ interface PostCardProps {
   isLiked?: boolean;
   isTipping?: boolean;
   tourAnchor?: boolean;
+  disabled?: boolean;
 }
 
 function escapeRegExp(value: string): string {
@@ -87,6 +88,7 @@ export function PostCard({
   isLiked,
   isTipping,
   tourAnchor,
+  disabled = false,
 }: PostCardProps) {
   const likeCount = getPostLikeCount(post);
   const [animateLikeCount, setAnimateLikeCount] = useState(false);
@@ -130,7 +132,8 @@ export function PostCard({
         {/* Like Button */}
         <button
           onClick={onLike}
-          className={`flex items-center gap-2 text-sm font-medium transition-colors ${
+          disabled={disabled}
+          className={`flex items-center gap-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
             isLiked
               ? "text-[var(--accent-coral)]"
               : "text-[var(--text-muted)] hover:text-[var(--accent-coral)]"
@@ -148,8 +151,8 @@ export function PostCard({
         {/* Tip Button */}
         <button
           onClick={onTip}
-          disabled={isTipping}
-          className="flex items-center gap-2 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--accent-teal)] transition-colors disabled:opacity-50"
+          disabled={disabled || isTipping}
+          className="flex items-center gap-2 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--accent-teal)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           aria-label="Tip creator"
         >
           <span className="text-lg">💰</span>

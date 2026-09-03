@@ -171,7 +171,8 @@ export interface Database {
     offset: number;
   }): Promise<{ posts: Post[]; total: number }>;
   searchPosts(filters: {
-    q: string;
+    q?: string;
+    tag?: string;
     limit: number;
     offset: number;
   }): Promise<{ posts: Post[]; total: number }>;

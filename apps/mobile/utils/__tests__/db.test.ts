@@ -1,19 +1,30 @@
 import { createFakeDb as mockCreateFakeDb } from "../../jest.sqlite-fake";
 
+let mockFakeDb: ReturnType<typeof mockCreateFakeDb>;
+
 jest.mock("expo-sqlite", () => ({
-  openDatabaseSync: () => mockCreateFakeDb(),
+  openDatabaseSync: () => {
+    // db.ts opens the database once at module load, so capture that single
+    // instance for assertions on call counts.
+    mockFakeDb = mockCreateFakeDb();
+    return mockFakeDb;
+  },
 }));
 
 import {
   addOutboxDmMessage,
+  addOptimisticPost,
+  getCachedPostsByIds,
   getDmLastRead,
   getDmMessages,
   getDmSyncCursor,
   markDmMessageFailed,
   mergeDmDeltas,
+  reconcilePosts,
   setDmLastRead,
   setDmSyncCursor,
 } from "../db";
+import { Post } from "../../components/PostCard";
 
 describe("DM delta merge", () => {
   it("upserts a relay-confirmed message exactly once even if merged twice, so reconnect never duplicates it", async () => {
@@ -121,5 +132,105 @@ describe("outbox failure surfacing", () => {
     const messages = await getDmMessages("convo-2");
     const failed = messages.find((m) => m.id === outbox.id);
     expect(failed).toMatchObject({ syncStatus: "failed", errorMessage: "400 invalid recipient" });
+  });
+});
+
+function makePost(id: string, overrides: Partial<Post> = {}): Post {
+  return {
+    id,
+    author: `author-${id}`,
+    username: `user-${id}`,
+    content: `content-${id}`,
+    tip_total: 0,
+    timestamp: 1000,
+    like_count: 0,
+    has_liked: false,
+    ...overrides,
+  };
+}
+
+describe("reconcilePosts batching", () => {
+  it("issues a constant number of SQLite statements no matter how large the feed is", async () => {
+    const small = Array.from({ length: 5 }, (_, i) => makePost(`bounded-small-${i}`));
+    mockFakeDb.runAsync.mockClear();
+    await reconcilePosts(small);
+    const smallCallCount = mockFakeDb.runAsync.mock.calls.length;
+
+    const large = Array.from({ length: 50 }, (_, i) => makePost(`bounded-large-${i}`));
+    mockFakeDb.runAsync.mockClear();
+    await reconcilePosts(large);
+    const largeCallCount = mockFakeDb.runAsync.mock.calls.length;
+
+    // A per-post implementation would issue 2 * N statements (100 for the 50-post
+    // feed); batching keeps this fixed regardless of feed size.
+    expect(largeCallCount).toBe(smallCallCount);
+    expect(largeCallCount).toBeLessThanOrEqual(3);
+  });
+
+  it("upserts every post in the feed via a single multi-row insert", async () => {
+    const posts = Array.from({ length: 10 }, (_, i) => makePost(`upsert-${i}`));
+    await reconcilePosts(posts);
+
+    const cached = await getCachedPostsByIds(posts.map((p) => String(p.id)));
+    expect(cached.size).toBe(10);
+    for (const post of posts) {
+      expect(cached.get(String(post.id))).toMatchObject({
+        author: post.author,
+        content: post.content,
+        sync_status: "synced",
+      });
+    }
+  });
+
+  it("removes an optimistic row once its chain-confirmed counterpart lands, batched across the whole feed", async () => {
+    const author = "GAUTHOR-BATCH";
+    const content = "hello from chain";
+    const localId = await addOptimisticPost(author, content, "local_user");
+
+    await reconcilePosts([
+      makePost("chain-confirmed-1", { author, content }),
+      makePost("chain-confirmed-2"),
+    ]);
+
+    const cached = await getCachedPostsByIds([localId, "chain-confirmed-1", "chain-confirmed-2"]);
+    expect(cached.has(localId)).toBe(false);
+    expect(cached.get("chain-confirmed-1")).toMatchObject({ sync_status: "synced" });
+    expect(cached.get("chain-confirmed-2")).toMatchObject({ sync_status: "synced" });
+  });
+
+  it("evicts stale synced rows that fall out of the remote set on the next reconcile pass", async () => {
+    await reconcilePosts([makePost("stale-1"), makePost("stale-2")]);
+    await reconcilePosts([makePost("stale-2")]);
+
+    const cached = await getCachedPostsByIds(["stale-1", "stale-2"]);
+    expect(cached.has("stale-1")).toBe(false);
+    expect(cached.has("stale-2")).toBe(true);
+  });
+
+  it("does nothing for an empty feed", async () => {
+    mockFakeDb.runAsync.mockClear();
+    await reconcilePosts([]);
+    expect(mockFakeDb.runAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe("getCachedPostsByIds", () => {
+  it("returns an empty map without querying the database when given no ids", async () => {
+    mockFakeDb.getAllAsync.mockClear();
+    const result = await getCachedPostsByIds([]);
+    expect(result.size).toBe(0);
+    expect(mockFakeDb.getAllAsync).not.toHaveBeenCalled();
+  });
+
+  it("issues a single query for any number of ids and omits ids with no cached row", async () => {
+    await reconcilePosts([makePost("batch-lookup-1"), makePost("batch-lookup-2")]);
+
+    mockFakeDb.getAllAsync.mockClear();
+    const result = await getCachedPostsByIds(["batch-lookup-1", "batch-lookup-2", "missing-id"]);
+
+    expect(mockFakeDb.getAllAsync).toHaveBeenCalledTimes(1);
+    expect(result.size).toBe(2);
+    expect(result.has("missing-id")).toBe(false);
+    expect(result.get("batch-lookup-1")).toMatchObject({ id: "batch-lookup-1" });
   });
 });

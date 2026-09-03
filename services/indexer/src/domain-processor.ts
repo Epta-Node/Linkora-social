@@ -27,7 +27,13 @@ import {
 } from "./handlers/moderation";
 import { handleBlock, handleUnblock, handleDmKeyPublished } from "./handlers/user";
 import { handleProfileSet } from "./handlers/profile";
-import { handlePoolCreated, handlePoolDeposit, handlePoolWithdraw } from "./handlers/pool";
+import {
+  handlePoolCreated,
+  handlePoolDeposit,
+  handlePoolWithdraw,
+  handlePoolAdminAdded,
+  handlePoolAdminRemoved,
+} from "./handlers/pool";
 import { Database } from "./db";
 import { dispatchNotificationForBusEvent } from "./notifications/events";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
@@ -238,6 +244,9 @@ export function createDomainProcessor(
         const fee = asBigInt(data.fee);
         const txHash = asString(data.txHash ?? data.tx_hash);
 
+        // Pass the pipeline's shared transaction client directly. handleTip
+        // detects it is not a Pool (no .connect method) and issues no
+        // BEGIN/COMMIT, preserving batch atomicity.
         await handleTip(
           client as never,
           {
@@ -250,9 +259,6 @@ export function createDomainProcessor(
             txHash,
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          {
-            client: client as never,
           }
         );
 
@@ -266,6 +272,9 @@ export function createDomainProcessor(
         const postId = asBigInt(data.post_id);
         const txHash = asString(data.txHash ?? data.tx_hash);
 
+        // Pass the pipeline's shared transaction client directly. handleLike
+        // detects it is not a Pool (no .connect method) and issues no
+        // BEGIN/COMMIT, preserving batch atomicity.
         await handleLike(
           client as never,
           {
@@ -276,9 +285,6 @@ export function createDomainProcessor(
             txHash,
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          {
-            client: client as never,
           }
         );
 
@@ -287,12 +293,13 @@ export function createDomainProcessor(
       }
 
       case "gov_proposal_created": {
+        if (!db) break;
         const proposalId = asBigInt(data.proposal_id);
         const proposer = asString(data.proposer);
         const parameter = asString(data.parameter);
         const newValue = asBigInt(data.new_value);
 
-        await handleGovProposalCreated(client as never, {
+        await handleGovProposalCreated(db, {
           proposal_id: proposalId,
           proposer,
           parameter,
@@ -303,11 +310,12 @@ export function createDomainProcessor(
       }
 
       case "gov_vote": {
+        if (!db) break;
         const proposalId = asBigInt(data.proposal_id);
         const voter = asString(data.voter);
         const support = Boolean(data.support);
 
-        await handleGovVote(client as never, {
+        await handleGovVote(db, {
           proposal_id: proposalId,
           voter,
           support,
@@ -317,11 +325,12 @@ export function createDomainProcessor(
       }
 
       case "gov_proposal_executed": {
+        if (!db) break;
         const proposalId = asBigInt(data.proposal_id);
         const parameter = asString(data.parameter);
         const newValue = asBigInt(data.new_value);
 
-        await handleGovProposalExecuted(client as never, {
+        await handleGovProposalExecuted(db, {
           proposal_id: proposalId,
           parameter,
           new_value: newValue,
@@ -331,9 +340,10 @@ export function createDomainProcessor(
       }
 
       case "gov_proposal_vetoed": {
+        if (!db) break;
         const proposalId = asBigInt(data.proposal_id);
 
-        await handleGovProposalVetoed(client as never, {
+        await handleGovProposalVetoed(db, {
           proposal_id: proposalId,
           ledger: event.ledgerSequence,
         });
@@ -341,12 +351,13 @@ export function createDomainProcessor(
       }
 
       case TOPIC_POST_REPORTED: {
+        if (!db) break;
         const postId = asBigInt(data.post_id);
         const reporterAddress = asString(data.reporter_address ?? data.reporter);
         const reason = asString(data.reason);
 
         await handlePostReported(
-          client as never,
+          db,
           {
             post_id: postId,
             reporter_address: reporterAddress,
@@ -356,8 +367,7 @@ export function createDomainProcessor(
             txHash: asString(data.txHash ?? data.tx_hash),
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          pool as never
+          }
         );
 
         await dispatchNotificationForBusEvent(pool as never, notificationService, busEvent);
@@ -365,13 +375,14 @@ export function createDomainProcessor(
       }
 
       case TOPIC_REPORT_DISMISSED: {
+        if (!db) break;
         const postId = asBigInt(data.post_id);
         const reporterAddress = asString(data.reporter_address ?? data.reporter);
         const moderatorAddress = asString(data.moderator_address ?? data.moderator);
         const moderatorNotes = asString(data.moderator_notes);
 
         await handleReportDismissed(
-          client as never,
+          db,
           {
             post_id: postId,
             reporter_address: reporterAddress,
@@ -382,8 +393,7 @@ export function createDomainProcessor(
             txHash: asString(data.txHash ?? data.tx_hash),
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          pool as never
+          }
         );
 
         await dispatchNotificationForBusEvent(pool as never, notificationService, busEvent);
@@ -391,12 +401,13 @@ export function createDomainProcessor(
       }
 
       case TOPIC_POST_REMOVED_BY_MODERATION: {
+        if (!db) break;
         const postId = asBigInt(data.post_id);
         const moderatorAddress = asString(data.moderator_address ?? data.moderator);
         const reason = asString(data.reason);
 
         await handlePostRemovedByModeration(
-          client as never,
+          db,
           {
             post_id: postId,
             moderator_address: moderatorAddress,
@@ -406,8 +417,7 @@ export function createDomainProcessor(
             txHash: asString(data.txHash ?? data.tx_hash),
             ledgerSeq: event.ledgerSequence,
             timestamp: new Date(),
-          },
-          pool as never
+          }
         );
 
         await dispatchNotificationForBusEvent(pool as never, notificationService, busEvent);
@@ -529,6 +539,32 @@ export function createDomainProcessor(
           pool_id,
           recipient,
           amount,
+          ledger: event.ledgerSequence,
+        });
+        break;
+      }
+
+      case "pool_admin_added": {
+        if (!db) break;
+        const pool_id = asString(data.pool_id);
+        const new_admin = asString(data.new_admin ?? data.admin);
+
+        await handlePoolAdminAdded(db, {
+          pool_id,
+          new_admin,
+          ledger: event.ledgerSequence,
+        });
+        break;
+      }
+
+      case "pool_admin_removed": {
+        if (!db) break;
+        const pool_id = asString(data.pool_id);
+        const removed_admin = asString(data.removed_admin ?? data.admin);
+
+        await handlePoolAdminRemoved(db, {
+          pool_id,
+          removed_admin,
           ledger: event.ledgerSequence,
         });
         break;

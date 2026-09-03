@@ -70,4 +70,52 @@ describe("useFeed", () => {
     expect(mockedFetchAndCachePosts).toHaveBeenNthCalledWith(2, 10, 20);
     expect(mockedFetchAndCachePosts).toHaveBeenNthCalledWith(3, 10, 0);
   });
+
+  it("correctly handles cache-then-network pagination without skips or duplicates", async () => {
+    // Simulate cache load first, then network sync
+    mockedGetCachedPosts
+      .mockResolvedValueOnce(page(1)) // Initial cache load
+      .mockResolvedValueOnce(page(1)) // After network sync (reloads from cache)
+      .mockResolvedValueOnce([...page(1), ...page(11)]) // After second page load
+      .mockResolvedValueOnce([...page(1), ...page(11)]) // After second network sync
+      .mockResolvedValueOnce([...page(1), ...page(11), ...page(21)]) // After third page load
+      .mockResolvedValueOnce([...page(1), ...page(11), ...page(21)]); // After third network sync
+
+    mockedFetchAndCachePosts
+      .mockResolvedValueOnce(page(1)) // First network sync
+      .mockResolvedValueOnce(page(11)) // Second network sync (loadMore)
+      .mockResolvedValueOnce(page(21)); // Third network sync (loadMore)
+
+    const { result } = renderHook(() => useFeed());
+
+    // Wait for initial cache load and network sync
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(mockedFetchAndCachePosts).toHaveBeenCalledTimes(1));
+    const initialLength = result.current.posts.length;
+    expect(initialLength).toBeGreaterThan(0);
+
+    // Load more pages
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    await waitFor(() => expect(mockedFetchAndCachePosts).toHaveBeenCalledTimes(2));
+    const secondLength = result.current.posts.length;
+    expect(secondLength).toBeGreaterThan(initialLength);
+
+    // Try to load more (may or may not trigger depending on hasMore)
+    await act(async () => {
+      result.current.loadMore();
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    // Verify no duplicates and correct pagination
+    const postIds = result.current.posts.map((p) => p.id);
+    const uniqueIds = new Set(postIds);
+    expect(uniqueIds.size).toBe(postIds.length); // No duplicates
+    // Verify posts are in ascending order
+    for (let i = 1; i < postIds.length; i++) {
+      expect(Number(postIds[i])).toBeGreaterThan(Number(postIds[i - 1]));
+    }
+  });
 });

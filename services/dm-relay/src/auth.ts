@@ -23,6 +23,41 @@ export class AuthError extends Error {
   }
 }
 
+// ── Nonce / replay cache ──────────────────────────────────────────────────────
+//
+// Each valid signature is stored for `maxTimestampSkew` seconds. A captured
+// signed request re-presented within the skew window is rejected as a replay.
+// Entries are swept lazily on each auth call to keep the Map bounded.
+
+interface ReplayCacheEntry {
+  /** Unix timestamp (seconds) after which this entry may be evicted. */
+  expiresAt: number;
+}
+
+const dmRelaySeenSignatures = new Map<string, ReplayCacheEntry>();
+
+function sweepDmRelayNonces(nowSecs: number): void {
+  for (const [sig, entry] of dmRelaySeenSignatures) {
+    if (entry.expiresAt <= nowSecs) {
+      dmRelaySeenSignatures.delete(sig);
+    }
+  }
+}
+
+function isDmRelayReplay(signature: string, nowSecs: number, maxSkewSecs: number): boolean {
+  sweepDmRelayNonces(nowSecs);
+  if (dmRelaySeenSignatures.has(signature)) {
+    return true;
+  }
+  dmRelaySeenSignatures.set(signature, { expiresAt: nowSecs + maxSkewSecs });
+  return false;
+}
+
+/** Exposed for unit tests — clears the dm-relay replay cache. */
+export function clearDmRelayReplayCache(): void {
+  dmRelaySeenSignatures.clear();
+}
+
 export class AuthService {
   private readonly maxTimestampSkew: number;
   private readonly stellarNetwork: string;
@@ -66,6 +101,13 @@ export class AuthService {
       if (!isValid) {
         throw new AuthError("Invalid signature");
       }
+
+      // Replay guard: reject signatures that have already been honoured within
+      // the skew window, even though the timestamp is still technically fresh.
+      if (isDmRelayReplay(signature, now, this.maxTimestampSkew)) {
+        throw new AuthError("Replayed signature: this signed request has already been used");
+      }
+
       return true;
     } catch (error) {
       if (error instanceof AuthError) {
@@ -108,6 +150,13 @@ export class AuthService {
       if (!isValid) {
         throw new AuthError("Invalid signature");
       }
+
+      // Replay guard: reject re-use of the same address ownership proof within
+      // the skew window.
+      if (isDmRelayReplay(signatureHex, now, this.maxTimestampSkew)) {
+        throw new AuthError("Replayed signature: this address ownership proof has already been used");
+      }
+
       return true;
     } catch (error) {
       if (error instanceof AuthError) throw error;
