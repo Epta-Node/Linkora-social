@@ -276,7 +276,7 @@ function generateClient(
     "  Account,",
     "  Keypair,",
     '} from "@stellar/stellar-sdk";',
-    'import { NotFoundError, mapError } from "../errors";',
+    'import { NotFoundError, VersionMismatchError, mapError } from "../errors";',
     ...(knownTypeNames.length > 0
       ? [`import type { ${knownTypeNames.join(", ")} } from "./types";`, ""]
       : [""]),
@@ -313,6 +313,27 @@ function generateClient(
   lines.push("    this.rpcUrl = config.rpcUrl;");
   lines.push("    this.networkPassphrase = config.networkPassphrase || DEFAULT_NETWORK;");
   lines.push('    this.allowHttp = config.allowHttp ?? config.rpcUrl.startsWith("http://");');
+  lines.push("  }");
+  lines.push("");
+  lines.push("  async getContractVersion(): Promise<string> {");
+  lines.push("    try {");
+  lines.push('      const retval = await this.simulateCall("version");');
+  lines.push('      if (!retval) return "unknown";');
+  lines.push('      return (scValToNative(retval) as string) ?? "unknown";');
+  lines.push("    } catch {");
+  lines.push('      return "unknown";');
+  lines.push("    }");
+  lines.push("  }");
+  lines.push("");
+  lines.push("  async verifyContractVersion(expectedVersion: string): Promise<boolean> {");
+  lines.push("    const actualVersion = await this.getContractVersion();");
+  lines.push('    if (actualVersion !== "unknown" && actualVersion !== expectedVersion) {');
+  lines.push("      throw new VersionMismatchError(");
+  lines.push('        `Contract version mismatch: expected "${expectedVersion}", got "${actualVersion}".`,');
+  lines.push("        { expected: expectedVersion, actual: actualVersion }");
+  lines.push("      );");
+  lines.push("    }");
+  lines.push("    return true;");
   lines.push("  }");
   lines.push("");
 

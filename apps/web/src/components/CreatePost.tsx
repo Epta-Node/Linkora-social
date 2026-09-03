@@ -5,24 +5,72 @@ import { useWallet } from "./WalletProvider";
 import Link from "next/link";
 import { RichTextComposer } from "./RichTextComposer";
 
-const MAX_CONTENT_LENGTH = 280;
-const WARNING_THRESHOLD = 260;
 const TRANSACTION_FEE_ESTIMATE = "~0.00001 XLM";
 
 type SubmitStatus = "idle" | "awaiting_signature" | "submitting" | "success" | "error";
 
+export interface PollOption {
+  id: string;
+  label: string;
+  votes: number;
+}
+
+export interface PollData {
+  question: string;
+  options: PollOption[];
+}
+
+export interface CreatePostPayload {
+  content: string;
+  author: string;
+  poll?: PollData | null;
+}
+
+export interface CreatePostResult {
+  id: number;
+  transactionHash?: string;
+  timestamp: number;
+}
+
+export async function submitPost(payload: CreatePostPayload): Promise<CreatePostResult> {
+  const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL || 'http://localhost:3001';
+  const response = await fetch(`${INDEXER_API_URL}/api/posts`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to submit post: ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  if (typeof data.id !== 'number' && typeof data.id !== 'string') {
+    throw new Error('Invalid response from post creation API');
+  }
+
+  return {
+    id: Number(data.id),
+    transactionHash: data.transactionHash,
+    timestamp: data.timestamp || Date.now(),
+  };
+}
+
 interface CreatePostProps {
   onSuccess?: (postId: number) => void;
   compact?: boolean;
+  submitFn?: (payload: CreatePostPayload) => Promise<CreatePostResult>;
 }
 
-export function CreatePost({ onSuccess, compact = false }: CreatePostProps) {
+export function CreatePost({ onSuccess, compact = false, submitFn = submitPost }: CreatePostProps) {
   const { publicKey, isConnected } = useWallet();
   const [status, setStatus] = useState<SubmitStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [postId, setPostId] = useState<number | null>(null);
 
-  // Mock users for mentions - in production, this would come from an API
+  // Mock users for mentions
   const mockUsers = [
     { id: "1", username: "alice", displayName: "Alice Johnson" },
     { id: "2", username: "bob", displayName: "Bob Smith" },
@@ -32,27 +80,31 @@ export function CreatePost({ onSuccess, compact = false }: CreatePostProps) {
   ];
 
   const handleSubmit = useCallback(
-    async (content: string, attachments?: File[], poll?: any[]) => {
+    async (content: string, _attachments?: File[], pollOptions?: PollOption[]) => {
       if (!publicKey) return;
 
       setStatus("awaiting_signature");
       setError(null);
 
       try {
-        // Simulate wallet signature prompt
-        await new Promise((resolve) => setTimeout(resolve, 800));
-
         setStatus("submitting");
 
-        // Simulate blockchain transaction
-        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const pollData: PollData | null = pollOptions && pollOptions.length > 0 ? {
+          question: "Poll",
+          options: pollOptions,
+        } : null;
 
-        const newPostId = Math.floor(Math.random() * 10000) + 1;
-        setPostId(newPostId);
+        const result = await submitFn({
+          content,
+          author: publicKey,
+          poll: pollData,
+        });
+
+        setPostId(result.id);
         setStatus("success");
 
         if (onSuccess) {
-          onSuccess(newPostId);
+          onSuccess(result.id);
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to create post";
@@ -60,7 +112,7 @@ export function CreatePost({ onSuccess, compact = false }: CreatePostProps) {
         setStatus("error");
       }
     },
-    [publicKey, onSuccess]
+    [publicKey, submitFn, onSuccess]
   );
 
   const handleCreateAnother = () => {

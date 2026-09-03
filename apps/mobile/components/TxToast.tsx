@@ -25,6 +25,8 @@ export interface TxToastState {
 interface TxToastProps {
   toast: TxToastState;
   onDismiss: () => void;
+  /** Called with `true` while the user is touching the toast (pauses auto-dismiss) and `false` on release. */
+  onPauseChange?: (paused: boolean) => void;
   theme: ThemeTokens;
 }
 
@@ -33,7 +35,7 @@ function shortHash(hash: string): string {
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
 }
 
-export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
+export function TxToast({ toast, onDismiss, onPauseChange, theme }: TxToastProps) {
   const translateY = useRef(new Animated.Value(-24)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -87,6 +89,7 @@ export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
 
   return (
     <Animated.View
+      testID="toast"
       style={[
         styles.toast,
         {
@@ -97,6 +100,9 @@ export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
         },
       ]}
       {...panResponder.panHandlers}
+      onTouchStart={() => onPauseChange?.(true)}
+      onTouchEnd={() => onPauseChange?.(false)}
+      onTouchCancel={() => onPauseChange?.(false)}
     >
       <View
         style={[

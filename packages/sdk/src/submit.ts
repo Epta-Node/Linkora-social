@@ -1,6 +1,100 @@
-import { Transaction } from "@stellar/stellar-base";
-import { TransactionQueue, QueueSigner, RunOptions } from "./queue.js";
+/**
+ * RPC Client Adapter
+ *
+ * Adapts the Stellar SDK's rpc.Server to implement the RpcClient interface.
+ * This allows TransactionQueue to use the standard Stellar RPC server while
+ * maintaining the RpcClient's XDR-string-based API.
+ */
+
+import * as rpc from "@stellar/stellar-sdk/rpc";
+import { Transaction, TransactionBuilder } from "@stellar/stellar-base";
+import type { RpcClient, SimulationResult, QueueSigner, RunOptions } from "./queue.js";
+import { TransactionQueue } from "./queue.js";
 import type { LinkoraClient } from "./client.js";
+
+/**
+ * Adapter that wraps rpc.Server to implement the RpcClient interface.
+ *
+ * The Stellar SDK's rpc.Server.simulateTransaction accepts Transaction objects,
+ * while our RpcClient interface expects XDR strings. This adapter converts
+ * between the two formats.
+ */
+export class RpcServerAdapter implements RpcClient {
+  private readonly server: rpc.Server;
+  private readonly networkPassphrase: string;
+
+  constructor(rpcUrl: string, networkPassphrase: string, allowHttp = false) {
+    this.server = new rpc.Server(rpcUrl, { allowHttp });
+    this.networkPassphrase = networkPassphrase;
+  }
+
+  /**
+   * Simulate a transaction from XDR string.
+   *
+   * Parses the XDR string into a Transaction object, calls the Stellar SDK's
+   * simulateTransaction, and converts the result back to our SimulationResult format.
+   */
+  async simulateTransaction(xdrString: string): Promise<SimulationResult> {
+    const tx = TransactionBuilder.fromXDR(xdrString, this.networkPassphrase);
+
+    const result = await this.server.simulateTransaction(tx);
+
+    if (rpc.Api.isSimulationError(result)) {
+      return {
+        success: false,
+        resourceFee: "0",
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      resourceFee: "0",
+    };
+  }
+
+  /**
+   * Send a signed transaction to the network.
+   */
+  async sendTransaction(
+    signedXdr: string
+  ): Promise<{ hash: string; status: string; errorResultXdr?: string }> {
+    const tx = TransactionBuilder.fromXDR(signedXdr, this.networkPassphrase);
+    const result = await this.server.sendTransaction(tx);
+
+    return {
+      hash: result.hash,
+      status: result.status,
+      errorResultXdr: result.errorResult?.toXDR("base64"),
+    };
+  }
+
+  /**
+   * Get transaction status by hash.
+   */
+  async getTransaction(hash: string): Promise<{ status: string; errorResultXdr?: string }> {
+    const result = await this.server.getTransaction(hash);
+
+    return {
+      status: result.status,
+      errorResultXdr: undefined,
+    };
+  }
+}
+
+/**
+ * Create an RpcClient from an RPC URL and network passphrase.
+ *
+ * This is a convenience function that returns an RpcServerAdapter,
+ * which implements the RpcClient interface using the Stellar SDK's rpc.Server.
+ */
+export function createRpcClient(
+  rpcUrl: string,
+  networkPassphrase: string,
+  allowHttp = false
+): RpcClient {
+  return new RpcServerAdapter(rpcUrl, networkPassphrase, allowHttp);
+}
 
 /**
  * Convenience helper to sign and submit a single transaction.
@@ -19,10 +113,57 @@ export async function submitTransaction(
   opts?: RunOptions
 ): Promise<string> {
   const xdrString = typeof xdrOrTx === "string" ? xdrOrTx : xdrOrTx.toEnvelope().toXDR("base64");
+  const networkPassphrase =
+    (client as unknown as { _networkPassphrase?: string })._networkPassphrase ??
+    (client as unknown as { networkPassphrase?: string }).networkPassphrase ??
+    "Test SDF Network ; September 2015";
+
+  const server = client.createRpcServer();
+  const rpcAdapter: RpcClient = {
+    async simulateTransaction(xdr: string) {
+      const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
+      const res = await server.simulateTransaction(tx);
+      if (rpc.Api.isSimulationSuccess(res)) {
+        return {
+          success: true,
+          resourceFee: res.minResourceFee || "0",
+        };
+      }
+      return {
+        success: false,
+        resourceFee: "0",
+        error: rpc.Api.isSimulationError(res) ? res.error : "Simulation failed",
+      };
+    },
+    async sendTransaction(signedXdr: string) {
+      const tx = TransactionBuilder.fromXDR(signedXdr, networkPassphrase);
+      const res = await server.sendTransaction(tx);
+      const rawXdr = (res as unknown as { errorResultXdr?: string }).errorResultXdr;
+      const errorResultXdr =
+        rawXdr ?? (res.errorResult ? res.errorResult.toXDR("base64") : undefined);
+      return {
+        hash: res.hash,
+        status: res.status,
+        errorResultXdr,
+      };
+    },
+    async getTransaction(hash: string) {
+      const res = await server.getTransaction(hash);
+      const failedRes =
+        res.status === rpc.Api.GetTransactionStatus.FAILED
+          ? (res as rpc.Api.GetFailedTransactionResponse)
+          : undefined;
+      const errorResultXdr = failedRes?.resultXdr ? failedRes.resultXdr.toXDR("base64") : undefined;
+      return {
+        status: res.status,
+        errorResultXdr,
+      };
+    },
+  };
 
   const queue = new TransactionQueue({
     signer,
-    rpc: client.createRpcClient(),
+    rpc: rpcAdapter,
   });
 
   queue.enqueue(xdrString);

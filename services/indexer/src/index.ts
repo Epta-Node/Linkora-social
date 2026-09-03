@@ -28,7 +28,7 @@ import { attachNotificationDispatcher } from "./notifications/events";
 import { NotificationService, PostgresDeviceTokenStore } from "./notifications/service";
 import { createApp } from "./api";
 import { createDomainProcessor } from "./domain-processor";
-import { saveStateRoot } from "./stateRoot";
+import { applyStateRootDelta } from "./stateRoot";
 import { PostgresDatabase } from "./postgres-db";
 import { ScoreRefreshService } from "./score-refresh";
 import { HealthMonitor } from "./services/health-monitor";
@@ -106,7 +106,7 @@ const rawEventsRetentionManager = new RawEventsRetentionManager(pgPool, cfg.rawE
  * function leaves it untouched — run migration 012 to convert it.  Fresh
  * deployments get the partitioned layout from the start.
  */
-async function ensureSchema(): Promise<void> {
+async function _ensureSchema(): Promise<void> {
   // ── raw_events ─────────────────────────────────────────────────────────────
   // Only create the partitioned parent when raw_events does not yet exist at
   // all.  If it already exists (partitioned or not) we leave it in place;
@@ -193,6 +193,38 @@ async function ensureSchema(): Promise<void> {
       state_root      TEXT        NOT NULL,
       computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  // ── Incremental state-root tables (migration 015) ───────────────────────
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS state_root_accumulators (
+      table_name  TEXT        PRIMARY KEY,
+      accumulator TEXT        NOT NULL DEFAULT repeat('0', 64),
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`
+    INSERT INTO state_root_accumulators (table_name, accumulator)
+    VALUES
+      ('posts',              repeat('0', 64)),
+      ('follows',            repeat('0', 64)),
+      ('profiles',           repeat('0', 64)),
+      ('pools',              repeat('0', 64)),
+      ('__bootstrap_done__', repeat('0', 64))
+    ON CONFLICT (table_name) DO NOTHING
+  `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS state_root_row_hashes (
+      table_name  TEXT        NOT NULL,
+      row_key     TEXT        NOT NULL,
+      row_hash    TEXT        NOT NULL,
+      updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (table_name, row_key)
+    )
+  `);
+  await pgPool.query(`
+    CREATE INDEX IF NOT EXISTS idx_state_root_row_hashes_table
+      ON state_root_row_hashes (table_name)
   `);
 
   await pgPool.query(`
@@ -325,7 +357,7 @@ async function main(): Promise<void> {
   // Initialise HTTP rate limiter (upgrades to Redis store when REDIS_URL is set).
   await initRateLimiter();
 
-  await ensureSchema();
+  await assertSchemaVersion(pgPool);
 
   const pipeline = new IngestPipeline(pgPool, {
     streamId: CONTRACT_ID,
@@ -335,11 +367,12 @@ async function main(): Promise<void> {
       notificationService,
       new PostgresDatabase(pgPool)
     ),
-    // Publish the state root only after this batch's transaction has
-    // committed, so the stored root always reflects a fully-applied ledger
-    // rather than a partially-applied one.
-    onCommit: (cursor): Promise<void> =>
-      saveStateRoot(pgPool, cursor).then(
+    // Update the state root incrementally from the batch delta — O(batch_size)
+    // instead of the old O(table_size) full scan.  The root is written to
+    // indexer_state after the domain transaction has already committed, so it
+    // always reflects a fully-applied ledger.
+    onCommit: (cursor, events): Promise<void> =>
+      applyStateRootDelta(pgPool, cursor, events).then(
         () => {},
         (err) =>
           logger.warn({ err, ledgerSequence: cursor }, "Failed to publish state root after commit")
@@ -460,6 +493,8 @@ async function main(): Promise<void> {
       ratePerSec: cfg.rpcRateLimitPerSec,
       minPollMs: cfg.minPollIntervalMs,
       maxPollMs: cfg.maxPollIntervalMs,
+      circuitBreakerThreshold: cfg.streamCircuitBreakerThreshold,
+      circuitBreakerProbeIntervalMs: cfg.streamCircuitBreakerProbeIntervalMs,
       backfillConfig: cfg.backfill,
       backfillCoordinator,
     },

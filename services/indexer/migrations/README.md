@@ -43,15 +43,28 @@ If a future migration ever needs a destructive change (`DROP`, narrowing
 2. ship with an accompanying idempotency test and, where a rollback is
    meaningful, a matching `*_down.sql`.
 
-## Relationship to `ensureSchema()`
+## Starting the indexer
 
-The indexer also creates a subset of these tables at boot via `ensureSchema()`
-in `src/index.ts`, so dev/test environments can run without a separate migration
-step. The two must stay consistent. Notably, `indexer_state` is the
-**state-root** table (`ledger_sequence, state_root, computed_at`); the
-per-stream ingestion cursor lives in `indexer_cursor`. (An earlier revision of
-`006_raw_events.sql` also defined `indexer_state` as a cursor table, colliding
-with the state-root definition — that stale block has been removed.)
+**Migrations must be applied before the indexer starts.** At boot the indexer
+calls `assertSchemaVersion()` (`src/schema-version.ts`) which checks that all
+sentinel tables and columns exist and exits with a clear error if any are
+missing.
+
+Apply migrations with one of:
+
+```bash
+# Docker Compose (recommended) — migrate service runs automatically before indexer
+docker compose up
+
+# Shell script (CI / bare-metal)
+DATABASE_URL=postgresql://linkora:linkora@localhost/linkora bash migrate.sh
+```
+
+Notably, `indexer_state` is the **state-root** table
+(`ledger_sequence, state_root, computed_at`); the per-stream ingestion cursor
+lives in `indexer_cursor`. (An earlier revision of `006_raw_events.sql` also
+defined `indexer_state` as a cursor table, colliding with the state-root
+definition — that stale block has been removed.)
 
 ---
 

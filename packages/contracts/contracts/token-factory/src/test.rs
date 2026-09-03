@@ -8,7 +8,7 @@ use soroban_sdk::{testutils::Address as _, Address, BytesN, Env, String};
 /// Placeholder 32-byte hash used when we don't need real WASM semantics.
 /// Must be non-zero: `initialize`/`update_token_wasm` reject the all-zero hash.
 fn dummy_wasm_hash(env: &Env) -> BytesN<32> {
-    BytesN::from_array(env, &[0xABu8; 32])
+    BytesN::from_array(env, &[1u8; 32])
 }
 
 fn setup(env: &Env) -> (TokenFactoryContractClient<'_>, Address, BytesN<32>) {
@@ -50,7 +50,7 @@ fn test_update_token_wasm_stores_new_hash() {
     env.mock_all_auths();
     let (client, _, _) = setup(&env);
 
-    let new_hash = BytesN::from_array(&env, &[1u8; 32]);
+    let new_hash = BytesN::from_array(&env, &[2u8; 32]);
     client.update_token_wasm(&new_hash);
 
     assert_eq!(client.get_token_wasm_hash(), new_hash);

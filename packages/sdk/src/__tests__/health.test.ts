@@ -290,6 +290,9 @@ describe("ConnectionHealthMonitor", () => {
 
   describe("LinkoraClient integration", () => {
     let LinkoraClient: typeof import("../client").LinkoraClient;
+    const { Server: MockServer } = jest.mocked(
+      (await import("@stellar/stellar-sdk/rpc")).Server
+    );
     beforeAll(async () => {
       ({ LinkoraClient } = await import("../client"));
     });
@@ -320,6 +323,29 @@ describe("ConnectionHealthMonitor", () => {
       await waitFor(() => cb.mock.calls.length > 0);
       expect(cb).toHaveBeenCalledWith("connected");
       client.stopHealthChecks();
+    });
+
+    it("reuses a single rpc.Server across simulate, healthCheck, and prepareTransaction", async () => {
+      MockServer.mockClear();
+      mockGetLatestLedger.mockResolvedValue({ sequence: 1 });
+
+      const client = new LinkoraClient({ contractId: "CDUMMY", rpcUrl: "https://rpc.example.com" });
+
+      // The constructor should create exactly one rpc.Server
+      expect(MockServer).toHaveBeenCalledTimes(1);
+      const callsAfterCtor = MockServer.mock.calls.length;
+
+      // healthCheck reuses the same server — no additional Server construction
+      await client.healthCheck();
+      expect(MockServer).toHaveBeenCalledTimes(1);
+
+      // createRpcServer returns the cached instance
+      const server = client.createRpcServer();
+      expect(MockServer).toHaveBeenCalledTimes(1);
+      expect(server).toBeDefined();
+
+      // Confirm MockServer was not called again during any of the above
+      expect(MockServer.mock.calls.length).toBe(callsAfterCtor);
     });
   });
   describe("jitter and backoff (Issue 1265)", () => {

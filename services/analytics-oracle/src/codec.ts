@@ -3,6 +3,32 @@ import { sha256 } from "@noble/hashes/sha256";
 import { xdr } from "@stellar/stellar-sdk";
 import { AnalyticsReport } from "./types.js";
 
+// ── Control-character sanitisation ─────────────────────────────────────────
+// Matches Unicode control characters (C0: U+0000–U+001F, DEL: U+007F,
+// C1: U+0080–U+009F) that must never appear in signed attestation fields.
+// Keeping this regex in codec.ts (co-located with encoding logic) ensures
+// every code path that serialises report fields shares the same definition.
+// eslint-disable-next-line no-control-regex
+export const CONTROL_CHAR_REGEX = /[\x00-\x1F\x7F\x80-\x9F]/;
+
+/**
+ * Trim whitespace and reject strings that contain any control characters.
+ *
+ * @throws {ValidationError} when the string contains control characters
+ *                           after trimming.
+ */
+export function sanitizeString(value: string, fieldName: string): string {
+  const trimmed = value.trim();
+  if (CONTROL_CHAR_REGEX.test(trimmed)) {
+    throw new ValidationError(
+      `String field "${fieldName}" contains unauthorised control characters`,
+      fieldName,
+      trimmed
+    );
+  }
+  return trimmed;
+}
+
 export class ValidationError extends Error {
   constructor(
     message: string,
@@ -14,6 +40,9 @@ export class ValidationError extends Error {
   }
 }
 
+// Re-export so middleware and callers can import from the same module.
+export { CONTROL_CHAR_REGEX as CONTROL_CHAR_PATTERN };
+
 const CREATOR_BYTE_LENGTH = 32;
 const U8_MAX = 255;
 
@@ -23,6 +52,31 @@ function isNonNegativeBigint(v: bigint): boolean {
 
 function isPositiveBigint(v: bigint): boolean {
   return v > 0n;
+}
+
+/**
+ * Recursively walk an object / array and sanitize every string leaf.
+ * Non-string values are returned unchanged.
+ *
+ * @throws {ValidationError} when any string contains control characters.
+ */
+export function sanitizeObject<T>(obj: T, path = ""): T {
+  if (typeof obj === "string") {
+    const fieldName = path || "<root>";
+    return sanitizeString(obj, fieldName) as T;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item, i) => sanitizeObject(item, `${path}[${i}]`)) as T;
+  }
+  if (obj !== null && typeof obj === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(obj as Record<string, unknown>)) {
+      const fieldPath = path ? `${path}.${key}` : key;
+      out[key] = sanitizeObject(val, fieldPath);
+    }
+    return out as T;
+  }
+  return obj;
 }
 
 /**

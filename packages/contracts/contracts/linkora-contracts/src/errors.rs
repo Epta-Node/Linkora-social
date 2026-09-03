@@ -58,4 +58,6 @@ pub enum ContractError {
     InvalidVerdict = 138,
     InvalidPostId = 139,
     ZeroAddress = 140,
+    CannotRemoveLastAdmin = 141,
+    CannotRemoveLastUpgrader = 142,
 }

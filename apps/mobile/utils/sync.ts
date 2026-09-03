@@ -2,7 +2,7 @@ import {
   addOutboxDmMessage,
   confirmPendingPost,
   DmMessage,
-  getCachedPostById,
+  getCachedPostsByIds,
   getDmSyncCursor,
   getPendingPosts,
   markDmMessageFailed,
@@ -12,6 +12,7 @@ import {
   setDmSyncCursor,
 } from "./db";
 import { Post } from "../components/PostCard";
+import { LinkoraClient } from "linkora-sdk";
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -37,9 +38,12 @@ export async function fetchAndCachePosts(limit: number, offset: number): Promise
   const indexerPosts = data.posts || [];
   const finalPosts: Post[] = [];
 
-  // 2. Fetch content/profile details for each post, using local cache as much as possible
+  // 2. Fetch content/profile details for each post, using local cache as much as possible.
+  // A single batched lookup replaces one `getCachedPostById` call per post.
+  const cachedById = await getCachedPostsByIds(indexerPosts.map((ip) => String(ip.id)));
+
   for (const ip of indexerPosts) {
-    const cached = await getCachedPostById(String(ip.id));
+    const cached = cachedById.get(String(ip.id));
     let content = cached?.content;
     let username = cached?.username || "stellar_user";
 
@@ -68,17 +72,135 @@ export async function fetchAndCachePosts(limit: number, offset: number): Promise
   return finalPosts;
 }
 
+interface WalletKitLike {
+  signAndSubmitTransaction(payload: { txXdr: string; rpcUrl?: string }): Promise<{ hash?: string; txHash?: string }>;
+}
+
+export interface SyncPendingPostsOptions {
+  walletKit: WalletKitLike;
+  contractId: string;
+  rpcUrl: string;
+  networkPassphrase: string;
+  indexerUrl?: string;
+}
+
+const DEFAULT_INDEXER_URL = process.env.EXPO_PUBLIC_INDEXER_URL || "http://localhost:3001";
+const MAX_RETRIES = 5;
+const BASE_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30000;
+
 /**
- * Syncs any pending/failed optimistic posts with a mock confirmation.
+ * Computes exponential backoff delay with jitter.
+ * delay = min(base * 2^attempt, max) + random(0, min(base * 2^attempt, max) * jitterFactor)
  */
-export async function syncPendingPosts(): Promise<void> {
+function computeBackoff(attempt: number): number {
+  const exponential = Math.min(BASE_BACKOFF_MS * Math.pow(2, attempt), MAX_BACKOFF_MS);
+  const jitter = exponential * 0.5 * Math.random();
+  return Math.floor(exponential + jitter);
+}
+
+/**
+ * Queries the indexer for a post by author and content.
+ * Returns the post ID if found, null otherwise.
+ */
+async function findPostByAuthorAndContent(
+  indexerUrl: string,
+  author: string,
+  content: string
+): Promise<string | null> {
+  try {
+    // Fetch recent posts by this author (limit 50 to cover recent posts)
+    const res = await fetch(
+      `${indexerUrl.replace(/\/$/, "")}/api/posts?author=${encodeURIComponent(author)}&limit=50`
+    );
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    const posts = data.posts || [];
+    
+    // Find the post with matching content
+    for (const post of posts) {
+      if (post.content === content) {
+        return String(post.id);
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Submits a create_post transaction and waits for the post to be indexed.
+ * Returns the real post ID from the indexer.
+ */
+async function submitAndConfirmPost(
+  walletKit: WalletKitLike,
+  contractId: string,
+  rpcUrl: string,
+  networkPassphrase: string,
+  indexerUrl: string,
+  author: string,
+  content: string
+): Promise<string> {
+  const client = new LinkoraClient({
+    contractId,
+    rpcUrl,
+    networkPassphrase,
+  });
+
+  // Build the transaction XDR with proper source account
+  const txXdr = await client.prepareCreatePostTx(author, content, rpcUrl);
+
+  // Sign and submit via wallet
+  const submitResult = await walletKit.signAndSubmitTransaction({ txXdr, rpcUrl });
+  const txHash = submitResult.hash || submitResult.txHash;
+  
+  if (!txHash) {
+    throw new Error("Wallet did not return transaction hash");
+  }
+
+  // Poll indexer for the real post ID
+  // The indexer processes events asynchronously, so we need to retry
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const postId = await findPostByAuthorAndContent(indexerUrl, author, content);
+    if (postId) {
+      return postId;
+    }
+    
+    // Wait before next attempt with exponential backoff
+    if (attempt < MAX_RETRIES - 1) {
+      const delay = computeBackoff(attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw new Error(`Post not indexed after ${MAX_RETRIES} attempts (tx: ${txHash})`);
+}
+
+/**
+ * Syncs pending/failed optimistic posts by submitting them to the blockchain
+ * and confirming with the real post ID from the indexer.
+ * Uses exponential backoff for retries and only marks as confirmed
+ * when the post is actually indexed.
+ */
+export async function syncPendingPosts(options: SyncPendingPostsOptions): Promise<void> {
+  const { walletKit, contractId, rpcUrl, networkPassphrase, indexerUrl = DEFAULT_INDEXER_URL } = options;
   const pending = await getPendingPosts();
   if (pending.length === 0) return;
 
   for (const post of pending) {
     try {
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-      const realId = `${Date.now()}`;
+      const realId = await submitAndConfirmPost(
+        walletKit,
+        contractId,
+        rpcUrl,
+        networkPassphrase,
+        indexerUrl,
+        post.author,
+        post.content
+      );
       await confirmPendingPost(String(post.id), realId);
     } catch (err) {
       console.error(`Failed to sync optimistic post ${post.id}:`, err);

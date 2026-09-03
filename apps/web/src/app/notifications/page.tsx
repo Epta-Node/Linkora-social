@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useNotifications, Notification } from "@/hooks/useNotifications";
 import { useWalletContext } from "@/components/WalletProvider";
@@ -61,7 +61,13 @@ function buildMessage(notification: Notification): React.ReactNode {
   }
 }
 
-function NotificationRow({ notification }: { notification: Notification }) {
+function NotificationRow({
+  notification,
+  onOpen,
+}: {
+  notification: Notification;
+  onOpen: () => void;
+}) {
   const ts = new Date(notification.timestamp).toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
@@ -69,13 +75,22 @@ function NotificationRow({ notification }: { notification: Notification }) {
 
   return (
     <li
-      className={`flex items-start gap-4 rounded-xl border px-5 py-4 transition-colors ${
+      data-testid="notification-item"
+      data-type={notification.type}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      className={`flex cursor-pointer items-start gap-4 rounded-xl border px-5 py-4 transition-colors ${
         notification.read
           ? "border-[var(--border)] bg-[var(--muted)]/40"
           : "border-violet-700/50 bg-violet-900/20"
       }`}
-      data-testid="notification-item"
-      data-type={notification.type}
     >
       <span
         className={`mt-1 flex h-2.5 w-2.5 flex-shrink-0 rounded-full ${
@@ -127,18 +142,8 @@ function groupByDate(notifications: Notification[]): DateGroup[] {
 
 export default function NotificationsPage() {
   const { address, connected } = useWalletContext();
-  const { notifications, hasMore, unreadCount, markAllRead, loadMore } = useNotifications();
+  const { notifications, hasMore, markAllRead, markRead, loadMore } = useNotifications();
   const [markAllReadClicked, setMarkAllReadClicked] = useState(false);
-
-  useEffect(() => {
-    if (!connected || !address || unreadCount <= 0) return;
-
-    const key = `linkora:notifications:auto-read:${address}`;
-    if (sessionStorage.getItem(key)) return;
-
-    sessionStorage.setItem(key, "1");
-    markAllRead();
-  }, [address, connected, unreadCount, markAllRead]);
 
   if (!connected || !address) {
     return (
@@ -187,7 +192,7 @@ export default function NotificationsPage() {
                 </h2>
                 <ul className="flex flex-col gap-3">
                   {items.map((n) => (
-                    <NotificationRow key={n.id} notification={n} />
+                    <NotificationRow key={n.id} notification={n} onOpen={() => markRead(n.id)} />
                   ))}
                 </ul>
               </section>

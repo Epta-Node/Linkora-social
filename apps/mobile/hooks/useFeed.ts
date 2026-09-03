@@ -53,6 +53,8 @@ export function useFeed(): UseFeedReturn {
   const offsetRef = useRef(0);
   const loadingRef = useRef(false);
   const loadedPostsRef = useRef(0);
+  const postsLengthRef = useRef(0);
+  const hasMoreRef = useRef(true);
 
   // Load posts from SQLite cache
   const loadFromCache = useCallback(async (limit: number, replace: boolean) => {
@@ -64,9 +66,11 @@ export function useFeed(): UseFeedReturn {
         const next = replace ? cached : [...prev, ...cached];
         offsetRef.current = next.length;
         loadedPostsRef.current = next.length;
+        postsLengthRef.current = next.length;
         return next;
       });
       setHasMore(cached.length >= limit);
+      hasMoreRef.current = cached.length >= limit;
     } catch (err) {
       console.warn("Failed to load posts from SQLite cache:", err);
     }
@@ -99,7 +103,9 @@ export function useFeed(): UseFeedReturn {
         setPosts(cached);
         offsetRef.current = cached.length;
         loadedPostsRef.current = cached.length;
+        postsLengthRef.current = cached.length;
         setHasMore(cached.length >= currentLoadedCount);
+        hasMoreRef.current = cached.length >= currentLoadedCount;
 
         // 5. Fire background sync for pending posts
         void syncPendingPosts().then(() => {
@@ -136,24 +142,26 @@ export function useFeed(): UseFeedReturn {
     return () => {
       active = false;
     };
-  }, [loadFromCache, syncWithNetwork]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Subscribe to feed updates (e.g. from optimistic creation or sync confirmation)
   useEffect(() => {
     return subscribeToFeedUpdates(async () => {
-      const limit = Math.max(PAGE_SIZE, posts.length);
+      const limit = Math.max(PAGE_SIZE, postsLengthRef.current);
       const cached = await getCachedPosts(limit, 0);
       setPosts(cached);
       offsetRef.current = cached.length;
       loadedPostsRef.current = cached.length;
+      postsLengthRef.current = cached.length;
     });
-  }, [posts.length]);
+  }, []);
 
   const loadMore = useCallback(() => {
-    if (!loadingRef.current && hasMore) {
+    if (!loadingRef.current && hasMoreRef.current) {
       void syncWithNetwork(false);
     }
-  }, [hasMore, syncWithNetwork]);
+  }, [syncWithNetwork]);
 
   const refresh = useCallback(() => {
     void syncWithNetwork(true);

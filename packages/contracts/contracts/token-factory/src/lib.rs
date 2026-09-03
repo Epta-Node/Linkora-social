@@ -54,6 +54,11 @@ pub struct CreatorTokenDeployedEvent {
     pub symbol: String,
 }
 
+// ── Limits ───────────────────────────────────────────────────────────────────
+
+pub const MAX_DECIMALS: u32 = 18;
+pub const MAX_INITIAL_SUPPLY: i128 = 100_000_000_000_000_000_000_000_000_000_000_i128;
+
 // ── Contract ──────────────────────────────────────────────────────────────────
 
 #[contract]
