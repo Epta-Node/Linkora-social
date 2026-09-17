@@ -24,7 +24,7 @@
   "author": "Linkora Contributors",
   "license": "MIT",
   "dependencies": {
-    "@noble/hashes": "^1.8.0",
+    "@noble/hashes": "^2.4.0",
     "@stellar/stellar-sdk": "^15.1.0",
     "express": "^4.18.2",
     "express-rate-limit": "^7.3.1",
