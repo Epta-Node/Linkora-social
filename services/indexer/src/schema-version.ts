@@ -8,13 +8,13 @@ import { logger } from "./logger";
  * its presence proves that *all* migrations up to that point have been applied.
  */
 const REQUIRED_TABLES: ReadonlyArray<string> = [
-  "raw_events",          // 006_raw_events
-  "indexer_cursor",      // 006_indexer_cursor
-  "indexer_state",       // 006_indexer_state
-  "device_tokens",       // 007_device_tokens
-  "sent_notifications",  // 008_sent_notifications
-  "blocks",              // 010_blocks_dm_keys
-  "dm_keys",             // 010_blocks_dm_keys
+  "raw_events", // 006_raw_events
+  "indexer_cursor", // 006_indexer_cursor
+  "indexer_state", // 006_indexer_state
+  "device_tokens", // 007_device_tokens
+  "sent_notifications", // 008_sent_notifications
+  "blocks", // 010_blocks_dm_keys
+  "dm_keys", // 010_blocks_dm_keys
   "notification_preferences", // 011_notification_preferences — sentinel for complete migration set
 ];
 
@@ -54,7 +54,7 @@ export async function assertSchemaVersion(pool: Pool): Promise<void> {
   }
 
   for (const { table, column, migration } of REQUIRED_COLUMNS) {
-    const { rows } = await pool.query<{ count: string }>(
+    const { rows } = await pool.query<{ count: number }>(
       `SELECT count(*)::int AS count
          FROM information_schema.columns
         WHERE table_schema = 'public'

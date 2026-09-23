@@ -33,11 +33,11 @@ export interface CreatePostResult {
 }
 
 export async function submitPost(payload: CreatePostPayload): Promise<CreatePostResult> {
-  const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL || 'http://localhost:3001';
+  const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL || "http://localhost:3001";
   const response = await fetch(`${INDEXER_API_URL}/api/posts`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
   });
@@ -47,8 +47,8 @@ export async function submitPost(payload: CreatePostPayload): Promise<CreatePost
   }
 
   const data = await response.json();
-  if (typeof data.id !== 'number' && typeof data.id !== 'string') {
-    throw new Error('Invalid response from post creation API');
+  if (typeof data.id !== "number" && typeof data.id !== "string") {
+    throw new Error("Invalid response from post creation API");
   }
 
   return {
@@ -80,7 +80,11 @@ export function CreatePost({ onSuccess, compact = false, submitFn = submitPost }
   ];
 
   const handleSubmit = useCallback(
-    async (content: string, _attachments?: File[], pollOptions?: PollOption[]) => {
+    async (
+      content: string,
+      _attachments?: File[],
+      pollOptions?: { id: string; text: string }[]
+    ) => {
       if (!publicKey) return;
 
       setStatus("awaiting_signature");
@@ -89,10 +93,13 @@ export function CreatePost({ onSuccess, compact = false, submitFn = submitPost }
       try {
         setStatus("submitting");
 
-        const pollData: PollData | null = pollOptions && pollOptions.length > 0 ? {
-          question: "Poll",
-          options: pollOptions,
-        } : null;
+        const pollData: PollData | null =
+          pollOptions && pollOptions.length > 0
+            ? {
+                question: "Poll",
+                options: pollOptions.map((o) => ({ id: o.id, label: o.text, votes: 0 })),
+              }
+            : null;
 
         const result = await submitFn({
           content,

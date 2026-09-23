@@ -208,6 +208,35 @@ export const OptimisticStore = {
   // styling for the affected feed slice. Returns an unsubscribe function.
   onRolledBack,
 
+  // Reconcile optimistic like/tip state against a fresh feed response (#1203).
+  // After a refetch the server is the source of truth: optimistic entries for
+  // the current user are pruned so the UI falls back to server-confirmed
+  // initialState. Tip entries (keyed only by postId) are scoped to no single
+  // user, so they are pruned wholesale.
+  reconcileFeed(user: string | null, posts: Array<{ id: number | string }>) {
+    if (!user) return;
+
+    let pruned = false;
+
+    // Like keys are `${userAddress}:${postId}`.
+    for (const key of [...likeStateMap.keys()]) {
+      if (key.startsWith(`${user}:`)) {
+        likeStateMap.delete(key);
+        likeSnapshots.delete(key);
+        pruned = true;
+      }
+    }
+
+    // Tip keys are the bare postId string.
+    for (const key of [...tipStateMap.keys()]) {
+      tipStateMap.delete(key);
+      tipSnapshots.delete(key);
+      pruned = true;
+    }
+
+    if (pruned) notify();
+  },
+
   // Legacy API for FollowList.tsx
   subscribe,
   isFollowing(targetAddress: string): boolean {

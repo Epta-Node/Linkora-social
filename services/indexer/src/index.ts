@@ -38,6 +38,7 @@ import { GracefulShutdown } from "./graceful-shutdown";
 import { logger } from "./logger";
 import { initRateLimiter } from "./middleware/rateLimit";
 import { RawEventsRetentionManager } from "./retention";
+import { assertSchemaVersion } from "./schema-version";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

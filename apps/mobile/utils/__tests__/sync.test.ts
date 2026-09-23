@@ -1,17 +1,20 @@
 import {
   addOutboxDmMessage,
   confirmPendingPost,
+  getCachedPostsByIds,
   getDmSyncCursor,
   getPendingPosts,
   markDmMessageFailed,
   markPendingPostFailed,
   mergeDmDeltas,
+  reconcilePosts,
   setDmSyncCursor,
 } from "../db";
 import {
   computeCiphertextHash,
   DmClient,
   DmSourceMessage,
+  fetchAndCachePosts,
   reconcileDmThread,
   sendDmMessageWithOutbox,
   syncPendingPosts,
@@ -21,6 +24,7 @@ jest.mock("../db", () => ({
   addOutboxDmMessage: jest.fn(),
   confirmPendingPost: jest.fn(),
   getCachedPostById: jest.fn(),
+  getCachedPostsByIds: jest.fn(),
   getDmSyncCursor: jest.fn(),
   getPendingPosts: jest.fn(),
   markDmMessageFailed: jest.fn(),
@@ -38,6 +42,8 @@ const mockedMarkDmMessageFailed = markDmMessageFailed as jest.Mock;
 const mockedGetPendingPosts = getPendingPosts as jest.Mock;
 const mockedConfirmPendingPost = confirmPendingPost as jest.Mock;
 const mockedMarkPendingPostFailed = markPendingPostFailed as jest.Mock;
+const mockedGetCachedPostsByIds = getCachedPostsByIds as jest.Mock;
+const mockedReconcilePosts = reconcilePosts as jest.Mock;
 
 function fakeClient(overrides: Partial<DmClient> = {}): DmClient {
   return {
@@ -215,7 +221,7 @@ describe("syncPendingPosts", () => {
     mockedGetPendingPosts.mockResolvedValue([pendingPost]);
     mockedConfirmPendingPost.mockResolvedValue(undefined);
     mockedMarkPendingPostFailed.mockResolvedValue(undefined);
-    
+
     // Mock fetch for indexer
     global.fetch = jest.fn();
   });
@@ -245,7 +251,7 @@ describe("syncPendingPosts", () => {
     expect(mockedMarkPendingPostFailed).not.toHaveBeenCalled();
 
     // Verify the ID is a numeric string (real post ID), not a timestamp
-    const confirmedId = (mockedConfirmPendingPost.mock.calls[0][1] as string);
+    const confirmedId = mockedConfirmPendingPost.mock.calls[0][1] as string;
     expect(confirmedId).toBe("42");
     expect(Number(confirmedId)).toBeGreaterThan(0);
     // Should NOT be a timestamp (which would be > 1e12)
@@ -317,7 +323,7 @@ describe("syncPendingPosts", () => {
 
     await syncPendingPosts(options);
 
-    const confirmedId = (mockedConfirmPendingPost.mock.calls[0][1] as string);
+    const confirmedId = mockedConfirmPendingPost.mock.calls[0][1] as string;
     // The confirmed ID should be the real indexer ID "100", not a timestamp
     expect(confirmedId).toBe("100");
     // A Date.now() timestamp would be ~1.7e12 (year 2024+)
@@ -331,8 +337,14 @@ describe("syncPendingPosts", () => {
 
     const mockFetch = global.fetch as jest.Mock;
     mockFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ posts: [{ id: "1", author, content: "post 1" }] }) })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ posts: [{ id: "2", author, content: "post 2" }] }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ posts: [{ id: "1", author, content: "post 1" }] }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ posts: [{ id: "2", author, content: "post 2" }] }),
+      });
 
     await syncPendingPosts(options);
 

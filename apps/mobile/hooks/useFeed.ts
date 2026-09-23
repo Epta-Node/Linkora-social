@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Post } from "../components/PostCard";
 import { initDatabase, getCachedPosts, evictStaleCache } from "../utils/db";
-import { fetchAndCachePosts, syncPendingPosts } from "../utils/sync";
+import { fetchAndCachePosts, getSyncPendingPostsOptions, syncPendingPosts } from "../utils/sync";
+import { useNetworkContext } from "../context/NetworkContext";
 
 const PAGE_SIZE = 10;
 
@@ -49,6 +50,8 @@ export function useFeed(): UseFeedReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+
+  const { contractId, rpcUrl, network } = useNetworkContext();
 
   const offsetRef = useRef(0);
   const loadingRef = useRef(false);
@@ -108,9 +111,11 @@ export function useFeed(): UseFeedReturn {
         hasMoreRef.current = cached.length >= currentLoadedCount;
 
         // 5. Fire background sync for pending posts
-        void syncPendingPosts().then(() => {
-          notifyFeedUpdate();
-        });
+        void syncPendingPosts(getSyncPendingPostsOptions(contractId, rpcUrl, network.id)).then(
+          () => {
+            notifyFeedUpdate();
+          }
+        );
       } catch (err) {
         console.warn("Network sync failed, displaying cached data:", err);
         // Fallback: just load from cache if we haven't already

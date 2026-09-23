@@ -34,7 +34,9 @@ function TokenRow({ token }: { token: TokenWithPrice }) {
       data-testid="token-row"
     >
       <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-        <span className="text-xs font-bold text-white">{token.asset_code.slice(0, 2)}</span>
+        <span className="text-xs font-bold text-white">
+          {(token.asset_code ?? "??").slice(0, 2)}
+        </span>
       </div>
 
       <div className="flex-1 min-w-0">

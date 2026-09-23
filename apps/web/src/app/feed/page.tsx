@@ -18,6 +18,7 @@ import { MobileFeed } from "@/components/mobile/MobileFeed";
 import { MasonryCard } from "@/components/cards/MasonryCard";
 import { buildSignAndSubmit } from "@/lib/tx";
 import { nativeToScVal, Address } from "@stellar/stellar-sdk";
+import { fetchUserLikes } from "@/lib/api";
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Config & Constants                                                       */
@@ -37,6 +38,7 @@ const PAGE_SIZE = 10;
 interface InteractivePostCardProps {
   post: Post;
   currentUserAddress: string | null;
+  userLikes: Set<string>;
   onTipClick: (post: Post) => void;
   tourAnchor?: boolean;
   variant?: "list" | "masonry";
@@ -45,6 +47,7 @@ interface InteractivePostCardProps {
 function InteractivePostCard({
   post,
   currentUserAddress,
+  userLikes,
   onTipClick,
   tourAnchor,
   variant = "list",
@@ -168,6 +171,29 @@ export default function FeedPage() {
 
   // Real-time updates via WebSocket
   const [hasNewPosts, setHasNewPosts] = useState(false);
+
+  // Fetch the connected user's liked posts to seed like state (#1203)
+  useEffect(() => {
+    if (!currentUserAddress) {
+      setUserLikes(new Set());
+      return;
+    }
+    let cancelled = false;
+    setLikesLoading(true);
+    fetchUserLikes(currentUserAddress)
+      .then((likes) => {
+        if (!cancelled) setUserLikes(likes);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch user likes:", err);
+      })
+      .finally(() => {
+        if (!cancelled) setLikesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserAddress]);
 
   // Whether the current user follows nobody (following tab empty state)
   const [followsNobody, setFollowsNobody] = useState(false);
@@ -737,6 +763,7 @@ export default function FeedPage() {
                             key={post.id}
                             post={post}
                             currentUserAddress={currentUserAddress}
+                            userLikes={userLikes}
                             onTipClick={handleOpenTipModal}
                             tourAnchor={index === 0}
                             variant="masonry"
@@ -750,6 +777,7 @@ export default function FeedPage() {
                             key={post.id}
                             post={post}
                             currentUserAddress={currentUserAddress}
+                            userLikes={userLikes}
                             onTipClick={handleOpenTipModal}
                             tourAnchor={index === 0}
                           />

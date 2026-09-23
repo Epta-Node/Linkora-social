@@ -79,9 +79,12 @@ export function Feed({ posts, loading, onLike, onTip, likedPosts = new Set() }: 
   };
 
   // Create guarded callback wrappers for PostCard
-  const createGuardedCallback = (callback: ((postId: number) => void) | undefined, postId: number) => {
+  const createGuardedCallback = (
+    callback: ((postId: number) => void) | undefined,
+    postId: number
+  ) => {
     if (!callback) return undefined;
-    return () => guardedWrite(() => callback(postId));
+    return () => guardedWrite(() => callback(postId), postId);
   };
 
   if (loading) {

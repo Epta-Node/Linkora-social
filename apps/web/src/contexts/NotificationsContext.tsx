@@ -208,21 +208,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     [incrementUnread]
   );
 
-  return (
-    <NotificationsContext.Provider
-      value={{
-        unreadCount,
-        incrementUnread,
-        decrementUnread,
-        resetUnread,
-        addNotification,
-        updateNotification,
-      }}
-    >
-      {children}
-    </NotificationsContext.Provider>
-  );
-
   // ---- Inbox notifications (persistent, indexer-driven) ----
 
   const addInboxNotification = useCallback(
@@ -344,10 +329,21 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const hasMore = inboxNotifications.length > page * PAGE_SIZE;
   const inboxUnreadCount = inboxNotifications.filter((n) => !n.read).length;
 
+  const actionNotificationsList = useMemo(
+    () => Object.values(actionNotifications),
+    [actionNotifications]
+  );
+
+  const getNotification = useCallback(
+    (id: string) => actionNotifications[id],
+    [actionNotifications]
+  );
+
   const value = useMemo(
     () => ({
       unreadCount,
       incrementUnread,
+      decrementUnread,
       resetUnread,
       inboxUnreadCount,
       actionNotifications: actionNotificationsList,
@@ -362,6 +358,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     [
       unreadCount,
       incrementUnread,
+      decrementUnread,
       resetUnread,
       inboxUnreadCount,
       actionNotificationsList,

@@ -47,15 +47,6 @@ export async function fetchPools(): Promise<PoolData[]> {
   } catch {
     return [];
   }
-  const data = await res.json();
-  const list = Array.isArray(data) ? data : data.pools ?? [];
-  return list.map((p: any) => ({
-    id: p.pool_id ?? p.id,
-    token: p.token,
-    balance: BigInt(p.balance ?? 0),
-    adminCount: Array.isArray(p.admins) ? p.admins.length : (p.admin_count ?? 0),
-    threshold: p.threshold ?? 1,
-  }));
 }
 
 /**

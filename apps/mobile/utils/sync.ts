@@ -73,7 +73,10 @@ export async function fetchAndCachePosts(limit: number, offset: number): Promise
 }
 
 interface WalletKitLike {
-  signAndSubmitTransaction(payload: { txXdr: string; rpcUrl?: string }): Promise<{ hash?: string; txHash?: string }>;
+  signAndSubmitTransaction(payload: {
+    txXdr: string;
+    rpcUrl?: string;
+  }): Promise<{ hash?: string; txHash?: string }>;
 }
 
 export interface SyncPendingPostsOptions {
@@ -82,6 +85,33 @@ export interface SyncPendingPostsOptions {
   rpcUrl: string;
   networkPassphrase: string;
   indexerUrl?: string;
+}
+
+const NETWORK_PASSPHRASES: Record<string, string> = {
+  TESTNET: "Test SDF Network ; September 2015",
+  MAINNET: "Public Global Stellar Network ; September 2015",
+};
+
+/**
+ * Build the options that {@link syncPendingPosts} needs from the active wallet
+ * kit, a network preset's contract/RPC endpoints, and the selected network id.
+ */
+export function getSyncPendingPostsOptions(
+  contractId: string,
+  rpcUrl: string,
+  networkId: string
+): SyncPendingPostsOptions {
+  const walletKit = (globalThis as { __LINKORA_WALLET_KIT__?: WalletKitLike })
+    .__LINKORA_WALLET_KIT__;
+  if (!walletKit) {
+    throw new Error("Wallet kit not available");
+  }
+  return {
+    walletKit,
+    contractId,
+    rpcUrl,
+    networkPassphrase: NETWORK_PASSPHRASES[networkId] ?? NETWORK_PASSPHRASES.TESTNET,
+  };
 }
 
 const DEFAULT_INDEXER_URL = process.env.EXPO_PUBLIC_INDEXER_URL || "http://localhost:3001";
@@ -118,7 +148,7 @@ async function findPostByAuthorAndContent(
     }
     const data = await res.json();
     const posts = data.posts || [];
-    
+
     // Find the post with matching content
     for (const post of posts) {
       if (post.content === content) {
@@ -156,7 +186,7 @@ async function submitAndConfirmPost(
   // Sign and submit via wallet
   const submitResult = await walletKit.signAndSubmitTransaction({ txXdr, rpcUrl });
   const txHash = submitResult.hash || submitResult.txHash;
-  
+
   if (!txHash) {
     throw new Error("Wallet did not return transaction hash");
   }
@@ -168,7 +198,7 @@ async function submitAndConfirmPost(
     if (postId) {
       return postId;
     }
-    
+
     // Wait before next attempt with exponential backoff
     if (attempt < MAX_RETRIES - 1) {
       const delay = computeBackoff(attempt);
@@ -186,7 +216,13 @@ async function submitAndConfirmPost(
  * when the post is actually indexed.
  */
 export async function syncPendingPosts(options: SyncPendingPostsOptions): Promise<void> {
-  const { walletKit, contractId, rpcUrl, networkPassphrase, indexerUrl = DEFAULT_INDEXER_URL } = options;
+  const {
+    walletKit,
+    contractId,
+    rpcUrl,
+    networkPassphrase,
+    indexerUrl = DEFAULT_INDEXER_URL,
+  } = options;
   const pending = await getPendingPosts();
   if (pending.length === 0) return;
 

@@ -2136,7 +2136,7 @@ fn test_cannot_revoke_last_admin() {
     // Try to revoke the admin role from the only admin - should panic
     let result = client.try_revoke_role(&admin, &admin, &Role::Admin);
     assert!(result.is_err());
-    
+
     // Admin should still have the role after failed revocation
     assert!(client.has_role(&admin, &Role::Admin));
 }
@@ -2154,7 +2154,7 @@ fn test_cannot_revoke_last_upgrader() {
     // Try to revoke the upgrader role from the only upgrader (admin) - should panic
     let result = client.try_revoke_role(&admin, &admin, &Role::Upgrader);
     assert!(result.is_err());
-    
+
     // Admin should still have the upgrader role after failed revocation
     assert!(client.has_role(&admin, &Role::Upgrader));
 }
@@ -2173,7 +2173,7 @@ fn test_can_revoke_admin_when_multiple_exist() {
     // Now we can revoke one admin since there are two
     client.revoke_role(&admin, &admin2, &Role::Admin);
     assert!(!client.has_role(&admin2, &Role::Admin));
-    
+
     // Original admin should still have the role
     assert!(client.has_role(&admin, &Role::Admin));
 }
@@ -2193,7 +2193,7 @@ fn test_can_revoke_upgrader_when_multiple_exist() {
     // Now we can revoke one upgrader since there are two
     client.revoke_role(&admin, &upgrader1, &Role::Upgrader);
     assert!(!client.has_role(&upgrader1, &Role::Upgrader));
-    
+
     // Admin should still have the upgrader role
     assert!(client.has_role(&admin, &Role::Upgrader));
 }
@@ -2209,14 +2209,14 @@ fn test_can_revoke_non_critical_roles() {
     // Grant non-critical roles
     client.grant_role(&admin, &moderator, &Role::Moderator);
     client.grant_role(&admin, &pauser, &Role::Pauser);
-    
+
     assert!(client.has_role(&moderator, &Role::Moderator));
     assert!(client.has_role(&pauser, &Role::Pauser));
 
     // Should be able to revoke these even if they're the only ones with the role
     client.revoke_role(&admin, &moderator, &Role::Moderator);
     client.revoke_role(&admin, &pauser, &Role::Pauser);
-    
+
     assert!(!client.has_role(&moderator, &Role::Moderator));
     assert!(!client.has_role(&pauser, &Role::Pauser));
 }
@@ -2230,10 +2230,10 @@ fn test_admin_can_remove_own_admin_role_with_backup() {
 
     // Grant admin role to second account
     client.grant_role(&admin, &admin2, &Role::Admin);
-    
+
     // Original admin can remove their own role since there's a backup
     client.revoke_role(&admin, &admin, &Role::Admin);
-    
+
     assert!(!client.has_role(&admin, &Role::Admin));
     assert!(client.has_role(&admin2, &Role::Admin));
 }

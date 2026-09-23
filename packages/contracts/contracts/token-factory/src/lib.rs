@@ -24,7 +24,6 @@ const INIT: Symbol = symbol_short!("INIT");
 
 // ── Validation Constants ────────────────────────────────────────────────────────
 
-const MAX_DECIMALS: u32 = 38;
 const MAX_NAME_LEN: u32 = 64;
 const MAX_SYMBOL_LEN: u32 = 16;
 

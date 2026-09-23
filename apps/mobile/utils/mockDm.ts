@@ -85,13 +85,13 @@ function decodeKeypair(raw: string): DmKeyPair | null {
   }
 }
 
-function getPeerPublicKey(
+async function getPeerPublicKey(
   myAddress: string,
   otherAddress: string,
   myKeypair: DmKeyPair
-): Uint8Array {
+): Promise<Uint8Array> {
   const key = `linkora_dm_peer_${myAddress}_${otherAddress}`;
-  const raw = SecureStore.getItemSync?.(key);
+  const raw = await SecureStore.getItemAsync(key);
   if (raw) {
     try {
       const parsed = JSON.parse(raw) as number[];
@@ -147,22 +147,24 @@ export class DmService {
 
     const thread = conversations.get(conversationKey(this.userAddress, otherAddress)) ?? [];
 
-    return thread.map((message) => {
-      try {
-        const peerPublicKey = getPeerPublicKey(this.userAddress, otherAddress, keypair);
-        const content = decryptDirectMessage(
-          keypair.privateKey,
-          peerPublicKey,
-          this.userAddress,
-          otherAddress,
-          fromBase64(message.ciphertext_b64),
-          message.message_index
-        );
-        return { ...message, content };
-      } catch {
-        return { ...message, content: "[Failed to decrypt message]" };
-      }
-    });
+    return Promise.all(
+      thread.map(async (message) => {
+        try {
+          const peerPublicKey = await getPeerPublicKey(this.userAddress, otherAddress, keypair);
+          const content = decryptDirectMessage(
+            keypair.privateKey,
+            peerPublicKey,
+            this.userAddress,
+            otherAddress,
+            fromBase64(message.ciphertext_b64),
+            message.message_index
+          );
+          return { ...message, content };
+        } catch {
+          return { ...message, content: "[Failed to decrypt message]" };
+        }
+      })
+    );
   }
 
   private async persistMessage(key: string, message: ConversationEntry): Promise<void> {
@@ -177,7 +179,7 @@ export class DmService {
       throw new Error("No DM keys available. Generate keys first.");
     }
 
-    const peerPublicKey = getPeerPublicKey(this.userAddress, toAddress, keypair);
+    const peerPublicKey = await getPeerPublicKey(this.userAddress, toAddress, keypair);
     const conversationId = createConversationId(this.userAddress, toAddress);
     const messageIndex = Date.now();
     const ciphertext = encryptDirectMessage(

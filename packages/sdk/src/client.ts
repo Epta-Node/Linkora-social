@@ -293,12 +293,6 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     return this._rpcServer;
   }
 
-  /** Build an RpcClient adapter for use with TransactionQueue. */
-  async createRpcClient(): Promise<import("./queue.js").RpcClient> {
-    const { createRpcClient } = await import("./submit.js");
-    return createRpcClient(this._rpcUrl, this._networkPassphrase, this._allowHttp);
-  }
-
   /** Build a string-XDR {@link RpcClient} adapter for use with `TransactionQueue`. */
   createRpcClient(): RpcClient {
     return createRpcClientAdapter(this.createRpcServer(), this._networkPassphrase);

@@ -13,8 +13,8 @@ pub use errors::{ContractError, RentError};
 use validation::{
     validate_address_list, validate_amount, validate_gov_parameter, validate_non_default_address,
     validate_protocol_fee, validate_pubkey_32, validate_report_verdict,
-    validate_reporter_can_report, validate_signature, validate_u32_range, validate_username,
-    MAX_BIO_LEN, MAX_CONTENT_LEN, MAX_FEE_BPS, MAX_QUORUM,
+    validate_reporter_can_report, validate_signature, validate_u32_range, validate_unique_signers,
+    validate_username, MAX_BIO_LEN, MAX_CONTENT_LEN, MAX_FEE_BPS, MAX_QUORUM,
 };
 
 // ── Storage Key Enum ──────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ pub enum StorageKey {
     NullifierSet(Address, BytesN<32>), // persistent: (user, nullifier) -> bool (prevents replay)
     CredentialAuthority, // persistent: Ed25519 pubkey trusted to sign credential root updates
     // ── Governance ────────────────────────────────────────────────────────
-    GovProposal(u64),      // persistent: proposal_id -> GovProposal
+    GovProposal(u64),              // persistent: proposal_id -> GovProposal
     GovVote(u64, Address), // persistent: (proposal_id, voter) -> bool (prevents double-voting)
     GovConfig,             // persistent: governance configuration
     GovProposalCount,      // persistent: next proposal id counter
@@ -778,7 +778,7 @@ impl LinkoraContract {
         // Prevent removing the last admin or upgrader
         if matches!(role, Role::Admin | Role::Upgrader) {
             let count_with_role = Self::count_accounts_with_role(&env, role);
-            
+
             // If this would be the last account with this role, reject the operation
             if count_with_role <= 1 {
                 match role {
@@ -2473,11 +2473,7 @@ impl LinkoraContract {
         Self::require_role(&env, &admin, Role::Admin);
         let key = StorageKey::Pool(pool_id.clone());
         require_with_error!(&env, !env.storage().persistent().has(&key), "pool exists");
-        require_with_error!(
-            &env,
-            threshold > 0,
-            "invalid threshold"
-        );
+        require_with_error!(&env, threshold > 0, "invalid threshold");
         require_with_error!(
             &env,
             threshold <= initial_admins.len(),
@@ -4330,13 +4326,13 @@ impl LinkoraContract {
         let roles = Self::get_roles(env);
         let role_mask = Self::role_mask(role);
         let mut count = 0u32;
-        
+
         for (_, account_roles) in roles.iter() {
             if account_roles & role_mask != 0 {
                 count += 1;
             }
         }
-        
+
         count
     }
 

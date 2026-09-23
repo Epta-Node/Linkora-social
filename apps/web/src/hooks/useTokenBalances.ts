@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { ClassicAccountClient } from "@linkora/sdk";
+import { ClassicAccountClient } from "linkora-sdk";
 
 const CACHE_TTL_MS = 30_000;
 const classicClient = new ClassicAccountClient();
@@ -98,7 +98,7 @@ export function useTokenBalances(address: string | null) {
           ...t,
           usdPrice,
           usdValue,
-          logo: getAssetLogo(t.asset_code, t.asset_issuer),
+          logo: getAssetLogo(t.asset_code ?? "XLM", t.asset_issuer ?? ""),
         } as TokenWithPrice & { logo: string };
       });
 

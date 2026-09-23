@@ -186,10 +186,12 @@ export function ComposeModal({ submitFn = submitPost }: ComposeModalProps = {}) 
           })();
 
         if (isPlaywright) {
-          const result = await submitFn({ content, author: publicKey }).catch(() => ({
-            id: Date.now(),
-            timestamp: Math.floor(Date.now() / 1000),
-          }));
+          const result = await submitFn({ content, author: publicKey }).catch(
+            (): CreatePostResult => ({
+              id: Date.now(),
+              timestamp: Math.floor(Date.now() / 1000),
+            })
+          );
 
           const newPostId = result.id;
           setPublishState({
@@ -251,11 +253,13 @@ export function ComposeModal({ submitFn = submitPost }: ComposeModalProps = {}) 
         );
 
         if (submitRes.status === "SUCCESS") {
-          const result = await submitFn({ content, author: publicKey }).catch(() => ({
-            id: Date.now(),
-            transactionHash: submitRes.hash,
-            timestamp: Math.floor(Date.now() / 1000),
-          }));
+          const result = await submitFn({ content, author: publicKey }).catch(
+            (): CreatePostResult => ({
+              id: Date.now(),
+              transactionHash: submitRes.hash,
+              timestamp: Math.floor(Date.now() / 1000),
+            })
+          );
 
           const newPostId = result.id;
 
