@@ -548,6 +548,17 @@ pub struct AttestationVerifiedEvent {
     pub window_end: u64,
 }
 
+/// Published only by the explicit `rotate_oracle` path (Epta-Node#1245).
+/// Carries the outgoing key so oracle key history is auditable.
+#[contractevent]
+#[derive(Clone)]
+pub struct OracleRotatedEvent {
+    #[topic]
+    pub oracle_name: Symbol,
+    pub old_pubkey: BytesN<32>,
+    pub new_pubkey: BytesN<32>,
+}
+
 #[contractevent]
 #[derive(Clone)]
 pub struct PostReportedEvent {
@@ -2894,14 +2905,13 @@ impl LinkoraContract {
         Self::require_not_paused(&env);
         let old_fee_bps = Self::get_fee_bps(env.clone());
         env.storage().instance().set(&FEE_BPS, &fee_bps);
+        // Routine admin setter — emits only FeeUpdatedEvent. Never emit
+        // EmergencyBypassEvent here (Savitura/Epta-Node#1373): that event is
+        // reserved for actual emergency-bypass paths.
         FeeUpdatedEvent {
             name: symbol_short!("fee_upd"),
             old_fee_bps,
             new_fee_bps: fee_bps,
-        }
-        .publish(&env);
-        EmergencyBypassEvent {
-            action: symbol_short!("set_fee"),
         }
         .publish(&env);
     }
@@ -2925,14 +2935,13 @@ impl LinkoraContract {
         Self::require_not_paused(&env);
         let old_treasury = Self::get_treasury(env.clone()).expect("treasury not set");
         env.storage().instance().set(&TREASURY, &treasury);
+        // Routine admin setter — emits only TreasuryUpdatedEvent. Never emit
+        // EmergencyBypassEvent here (Savitura/Epta-Node#1373): that event is
+        // reserved for actual emergency-bypass paths.
         TreasuryUpdatedEvent {
             name: symbol_short!("treas_upd"),
             old_treasury,
             new_treasury: treasury,
-        }
-        .publish(&env);
-        EmergencyBypassEvent {
-            action: symbol_short!("set_tres"),
         }
         .publish(&env);
     }
@@ -3586,15 +3595,62 @@ impl LinkoraContract {
 
     // ── Analytics Oracle ──────────────────────────────────────────────────────
 
-    /// Register or rotate an Ed25519 oracle public key. Admin only.
+    /// Register an Ed25519 oracle public key under `name`. Admin only.
+    ///
+    /// Refuses to overwrite an already-registered name (Epta-Node#1245):
+    /// rotating an existing oracle requires the explicit `rotate_oracle`
+    /// entrypoint so a single accidental call can never rotate a key.
+    ///
+    /// # Errors
+    /// * Panics if caller does not have Admin role
+    /// * Panics if `name` is already registered ("oracle already registered")
     pub fn register_oracle(env: Env, admin: Address, name: Symbol, pubkey: BytesN<32>) {
         Self::bump_instance(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
         let key = StorageKey::OracleKey(name);
+        require_with_error!(
+            &env,
+            !env.storage().persistent().has(&key),
+            "oracle already registered; use rotate_oracle"
+        );
         env.storage().persistent().set(&key, &pubkey);
         Self::bump(&env, &key);
+    }
+
+    /// Explicitly rotate the Ed25519 oracle public key registered under
+    /// `name`. Admin only. Refuses to rotate an unregistered name and emits
+    /// `OracleRotatedEvent` with the outgoing key for the audit trail
+    /// (Epta-Node#1245).
+    ///
+    /// # Arguments
+    /// * `admin` - Must hold the Admin role
+    /// * `name` - Registered oracle name
+    /// * `pubkey` - New Ed25519 oracle public key
+    ///
+    /// # Errors
+    /// * Panics if caller does not have Admin role
+    /// * Panics if `name` is not registered ("oracle not registered")
+    pub fn rotate_oracle(env: Env, admin: Address, name: Symbol, pubkey: BytesN<32>) {
+        Self::bump_instance(&env);
+        admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
+        let key = StorageKey::OracleKey(name.clone());
+        let old_pubkey: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("oracle not registered");
+        env.storage().persistent().set(&key, &pubkey);
+        Self::bump(&env, &key);
+        OracleRotatedEvent {
+            oracle_name: name,
+            old_pubkey,
+            new_pubkey: pubkey,
+        }
+        .publish(&env);
     }
 
     /// Verify a signed analytics attestation.
