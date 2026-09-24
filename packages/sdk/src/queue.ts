@@ -21,6 +21,13 @@
  * `stepTimeoutMs` (config or per-`run()` override) caps the total wall-clock
  * time spent on a single step (signing + submission + confirmation). When the
  * deadline is exceeded the step is treated as a failure and rollbacks fire.
+ *
+ * ### Restart persistence (issue #1355)
+ * With a `persistence` adapter configured, queue and retry state is saved at
+ * every durable transition. If the host app restarts mid-queue, `resume()`
+ * reloads that state: sent-but-unconfirmed transactions emit an explicit
+ * `unconfirmed` event and are reconciled (confirmed or reported `lost`),
+ * never-submitted items emit `lost` and are re-queued for submission.
  */
 
 import * as rpc from "@stellar/stellar-sdk/rpc";
@@ -31,7 +38,14 @@ import { CircuitBreaker, withRetry, type RetryLogger } from "./utils/retry.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
-export type TxStatus = "pending" | "simulated" | "submitted" | "confirmed" | "failed";
+export type TxStatus =
+  | "pending"
+  | "simulated"
+  | "submitted"
+  | "confirmed"
+  | "failed"
+  | "unconfirmed"
+  | "lost";
 
 export interface TxStatusEvent {
   index: number;
@@ -62,6 +76,41 @@ export interface QueueStep {
    * queue-level `stepTimeoutMs` for this step only.
    */
   stepTimeoutMs?: number;
+}
+
+/**
+ * Durable, per-step record persisted by a {@link QueuePersistence} adapter
+ * (issue #1355). Rollback callbacks are functions and cannot be serialized;
+ * after a restart the resumed queue therefore reports `lost` / `unconfirmed`
+ * status events instead of replaying rollbacks.
+ */
+export interface PersistedQueueStep {
+  xdr: string;
+  /** Durable status at save time. */
+  status: "pending" | "simulated" | "submitted" | "confirmed";
+  /** Transaction hash once the step has been submitted. */
+  hash?: string;
+  resourceFee?: string;
+  stepTimeoutMs?: number;
+}
+
+/** Snapshot of queue + retry state saved by the persistence adapter. */
+export interface PersistedQueueState {
+  steps: PersistedQueueStep[];
+  /** Epoch milliseconds when the snapshot was written. */
+  savedAt: number;
+}
+
+/**
+ * Optional storage adapter (issue #1355) that lets a host app survive a
+ * restart: queue and retry state is written through `save` at every durable
+ * transition, and {@link TransactionQueue.resume} reloads it to reconcile
+ * sent-but-unconfirmed transactions.
+ */
+export interface QueuePersistence {
+  save(state: PersistedQueueState): Promise<void>;
+  load(): Promise<PersistedQueueState | undefined>;
+  clear(): Promise<void>;
 }
 
 export interface QueueSigner {
@@ -221,6 +270,13 @@ export interface TransactionQueueConfig {
   logger?: RetryLogger;
   /** Injectable RNG for the backoff jitter (defaults to `Math.random`). */
   random?: () => number;
+  /**
+   * Optional persistence hook (issue #1355). When set, queue and retry state
+   * is saved through it at every durable transition so a host-app restart can
+   * resume via {@link TransactionQueue.resume} and reconcile sent-but-
+   * unconfirmed transactions.
+   */
+  persistence?: QueuePersistence;
 }
 
 /**
@@ -263,9 +319,13 @@ export class TransactionQueue {
   private readonly circuitBreaker: CircuitBreaker;
   private readonly logger?: RetryLogger;
   private readonly random: () => number;
+  private readonly persistence?: QueuePersistence;
 
   /** Hashes of every successfully submitted (and confirmed) transaction, in step order. */
   private _submittedHashes: string[] = [];
+
+  /** Durable per-step state mirrored into the persistence adapter when set. */
+  private stepStates: PersistedQueueStep[] = [];
 
   constructor(config: TransactionQueueConfig) {
     this.signer = config.signer;
@@ -283,6 +343,7 @@ export class TransactionQueue {
     this.circuitBreaker = new CircuitBreaker(this.retryConfig.circuitBreakerThreshold);
     this.logger = config.logger;
     this.random = config.random ?? Math.random;
+    this.persistence = config.persistence;
   }
 
   /** Current circuit-breaker state — `true` once the failure threshold is hit. */
@@ -337,7 +398,146 @@ export class TransactionQueue {
    */
   enqueue(xdr: string, rollback?: QueueStep["rollback"], stepTimeoutMs?: number): this {
     this.steps.push({ xdr, rollback, stepTimeoutMs });
+    this.stepStates.push({ xdr, status: "pending", stepTimeoutMs });
+    this.persistSnapshot();
     return this;
+  }
+
+  /**
+   * Resume a queue after a host-app restart (issue #1355).
+   *
+   * Loads the state persisted by the {@link QueuePersistence} adapter and
+   * reconciles every persisted step:
+   * - **submitted-but-unconfirmed** steps emit an explicit `unconfirmed` event
+   *   and are then re-polled: a later on-chain success emits `confirmed`
+   *   (recovered), a failure emits `lost`.
+   * - **never-submitted** steps (still `pending`/`simulated` at restart) emit
+   *   a `lost` event and are re-queued, then executed through the normal
+   *   submission pipeline.
+   * - already `confirmed` steps are silently recovered into
+   *   {@link TransactionQueue.submittedHashes}.
+   *
+   * Rollback callbacks cannot be persisted, so a resumed queue cannot replay
+   * rollbacks — that is exactly why the `unconfirmed`/`lost` events exist.
+   *
+   * @param opts Per-call overrides applied to the remaining queued steps.
+   * @returns The number of steps re-queued for execution.
+   */
+  async resume(opts: RunOptions = {}): Promise<number> {
+    const persistence = this.persistence;
+    if (!persistence) return 0;
+
+    const state = await persistence.load();
+    await persistence.clear();
+
+    if (!state || state.steps.length === 0) return 0;
+
+    const unfinished: QueueStep[] = [];
+
+    for (let i = 0; i < state.steps.length; i++) {
+      const persisted = state.steps[i];
+
+      if (persisted.status === "submitted" && persisted.hash) {
+        // Sent but never confirmed before the restart: signal it explicitly,
+        // then reconcile by polling the network.
+        this.emit({
+          index: i,
+          xdr: persisted.xdr,
+          status: "unconfirmed",
+          hash: persisted.hash,
+          resourceFee: persisted.resourceFee,
+        });
+        try {
+          await this.pollConfirmation(persisted.hash);
+          this.emit({
+            index: i,
+            xdr: persisted.xdr,
+            status: "confirmed",
+            hash: persisted.hash,
+            resourceFee: persisted.resourceFee,
+          });
+          this._submittedHashes.push(persisted.hash);
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err);
+          this.emit({
+            index: i,
+            xdr: persisted.xdr,
+            status: "lost",
+            hash: persisted.hash,
+            error,
+          });
+        }
+      } else if (persisted.status === "confirmed" && persisted.hash) {
+        // Already confirmed before the restart — recover silently.
+        this._submittedHashes.push(persisted.hash);
+      } else {
+        // Never submitted: the item was dropped by the restart.
+        this.emit({
+          index: i,
+          xdr: persisted.xdr,
+          status: "lost",
+          resourceFee: persisted.resourceFee,
+        });
+        unfinished.push({ xdr: persisted.xdr, stepTimeoutMs: persisted.stepTimeoutMs });
+      }
+    }
+
+    this.steps = unfinished;
+    this.stepStates = unfinished.map((step) => ({
+      xdr: step.xdr,
+      status: "pending" as const,
+      stepTimeoutMs: step.stepTimeoutMs,
+    }));
+
+    if (this.steps.length > 0) {
+      const isDryRun = opts.dryRun ?? this.defaultDryRun;
+      const skipSimulation = opts.skipSimulation ?? false;
+      const runTimeoutMs = opts.stepTimeoutMs ?? this.defaultStepTimeoutMs;
+      const completed: number[] = [];
+      for (let i = 0; i < this.steps.length; i++) {
+        const step = this.steps[i];
+        this.emit({ index: i, xdr: step.xdr, status: "pending" });
+        await this.runStep(i, step, isDryRun, skipSimulation, completed, step.stepTimeoutMs ?? runTimeoutMs);
+      }
+      this.steps = [];
+      this.stepStates = [];
+      await this.persistence?.clear().catch(() => undefined);
+    }
+
+    return unfinished.length;
+  }
+
+  /**
+   * Mirror the current queue state into the persistence adapter, if any.
+   * Failures are swallowed: persistence must never break submission flow.
+   */
+  private async persistSnapshot(): Promise<void> {
+    if (!this.persistence) return;
+    try {
+      await this.persistence.save({
+        steps: this.stepStates.map((s) => ({ ...s })),
+        savedAt: Date.now(),
+      });
+    } catch {
+      // Persistence is best-effort; ignore adapter write failures.
+    }
+  }
+
+  /** Record a durable status transition for a step and persist it. */
+  private markPersisted(
+    index: number,
+    step: QueueStep,
+    status: PersistedQueueStep["status"],
+    extra?: { hash?: string; resourceFee?: string }
+  ): void {
+    this.stepStates[index] = {
+      xdr: step.xdr,
+      status,
+      hash: extra?.hash ?? this.stepStates[index]?.hash,
+      resourceFee: extra?.resourceFee ?? this.stepStates[index]?.resourceFee,
+      stepTimeoutMs: step.stepTimeoutMs ?? this.stepStates[index]?.stepTimeoutMs,
+    };
+    void this.persistSnapshot();
   }
 
   /**
@@ -392,6 +592,9 @@ export class TransactionQueue {
     }
 
     this.steps = [];
+    this.stepStates = [];
+    // Every enqueued step reached a durable outcome — clear the restart state.
+    await this.persistence?.clear().catch(() => undefined);
   }
 
   // ── Internal step execution ───────────────────────────────────────────────
@@ -518,6 +721,7 @@ export class TransactionQueue {
       }
 
       resourceFee = simResult.resourceFee;
+      this.markPersisted(i, step, "simulated", { resourceFee });
       this.emit({ index: i, xdr: step.xdr, status: "simulated", resourceFee });
     }
 
@@ -571,6 +775,7 @@ export class TransactionQueue {
     }
 
     this.emit({ index: i, xdr: step.xdr, status: "submitted", hash, resourceFee });
+    this.markPersisted(i, step, "submitted", { hash, resourceFee });
 
     // ── 5. Confirm ───────────────────────────────────────────────────────────
     try {
@@ -585,6 +790,7 @@ export class TransactionQueue {
     }
 
     this.emit({ index: i, xdr: step.xdr, status: "confirmed", hash, resourceFee });
+    this.markPersisted(i, step, "confirmed", { hash, resourceFee });
     this._submittedHashes.push(hash);
     completed.push(i);
   }

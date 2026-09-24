@@ -593,3 +593,134 @@ describe("TransactionQueue", () => {
     }, 2000);
   });
 });
+
+// ── Restart persistence (issue #1355) ────────────────────────────────────────
+
+describe("TransactionQueue persistence (issue #1355)", () => {
+  function makePersistence(): {
+    adapter: import("../queue").QueuePersistence;
+    stores: Map<string, import("../queue").PersistedQueueState>;
+  } {
+    const stores = new Map<string, import("../queue").PersistedQueueState>();
+    return {
+      stores,
+      persistence: {
+        async save(state) {
+          stores.set("queue", JSON.parse(JSON.stringify(state)));
+        },
+        async load() {
+          return stores.get("queue");
+        },
+        async clear() {
+          stores.delete("queue");
+        },
+      },
+    };
+  }
+
+  it("persists queue state at every durable transition", async () => {
+    const { persistence, stores } = makePersistence();
+    const rpc = makeRpc();
+    const queue = new TransactionQueue({
+      signer: makeSigner(),
+      rpc,
+      persistence,
+      pollIntervalMs: 0,
+    });
+    queue.enqueue("XDR_A");
+    // enqueue already persisted the pending step
+    expect(stores.get("queue")?.steps[0]).toMatchObject({ xdr: "XDR_A", status: "pending" });
+
+    await queue.run();
+
+    expect(stores.get("queue")?.steps[0]).toMatchObject({
+      xdr: "XDR_A",
+      status: "confirmed",
+      hash: "HASH_1",
+    });
+  });
+
+  it("resume reconciles a sent-but-unconfirmed step and reports dropped ones", async () => {
+    // Session A: step 0 submits and stays unconfirmed (never confirmed), the
+    // run then fails so state is left persisted.
+    const { persistence, stores } = makePersistence();
+    const rpcA = makeRpc({ confirmStatus: "PENDING" });
+    const queueA = new TransactionQueue({
+      signer: makeSigner(),
+      rpc: rpcA,
+      persistence,
+      pollIntervalMs: 0,
+      maxPollAttempts: 1,
+    });
+    queueA.enqueue("XDR_SENT");
+    queueA.enqueue("XDR_NEVER_SENT");
+
+    await expect(queueA.run()).rejects.toThrow(/not confirmed/);
+    expect(stores.get("queue")?.steps[0]).toMatchObject({
+      xdr: "XDR_SENT",
+      status: "submitted",
+      hash: "HASH_1",
+    });
+
+    // Session B (simulated restart): same adapter, now confirming normally.
+    const rpcB = makeRpc();
+    const queueB = new TransactionQueue({
+      signer: makeSigner(),
+      rpc: rpcB,
+      persistence,
+      pollIntervalMs: 0,
+    });
+
+    const events: TxStatusEvent[] = [];
+    queueB.on("status", (e) => events.push(e));
+
+    const requeued = await queueB.resume();
+
+    // Step 0 was sent-but-unconfirmed → explicit signal, then reconciled.
+    expect(events.some((e) => e.status === "unconfirmed" && e.hash === "HASH_1")).toBe(true);
+    expect(events.some((e) => e.status === "confirmed" && e.hash === "HASH_1")).toBe(true);
+    // Step 1 never reached submission → explicit lost signal.
+    expect(events.some((e) => e.status === "lost" && e.xdr === "XDR_NEVER_SENT")).toBe(true);
+    // The dropped step was re-queued and executed to confirmation.
+    expect(requeued).toBe(1);
+    expect(queueB.submittedHashes).toContain("HASH_1");
+    expect(rpcB.sendCalls.length).toBe(1);
+    expect(events.some((e) => e.status === "confirmed" && e.xdr === "XDR_NEVER_SENT")).toBe(true);
+    // Restart state consumed.
+    expect(stores.has("queue")).toBe(false);
+  });
+
+  it("resume reports lost when the unconfirmed transaction failed on-chain", async () => {
+    const { persistence } = makePersistence();
+    const rpcA = makeRpc({ confirmStatus: "PENDING" });
+    const queueA = new TransactionQueue({
+      signer: makeSigner(),
+      rpc: rpcA,
+      persistence,
+      pollIntervalMs: 0,
+      maxPollAttempts: 1,
+    });
+    queueA.enqueue("XDR_SENT");
+    await expect(queueA.run()).rejects.toThrow(/not confirmed/);
+
+    const rpcB = makeRpc({ confirmStatus: "FAILED" });
+    const queueB = new TransactionQueue({
+      signer: makeSigner(),
+      rpc: rpcB,
+      persistence,
+      pollIntervalMs: 0,
+    });
+    const events: TxStatusEvent[] = [];
+    queueB.on("status", (e) => events.push(e));
+
+    await queueB.resume();
+
+    expect(events.some((e) => e.status === "lost" && e.hash === "HASH_1")).toBe(true);
+  });
+
+  it("resume without a persistence adapter is a no-op", async () => {
+    const rpc = makeRpc();
+    const queue = new TransactionQueue({ signer: makeSigner(), rpc });
+    expect(await queue.resume()).toBe(0);
+  });
+});
