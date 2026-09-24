@@ -21,7 +21,7 @@ import type { LinkoraClient } from "./client.js";
  */
 export class RpcServerAdapter implements RpcClient {
   private readonly server: rpc.Server;
-  private readonly networkPassphrase: string;
+  readonly networkPassphrase: string;
 
   constructor(rpcUrl: string, networkPassphrase: string, allowHttp = false) {
     this.server = new rpc.Server(rpcUrl, { allowHttp });
@@ -120,6 +120,10 @@ export async function submitTransaction(
 
   const server = client.createRpcServer();
   const rpcAdapter: RpcClient = {
+    async getAccountSequence(accountId: string) {
+      const account = await client.classic.getAccount(accountId);
+      return { sequence: account.sequence, ledger: account.last_modified_ledger };
+    },
     async simulateTransaction(xdr: string) {
       const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase);
       const res = await server.simulateTransaction(tx);
@@ -164,6 +168,7 @@ export async function submitTransaction(
   const queue = new TransactionQueue({
     signer,
     rpc: rpcAdapter,
+    networkPassphrase,
   });
 
   queue.enqueue(xdrString);
