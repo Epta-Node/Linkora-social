@@ -7274,6 +7274,31 @@ fn pay_rent_transfers_tokens_to_treasury() {
 }
 
 #[test]
+fn pay_rent_extends_actual_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_contract(&env);
+    client.set_rent_rate_bps(&admin, &100);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    let initial_expiry = client.get_rent_expiry(&user);
+
+    let amount = 1_000_000_000i128;
+    StellarAssetClient::new(&env, &token).mint(&user, &amount);
+
+    client.pay_rent(&user, &token, &amount);
+
+    let new_expiry = client.get_rent_expiry(&user);
+    // ledgers_to_extend = (1_000_000_000 * 10000) / (100 * 10_000_000) = 10_000
+    assert_eq!(new_expiry, initial_expiry + 10_000);
+}
+
+#[test]
 #[should_panic(expected = "amount too small for rent rate")]
 fn pay_rent_rejects_tiny_payment() {
     let env = Env::default();

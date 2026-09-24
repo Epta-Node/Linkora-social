@@ -24,6 +24,7 @@ use validation::{
 pub enum StorageKey {
     Post(u64),                            // persistent: post_id -> Post
     Profile(Address),                     // persistent: user -> Profile
+    RentExpiry(Address),                  // persistent: user -> u32 expiry ledger
     Following(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
     Followers(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
     Pool(Symbol),       // persistent: pool_id -> Pool
@@ -3803,17 +3804,23 @@ impl LinkoraContract {
         token::Client::new(&env, &token).transfer(&user, &treasury, &amount);
 
         // Gather all user's keys and extend them
+        let current_expiry = Self::get_rent_expiry(env.clone(), user.clone()).max(env.ledger().sequence());
+        let extended_to_ledger = current_expiry.saturating_add(ledgers_to_extend as u32);
+        
+        let expiry_key = StorageKey::RentExpiry(user.clone());
+        env.storage().persistent().set(&expiry_key, &extended_to_ledger);
+        
+        let target_ttl = extended_to_ledger.saturating_sub(env.ledger().sequence());
+
+        // Gather all user's keys and extend them
         let keys = Self::get_user_keys(&env, &user);
         for key in keys.iter() {
             if env.storage().persistent().has(&key) {
-                let target_ttl = LEDGER_BUMP.saturating_add(ledgers_to_extend as u32);
                 env.storage()
                     .persistent()
                     .extend_ttl(&key, target_ttl, target_ttl);
             }
         }
-
-        let extended_to_ledger = Self::get_rent_expiry(env.clone(), user.clone());
         RentPaidEvent {
             user: user.clone(),
             payer: user,
@@ -3936,11 +3943,12 @@ impl LinkoraContract {
     /// * Panics if profile does not exist
     pub fn get_rent_expiry(env: Env, user: Address) -> u32 {
         validate_non_default_address(&env, "user", &user);
-        let profile_key = StorageKey::Profile(user);
+        let profile_key = StorageKey::Profile(user.clone());
         if !env.storage().persistent().has(&profile_key) {
             panic!("profile does not exist");
         }
-        env.ledger().sequence().saturating_add(LEDGER_BUMP)
+        let expiry_key = StorageKey::RentExpiry(user);
+        env.storage().persistent().get(&expiry_key).unwrap_or_else(|| env.ledger().sequence().saturating_add(LEDGER_BUMP))
     }
 
     /// Sets the rent rate in basis points. Requires Admin role.
