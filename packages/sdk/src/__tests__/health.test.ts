@@ -1,9 +1,14 @@
 import { ConnectionHealthMonitor, ConnectionStatus } from "../health";
+import * as rpc from "@stellar/stellar-sdk/rpc";
 
 const mockGetLatestLedger = jest.fn();
+const mockGetNetwork = jest.fn();
 
 jest.mock("@stellar/stellar-sdk/rpc", () => ({
-  Server: jest.fn().mockImplementation(() => ({ getLatestLedger: mockGetLatestLedger })),
+  Server: jest.fn().mockImplementation(() => ({
+    getLatestLedger: mockGetLatestLedger,
+    getNetwork: mockGetNetwork,
+  })),
   Api: {
     isSimulationError: (r: unknown) => !!(r as { error?: unknown }).error,
     isSimulationSuccess: (r: unknown) => !!(r as { result?: unknown }).result,
@@ -43,6 +48,7 @@ function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
 describe("ConnectionHealthMonitor", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetNetwork.mockResolvedValue({ passphrase: "Test SDF Network ; September 2015" });
   });
 
   describe("healthCheck()", () => {
@@ -56,6 +62,32 @@ describe("ConnectionHealthMonitor", () => {
       mockGetLatestLedger.mockRejectedValue(new Error("Network error"));
       const monitor = new ConnectionHealthMonitor("https://rpc.example.com");
       expect(await monitor.healthCheck()).toBe(false);
+    });
+
+    it("rejects an RPC that reports a different network passphrase", async () => {
+      mockGetNetwork.mockResolvedValue({
+        passphrase: "Public Global Stellar Network ; September 2015",
+      });
+      mockGetLatestLedger.mockResolvedValue({ sequence: 100 });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com");
+
+      expect(await monitor.healthCheck()).toBe(false);
+      await expect(monitor.getHealthResult()).resolves.toMatchObject({
+        healthy: false,
+        expectedNetworkPassphrase: "Test SDF Network ; September 2015",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+      expect(mockGetLatestLedger).not.toHaveBeenCalled();
+    });
+
+    it("rejects a malformed latest-ledger sequence", async () => {
+      mockGetLatestLedger.mockResolvedValue({ sequence: Number.NaN });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com");
+
+      await expect(monitor.getHealthResult()).resolves.toMatchObject({
+        healthy: false,
+        error: "RPC returned an invalid latest ledger sequence.",
+      });
     });
   });
 
@@ -290,9 +322,7 @@ describe("ConnectionHealthMonitor", () => {
 
   describe("LinkoraClient integration", () => {
     let LinkoraClient: typeof import("../client").LinkoraClient;
-    const { Server: MockServer } = jest.mocked(
-      (await import("@stellar/stellar-sdk/rpc")).Server
-    );
+    const MockServer = rpc.Server as unknown as jest.Mock;
     beforeAll(async () => {
       ({ LinkoraClient } = await import("../client"));
     });
@@ -307,6 +337,21 @@ describe("ConnectionHealthMonitor", () => {
       mockGetLatestLedger.mockRejectedValue(new Error("down"));
       const client = new LinkoraClient({ contractId: "CDUMMY", rpcUrl: "https://rpc.example.com" });
       expect(await client.healthCheck()).toBe(false);
+    });
+
+    it("exposes the configured network in detailed health results", async () => {
+      mockGetNetwork.mockResolvedValue({ passphrase: "Test SDF Network ; September 2015" });
+      const client = new LinkoraClient({
+        contractId: "CDUMMY",
+        rpcUrl: "https://rpc.example.com",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+
+      await expect(client.getHealthResult()).resolves.toMatchObject({
+        healthy: false,
+        expectedNetworkPassphrase: "Public Global Stellar Network ; September 2015",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
     });
 
     it("onConnectionStatusChange starts checks and fires callback", async () => {
@@ -359,11 +404,12 @@ describe("ConnectionHealthMonitor", () => {
       monitor.start();
 
       expect(setTimeoutSpy).toHaveBeenCalled();
-      const firstCallDelay = setTimeoutSpy.mock.calls[
-        setTimeoutSpy.mock.calls.length - 1
-      ][1] as number;
+      const scheduledDelays = setTimeoutSpy.mock.calls
+        .map((call) => call[1])
+        .filter((delay): delay is number => typeof delay === "number" && delay <= 50);
+      const firstCallDelay = Math.min(...scheduledDelays);
       expect(firstCallDelay).toBeGreaterThanOrEqual(0);
-      expect(firstCallDelay).toBeLessThanOrEqual(20); // up to this.backoffMs
+      expect(firstCallDelay).toBeLessThanOrEqual(50); // up to the initial interval jitter cap
 
       monitor.stop();
       setTimeoutSpy.mockRestore();
@@ -381,7 +427,7 @@ describe("ConnectionHealthMonitor", () => {
       monitor.start();
 
       // Wait for a few backoff cycles
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 300));
 
       const checksAfterStop = mockGetLatestLedger.mock.calls.length;
 

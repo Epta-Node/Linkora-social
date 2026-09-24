@@ -24,11 +24,7 @@
  */
 
 import * as rpc from "@stellar/stellar-sdk/rpc";
-import {
-  TransactionBuilder,
-  type Transaction,
-  type FeeBumpTransaction,
-} from "@stellar/stellar-base";
+import { TransactionBuilder, type Transaction, FeeBumpTransaction } from "@stellar/stellar-base";
 import { CircuitBreakerError, NetworkError, SigningError, SimulationError } from "./errors.js";
 import { resolveRetryConfig, type RetryConfig } from "./config.js";
 import { CircuitBreaker, withRetry, type RetryLogger } from "./utils/retry.js";
@@ -82,6 +78,8 @@ export interface SimulationResult {
 }
 
 export interface RpcClient {
+  /** Network used to parse transaction XDR when sequence guarding is enabled. */
+  networkPassphrase?: string;
   /**
    * Simulate a transaction without submitting it.
    *
@@ -95,6 +93,27 @@ export interface RpcClient {
   ): Promise<{ hash: string; status: string; errorResultXdr?: string }>;
 
   getTransaction(hash: string): Promise<{ status: string; errorResultXdr?: string }>;
+
+  /** Latest Horizon account sequence used to reject stale or overlapping submissions. */
+  getAccountSequence?(accountId: string): Promise<{ sequence: string; ledger?: number }>;
+}
+
+const accountSequenceLocks = new Map<string, Promise<void>>();
+
+async function withAccountSequenceLock<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const previous = accountSequenceLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  accountSequenceLocks.set(key, current);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (accountSequenceLocks.get(key) === current) accountSequenceLocks.delete(key);
+  }
 }
 
 /**
@@ -102,11 +121,17 @@ export interface RpcClient {
  * parsed `Transaction` objects — to the string-XDR {@link RpcClient} shape
  * `TransactionQueue` expects.
  */
-export function createRpcClientAdapter(server: rpc.Server, networkPassphrase: string): RpcClient {
+export function createRpcClientAdapter(
+  server: rpc.Server,
+  networkPassphrase: string,
+  getAccountSequence?: RpcClient["getAccountSequence"]
+): RpcClient {
   const parse = (xdr: string): Transaction | FeeBumpTransaction =>
     TransactionBuilder.fromXDR(xdr, networkPassphrase);
 
   return {
+    networkPassphrase,
+    ...(getAccountSequence ? { getAccountSequence } : {}),
     async simulateTransaction(xdr: string): Promise<SimulationResult> {
       const result = await server.simulateTransaction(parse(xdr));
 
@@ -165,6 +190,8 @@ export interface RunOptions {
 export interface TransactionQueueConfig {
   signer: QueueSigner;
   rpc: RpcClient;
+  /** Network passphrase used to parse queued XDR for its source and sequence. */
+  networkPassphrase?: string;
   /** How often to poll for confirmation in ms (default 2000). */
   pollIntervalMs?: number;
   /** Maximum number of poll attempts before timing out (default 30). */
@@ -226,6 +253,7 @@ export class TransactionQueue {
   private listeners: TxStatusListener[] = [];
   private readonly signer: QueueSigner;
   private readonly rpc: RpcClient;
+  private readonly networkPassphrase: string;
   private readonly pollIntervalMs: number;
   private readonly maxPollAttempts: number;
   private readonly rpcTimeoutMs: number;
@@ -242,6 +270,10 @@ export class TransactionQueue {
   constructor(config: TransactionQueueConfig) {
     this.signer = config.signer;
     this.rpc = config.rpc;
+    this.networkPassphrase =
+      config.networkPassphrase ??
+      config.rpc.networkPassphrase ??
+      "Test SDF Network ; September 2015";
     this.pollIntervalMs = config.pollIntervalMs ?? 2000;
     this.maxPollAttempts = config.maxPollAttempts ?? 30;
     this.rpcTimeoutMs = config.rpcTimeoutMs ?? 10000;
@@ -372,17 +404,78 @@ export class TransactionQueue {
     completed: number[],
     timeoutMs: number | undefined
   ): Promise<void> {
-    const work = this.executeStep(i, step, isDryRun, skipSimulation, completed);
+    const work = () => this.executeStep(i, step, isDryRun, skipSimulation, completed);
+    let executionStarted = false;
+    let timeoutTriggered = false;
 
-    if (timeoutMs !== undefined) {
-      await this.withTimeout(work, timeoutMs, async () => {
-        const error = `Step ${i} timed out after ${timeoutMs}ms`;
-        this.emit({ index: i, xdr: step.xdr, status: "failed", error });
+    const guardedWork =
+      this.rpc.getAccountSequence && !isDryRun
+        ? async () => {
+            const parsed = TransactionBuilder.fromXDR(step.xdr, this.networkPassphrase);
+            const transaction =
+              parsed instanceof FeeBumpTransaction
+                ? parsed.innerTransaction
+                : (parsed as Transaction);
+            const lockKey = `${this.networkPassphrase}:${transaction.source}`;
+            return withAccountSequenceLock(lockKey, async () => {
+              if (timeoutTriggered) {
+                executionStarted = true;
+                throw new NetworkError(
+                  `Step ${i} timed out before sequence validation completed.`,
+                  {
+                    step: i,
+                    timeout: timeoutMs,
+                  }
+                );
+              }
+              const account = await this.rpc.getAccountSequence!(transaction.source);
+              if (timeoutTriggered) {
+                executionStarted = true;
+                throw new NetworkError(`Step ${i} timed out before transaction signing.`, {
+                  step: i,
+                  timeout: timeoutMs,
+                });
+              }
+              const expectedSequence = BigInt(account.sequence) + 1n;
+              if (BigInt(transaction.sequence) !== expectedSequence) {
+                throw new NetworkError(
+                  `Transaction sequence is stale or out of order for ${transaction.source}: expected ${expectedSequence}, got ${transaction.sequence}. Refresh the account and rebuild the transaction.`,
+                  {
+                    accountId: transaction.source,
+                    ledger: account.ledger,
+                    expectedSequence: expectedSequence.toString(),
+                    actualSequence: transaction.sequence,
+                  }
+                );
+              }
+              executionStarted = true;
+              return work();
+            });
+          }
+        : async () => {
+            executionStarted = true;
+            return work();
+          };
+
+    try {
+      if (timeoutMs !== undefined) {
+        await this.withTimeout(guardedWork(), timeoutMs, async () => {
+          timeoutTriggered = true;
+          const error = `Step ${i} timed out after ${timeoutMs}ms`;
+          this.emit({ index: i, xdr: step.xdr, status: "failed", error });
+          await this.runRollbacks(completed);
+          throw new NetworkError(error, { step: i, timeout: timeoutMs });
+        });
+      } else {
+        await guardedWork();
+      }
+    } catch (error) {
+      if (!executionStarted && !timeoutTriggered) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.emit({ index: i, xdr: step.xdr, status: "failed", error: message });
         await this.runRollbacks(completed);
-        throw new NetworkError(error, { step: i, timeout: timeoutMs });
-      });
-    } else {
-      await work;
+      }
+      throw error;
     }
   }
 

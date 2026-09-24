@@ -13,6 +13,7 @@ export interface ClassicAccountInfo {
   id: string;
   account_id: string;
   sequence: string;
+  last_modified_ledger?: number;
   balances: ClassicBalance[];
 }
 
@@ -70,10 +71,10 @@ export class ClassicAccountClient {
     const url = `${this.horizonUrl}/accounts/${address}`;
     const res = await fetchWithTimeout(url, undefined, this.timeoutMs);
     if (!res.ok) {
-      throw new NetworkError(
-        `Failed to fetch account from Horizon (HTTP ${res.status}).`,
-        { status: res.status, address }
-      );
+      throw new NetworkError(`Failed to fetch account from Horizon (HTTP ${res.status}).`, {
+        status: res.status,
+        address,
+      });
     }
     return (await res.json()) as ClassicAccountInfo;
   }

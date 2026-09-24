@@ -24,6 +24,7 @@ import type {
   StorageKey,
   GovParameter,
   ProposalStatus,
+  Report,
 } from "./types.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
@@ -807,12 +808,12 @@ export class GeneratedLinkoraClient {
    * Contract entrypoint: `get_report`.
    * SDK method: `getReport`.
    */
-  async getReport(report_id: bigint): Promise<any | null> {
+  async getReport(report_id: bigint): Promise<Report | null> {
     const retval = await this.simulateCall("get_report", scvU64(report_id));
     if (!retval) return null;
     try {
       const raw = scValToNative(retval);
-      return raw == null ? null : raw;
+      return raw == null ? null : (raw as Report);
     } catch (e) {
       if (e instanceof NotFoundError) return null;
       throw e;

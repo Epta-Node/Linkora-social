@@ -1,4 +1,5 @@
 import * as rpc from "@stellar/stellar-sdk/rpc";
+import { Buffer } from "buffer";
 import {
   Contract,
   nativeToScVal,
@@ -29,7 +30,12 @@ import { ClassicAccountClient, ClassicBalance } from "./classic.js";
 import { ContractState } from "./state.js";
 import { GovParameter } from "./generated/types.js";
 import type { GovProposal } from "./generated/types.js";
-import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health.js";
+import {
+  ConnectionHealthMonitor,
+  HealthCheckConfig,
+  ConnectionStatusCallback,
+  type RpcHealthResult,
+} from "./health.js";
 import { fetchWithTimeout } from "./utils/fetch.js";
 import {
   createRpcClientAdapter,
@@ -38,6 +44,7 @@ import {
   type RunOptions,
 } from "./queue.js";
 import { submitTransaction } from "./submit.js";
+import { mapMultiOperationAuth } from "./multi-operation-auth.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
@@ -280,7 +287,12 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     });
 
     const { autoStart, ...healthCfg } = config.healthCheck ?? {};
-    this._healthMonitor = new ConnectionHealthMonitor(this._rpcUrl, healthCfg, this._rpcServer);
+    this._healthMonitor = new ConnectionHealthMonitor(
+      this._rpcUrl,
+      healthCfg,
+      this._rpcServer,
+      this._networkPassphrase
+    );
     if (autoStart) this._healthMonitor.start();
   }
 
@@ -296,7 +308,14 @@ export class LinkoraClient extends GeneratedLinkoraClient {
 
   /** Build a string-XDR {@link RpcClient} adapter for use with `TransactionQueue`. */
   createRpcClient(): RpcClient {
-    return createRpcClientAdapter(this.createRpcServer(), this._networkPassphrase);
+    return createRpcClientAdapter(
+      this.createRpcServer(),
+      this._networkPassphrase,
+      async (accountId) => {
+        const account = await this.classic.getAccount(accountId);
+        return { sequence: account.sequence, ledger: account.last_modified_ledger };
+      }
+    );
   }
 
   /**
@@ -330,6 +349,11 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    */
   healthCheck(): Promise<boolean> {
     return this._healthMonitor.healthCheck();
+  }
+
+  /** Return detailed RPC health including the configured and reported network identity. */
+  getHealthResult(): Promise<RpcHealthResult> {
+    return this._healthMonitor.getHealthResult();
   }
 
   /**
@@ -621,24 +645,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     // multi-op transactions apply each op's simulated auth entries manually.
     const results = Array.isArray(simulationResult.result) ? simulationResult.result : [];
 
-    if (results.length !== ops.length) {
-      throw new SimulationError(
-        `Multi-operation simulation result mismatch: expected ${ops.length} auth entries for ${ops.length} operations, got ${results.length}`,
-        undefined,
-        simulationResult.result
-      );
-    }
-
-    for (let i = 0; i < results.length; i += 1) {
-      const result = results[i] as { auth?: unknown } | undefined;
-      if (!result || !Array.isArray(result.auth)) {
-        throw new SimulationError(
-          `Multi-operation simulation result mismatch: missing auth array for operation ${i} (expected ${ops.length} entries total)`,
-          undefined,
-          result
-        );
-      }
-    }
+    const authByOperation = mapMultiOperationAuth(results, ops);
 
     const realBuilder = new TransactionBuilder(sourceAccount, {
       fee: String(Number(simulationResult.minResourceFee || "0") + 100),
@@ -658,12 +665,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
           args: opDef.args,
         })
       );
-      const auth = (results as unknown as Array<{ auth?: xdr.SorobanAuthorizationEntry[] }>)[i]
-        ?.auth;
       realBuilder.addOperation(
         Operation.invokeHostFunction({
           func,
-          auth: auth ?? [],
+          auth: authByOperation[i],
         })
       );
     });
@@ -929,10 +934,23 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     if (!retval) {
       throw new Error("Failed to read contract state");
     }
-    const raw: any = scValToNative(retval);
+    const raw: unknown = scValToNative(retval);
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error("Contract returned an invalid contract state.");
+    }
+    const state = raw as Record<string, unknown>;
+    const version = Number(state.version);
+    const implementationHash = state.implementation_wasm_hash;
+    if (
+      !Number.isSafeInteger(version) ||
+      (implementationHash != null && !(implementationHash instanceof Uint8Array))
+    ) {
+      throw new Error("Contract returned malformed contract state fields.");
+    }
     return {
-      version: Number(raw.version),
-      implementation_wasm_hash: raw.implementation_wasm_hash || null,
+      version,
+      implementation_wasm_hash:
+        implementationHash == null ? null : Buffer.from(implementationHash as Uint8Array),
     };
   }
 
