@@ -23,7 +23,7 @@
     "framer-motion": "^12.42.2",
     "linkora-sdk": "workspace:*",
     "lucide-react": "^1.25.0",
-    "next": "15.5.19",
+    "next": "16.3.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-textarea-autosize": "^8.5.9",
