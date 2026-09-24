@@ -15,6 +15,7 @@ import {
 } from "@stellar/stellar-base";
 import { GeneratedLinkoraClient } from "./generated/client.js";
 import { Profile, Post, Pool, SimulationResult, LedgerFootprint } from "./types.js";
+import { Page, PaginationOptions, fetchPageWithCursor, paginateList } from "./pagination.js";
 import {
   mapError,
   NotFoundError,
@@ -2234,6 +2235,85 @@ export class LinkoraClient extends GeneratedLinkoraClient {
       .build();
 
     return tx.toEnvelope().toXDR("base64");
+  }
+
+  // ── Cursor pagination for list reads (issue #1358) ────────────────────────
+
+  /**
+   * Fetch ONE page of followers behind an opaque cursor (issue #1358).
+   *
+   * @param user The account whose follower list is read.
+   * @param opts `cursor` from a previous page (omit for the first page) and
+   * `pageSize`.
+   * @returns The follower addresses plus the next opaque cursor, if any.
+   *
+   * @example
+   * ```ts
+   * let cursor: string | undefined;
+   * do {
+   *   const page = await client.fetchFollowersPage("GBFOY...", { cursor, pageSize: 100 });
+   *   console.log(page.items);
+   *   cursor = page.nextCursor;
+   * } while (cursor);
+   * ```
+   */
+  async fetchFollowersPage(user: string, opts?: { cursor?: string; pageSize?: number }): Promise<Page<string>> {
+    return fetchPageWithCursor<string>({
+      cursor: opts?.cursor,
+      pageSize: opts?.pageSize,
+      fetchPage: (offset, limit) => this.getFollowers(user, offset, limit),
+    });
+  }
+
+  /** Fetch ONE page of accounts `user` follows, behind an opaque cursor. */
+  async fetchFollowingPage(user: string, opts?: { cursor?: string; pageSize?: number }): Promise<Page<string>> {
+    return fetchPageWithCursor<string>({
+      cursor: opts?.cursor,
+      pageSize: opts?.pageSize,
+      fetchPage: (offset, limit) => this.getFollowing(user, offset, limit),
+    });
+  }
+
+  /** Fetch ONE page of post IDs authored by `author`, behind an opaque cursor. */
+  async fetchPostsByAuthorPage(
+    author: string,
+    opts?: { cursor?: string; pageSize?: number }
+  ): Promise<Page<bigint>> {
+    return fetchPageWithCursor<bigint>({
+      cursor: opts?.cursor,
+      pageSize: opts?.pageSize,
+      fetchPage: (offset, limit) => this.getPostsByAuthor(author, offset, limit),
+    });
+  }
+
+  /**
+   * Iterate every follower of `user`, transparently walking pages behind the
+   * opaque cursor (issue #1358).
+   */
+  async *iterateFollowers(user: string, opts?: PaginationOptions): AsyncGenerator<string, void, unknown> {
+    yield* paginateList<string>({
+      ...opts,
+      cursor: opts?.cursor,
+      fetchPage: (offset, limit) => this.getFollowers(user, offset, limit),
+    });
+  }
+
+  /** Iterate every account `user` follows, transparently walking pages. */
+  async *iterateFollowing(user: string, opts?: PaginationOptions): AsyncGenerator<string, void, unknown> {
+    yield* paginateList<string>({
+      ...opts,
+      cursor: opts?.cursor,
+      fetchPage: (offset, limit) => this.getFollowing(user, offset, limit),
+    });
+  }
+
+  /** Iterate every post ID authored by `author`, transparently walking pages. */
+  async *iteratePostsByAuthor(author: string, opts?: PaginationOptions): AsyncGenerator<bigint, void, unknown> {
+    yield* paginateList<bigint>({
+      ...opts,
+      cursor: opts?.cursor,
+      fetchPage: (offset, limit) => this.getPostsByAuthor(author, offset, limit),
+    });
   }
 
   private async simulateCallOnContract(
