@@ -20,4 +20,5 @@ export * from "./signers/freighter.js";
 export * from "./queue.js";
 export * from "./classic.js";
 export * from "./submit.js";
+export * from "./signed-transaction.js";
 export * from "./state.js";
