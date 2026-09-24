@@ -117,6 +117,7 @@ const POOL_DEPOSIT_COOLDOWN_LEDGERS: u32 = 720;
 const MAX_PAGE_LIMIT: u32 = 50;
 const MAX_OPEN_REPORTS_PER_REPORTER: u32 = 10;
 const MAX_OPEN_PROPOSALS_PER_PROPOSER: u32 = 5;
+const MAX_POOL_ADMINS: u32 = 16;
 const MAX_TIP_TOTAL: i128 = 1_000_000_000_000_000_000; // 10^18 — bound tip_total to limit storage-rent cost
 
 // ── Data Types ────────────────────────────────────────────────────────────────
@@ -1167,8 +1168,12 @@ impl LinkoraContract {
             // Use a generous max_entries since each post's cleanup is small.
             // This must be done inline to avoid leaving orphaned storage
             // that would become unreachable once the author key is removed.
-            Self::cleanup_post_associations(&env, post_id);
-
+            let cleaned =
+                Self::cleanup_post_associations(&env, post_id, max_entries - entries_removed);
+            entries_removed += cleaned;
+            if Self::post_associations_remaining(&env, post_id) {
+                break;
+            }
             author_posts.remove(i);
             entries_removed += 1;
         }
@@ -2307,9 +2312,7 @@ impl LinkoraContract {
             if !env.storage().persistent().has(&like_key) {
                 let post_key = StorageKey::Post(post_id);
                 if let Some(mut post) = env.storage().persistent().get::<_, Post>(&post_key) {
-                    if !Self::is_blocked(env.clone(), post.author.clone(), user.clone())
-                        && !Self::is_blocked(env.clone(), user.clone(), post.author.clone())
-                    {
+                    if !Self::is_either_blocked(&env, &post.author, &user) {
                         let like_idx_key =
                             StorageKey::PostLikersIdx(post_id, post.like_count as u32);
                         post.like_count += 1;
@@ -2478,6 +2481,11 @@ impl LinkoraContract {
             &env,
             threshold <= initial_admins.len(),
             "threshold cannot exceed admin count"
+        );
+        require_with_error!(
+            &env,
+            initial_admins.len() <= MAX_POOL_ADMINS,
+            "admin count exceeds maximum"
         );
 
         // Clone admins for event payload before moving into storage
@@ -2712,6 +2720,11 @@ impl LinkoraContract {
             &env,
             !pool.admins.iter().any(|x| x == new_admin),
             "admin already exists"
+        );
+        require_with_error!(
+            &env,
+            pool.admins.len() < MAX_POOL_ADMINS,
+            "admin count exceeds maximum"
         );
 
         pool.admins.push_back(new_admin.clone());
@@ -3234,7 +3247,10 @@ impl LinkoraContract {
         );
 
         let current_ledger = env.ledger().sequence();
-        let vote_deadline = proposal.created_ledger + proposal.vote_window_ledgers;
+        let vote_deadline = proposal
+            .created_ledger
+            .checked_add(proposal.vote_window_ledgers)
+            .unwrap_or(u32::MAX);
         require_with_error!(&env, current_ledger <= vote_deadline, "vote window closed");
 
         let vote_key = StorageKey::GovVote(proposal_id, voter.clone());
@@ -3343,7 +3359,10 @@ impl LinkoraContract {
         );
 
         let current_ledger = env.ledger().sequence();
-        let vote_end = proposal.created_ledger + proposal.vote_window_ledgers;
+        let vote_end = proposal
+            .created_ledger
+            .checked_add(proposal.vote_window_ledgers)
+            .unwrap_or(u32::MAX);
         let execution_after = vote_end as u64 + proposal.time_lock_ledgers as u64;
         require_with_error!(
             &env,
@@ -3467,8 +3486,13 @@ impl LinkoraContract {
         );
 
         let current_ledger = env.ledger().sequence();
-        let vote_end = proposal.created_ledger + proposal.vote_window_ledgers;
-        let time_lock_end = vote_end + proposal.time_lock_ledgers;
+        let vote_end = proposal
+            .created_ledger
+            .checked_add(proposal.vote_window_ledgers)
+            .unwrap_or(u32::MAX);
+        let time_lock_end = vote_end
+            .checked_add(proposal.time_lock_ledgers)
+            .unwrap_or(u32::MAX);
         require_with_error!(
             &env,
             current_ledger >= vote_end && current_ledger < time_lock_end,
@@ -4549,15 +4573,17 @@ impl LinkoraContract {
     /// entry-by-entry (uses the batch_cleanup_post logic inline).
     /// Called during batch_cleanup_profile to ensure authored posts'
     /// associated data isn't orphaned.
-    fn cleanup_post_associations(env: &Env, post_id: u64) {
+    fn cleanup_post_associations(env: &Env, post_id: u64, max_entries: u32) -> u32 {
+        let mut cleaned = 0;
         // Clean up Likes
         let likes_count_key = StorageKey::PostLikersCount(post_id);
-        let likes_count: u32 = env
+        let mut likes_count: u32 = env
             .storage()
             .persistent()
             .get(&likes_count_key)
             .unwrap_or(0);
-        for i in 0..likes_count {
+        while cleaned < max_entries && likes_count > 0 {
+            let i = likes_count - 1;
             let idx_key = StorageKey::PostLikersIdx(post_id, i);
             if let Some(liker) = env.storage().persistent().get::<_, Address>(&idx_key) {
                 env.storage()
@@ -4565,17 +4591,25 @@ impl LinkoraContract {
                     .remove(&StorageKey::Like(post_id, liker));
             }
             env.storage().persistent().remove(&idx_key);
+            cleaned += 1;
+            likes_count -= 1;
+            env.storage()
+                .persistent()
+                .set(&likes_count_key, &likes_count);
         }
-        env.storage().persistent().remove(&likes_count_key);
+        if likes_count == 0 {
+            env.storage().persistent().remove(&likes_count_key);
+        }
 
         // Clean up Reports
         let reports_count_key = StorageKey::ReportCount(post_id);
-        let reports_count: u32 = env
+        let mut reports_count: u32 = env
             .storage()
             .persistent()
             .get(&reports_count_key)
             .unwrap_or(0);
-        for i in 0..reports_count {
+        while cleaned < max_entries && reports_count > 0 {
+            let i = reports_count - 1;
             let idx_key = StorageKey::PostReportersIdx(post_id, i);
             if let Some(reporter) = env.storage().persistent().get::<_, Address>(&idx_key) {
                 env.storage()
@@ -4583,13 +4617,21 @@ impl LinkoraContract {
                     .remove(&StorageKey::Report(post_id, reporter));
             }
             env.storage().persistent().remove(&idx_key);
+            cleaned += 1;
+            reports_count -= 1;
+            env.storage()
+                .persistent()
+                .set(&reports_count_key, &reports_count);
         }
-        env.storage().persistent().remove(&reports_count_key);
+        if reports_count == 0 {
+            env.storage().persistent().remove(&reports_count_key);
+        }
 
         // Clean up Tip Cooldowns
         let tc_count_key = StorageKey::PostTipCooldownsCount(post_id);
-        let tc_count: u32 = env.storage().persistent().get(&tc_count_key).unwrap_or(0);
-        for i in 0..tc_count {
+        let mut tc_count: u32 = env.storage().persistent().get(&tc_count_key).unwrap_or(0);
+        while cleaned < max_entries && tc_count > 0 {
+            let i = tc_count - 1;
             let idx_key = StorageKey::PostTipCooldownsIdx(post_id, i);
             if let Some(tipper) = env.storage().persistent().get::<_, Address>(&idx_key) {
                 env.storage()
@@ -4597,8 +4639,34 @@ impl LinkoraContract {
                     .remove(&StorageKey::TipCooldown(post_id, tipper));
             }
             env.storage().persistent().remove(&idx_key);
+            cleaned += 1;
+            tc_count -= 1;
+            env.storage().persistent().set(&tc_count_key, &tc_count);
         }
-        env.storage().persistent().remove(&tc_count_key);
+        if tc_count == 0 {
+            env.storage().persistent().remove(&tc_count_key);
+        }
+        cleaned
+    }
+
+    fn post_associations_remaining(env: &Env, post_id: u64) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, u32>(&StorageKey::PostLikersCount(post_id))
+            .unwrap_or(0)
+            > 0
+            || env
+                .storage()
+                .persistent()
+                .get::<_, u32>(&StorageKey::ReportCount(post_id))
+                .unwrap_or(0)
+                > 0
+            || env
+                .storage()
+                .persistent()
+                .get::<_, u32>(&StorageKey::PostTipCooldownsCount(post_id))
+                .unwrap_or(0)
+                > 0
     }
 
     // ── Adjacency-set helpers (ADR-001) ───────────────────────────────────
