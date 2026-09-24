@@ -18,6 +18,55 @@ fn setup_token(env: &Env, admin: &Address) -> Address {
     token_id.address()
 }
 
+#[contracttype]
+#[derive(Clone)]
+enum FeeTokenKey {
+    Balance(Address),
+}
+
+#[contract]
+struct FeeToken;
+
+#[contractimpl]
+impl FeeToken {
+    pub fn mint(env: Env, to: Address, amount: i128) {
+        let key = FeeTokenKey::Balance(to);
+        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(balance + amount));
+    }
+
+    pub fn decimals() -> u32 {
+        7
+    }
+
+    pub fn balance(env: Env, id: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&FeeTokenKey::Balance(id))
+            .unwrap_or(0)
+    }
+
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        from.require_auth();
+        let from_key = FeeTokenKey::Balance(from.clone());
+        let to_key = FeeTokenKey::Balance(to);
+        let from_balance: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
+        assert!(from_balance >= amount);
+        let to_balance: i128 = env.storage().persistent().get(&to_key).unwrap_or(0);
+        let received = if from == env.current_contract_address() {
+            amount
+        } else {
+            amount - amount / 10
+        };
+        env.storage()
+            .persistent()
+            .set(&from_key, &(from_balance - amount));
+        env.storage()
+            .persistent()
+            .set(&to_key, &(to_balance + received));
+    }
+}
+
 pub fn setup_contract(env: &Env) -> (LinkoraContractClient<'_>, Address, Address) {
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(env, &contract_id);
@@ -7307,6 +7356,124 @@ fn pay_rent_rejects_mismatched_token() {
     client.set_profile(&user, &String::from_str(&env, "alice"), &creator_token);
 
     client.pay_rent(&user, &other_token, &1_000_000_000i128);
+}
+
+#[test]
+fn rent_key_pages_respect_the_per_call_budget() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    let user = Address::generate(&env);
+    let contract_id = client.address.clone();
+    env.as_contract(&contract_id, || {
+        env.storage()
+            .persistent()
+            .set(&StorageKey::FollowingCount(user.clone()), &100u32);
+    });
+    for sequence in 0..100u32 {
+        env.as_contract(&contract_id, || {
+            let followee = Address::generate(&env);
+            env.storage()
+                .persistent()
+                .set(&StorageKey::FollowingIdx(user.clone(), sequence), &followee);
+            env.storage().persistent().set(
+                &StorageKey::FollowingPos(user.clone(), followee.clone()),
+                &sequence,
+            );
+            env.storage()
+                .persistent()
+                .set(&StorageKey::Edge(user.clone(), followee), &true);
+        });
+    }
+
+    env.as_contract(&contract_id, || {
+        let (first, next) = LinkoraContract::get_user_keys_page(&env, &user, 0);
+        assert!(first.len() <= MAX_RENT_KEYS_PER_CALL);
+        assert!(next.is_some());
+
+        let (second, _) = LinkoraContract::get_user_keys_page(&env, &user, next.unwrap());
+        assert!(second.len() <= MAX_RENT_KEYS_PER_CALL);
+    });
+}
+
+#[test]
+fn migrate_follow_graph_skips_self_and_blocked_legacy_edges() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    let alice = Address::generate(&env);
+    let blocked = Address::generate(&env);
+    let allowed = Address::generate(&env);
+    let contract_id = client.address.clone();
+
+    env.as_contract(&contract_id, || {
+        env.storage().persistent().set(
+            &StorageKey::Following(alice.clone()),
+            &vec![&env, alice.clone(), blocked.clone(), allowed.clone()],
+        );
+    });
+    client.block_user(&blocked, &alice);
+    client.migrate_follow_graph(&admin, &vec![&env, alice.clone()]);
+
+    let following = client.get_following(&alice, &0, &50);
+    assert_eq!(following, vec![&env, allowed]);
+}
+
+#[test]
+fn emergency_pause_blocks_previously_unguarded_mutations() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    let user = Address::generate(&env);
+    let token = Address::generate(&env);
+    let pool_id = symbol_short!("pool");
+    let hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.grant_role(&admin, &admin, &Role::Pauser);
+    client.pause(&admin);
+
+    assert!(client.try_delete_profile(&user).is_err());
+    assert!(client
+        .try_verify_credential(&user, &Vec::new(&env), &hash, &hash)
+        .is_err());
+    assert!(client
+        .try_pool_deposit(&user, &pool_id, &token, &1)
+        .is_err());
+    assert!(client
+        .try_pool_withdraw(&vec![&env, admin], &pool_id, &1, &user)
+        .is_err());
+    assert!(client.try_pay_rent(&user, &token, &1).is_err());
+    assert!(client
+        .try_report_post(&user, &1, &token, &1, &hash)
+        .is_err());
+}
+
+#[test]
+fn report_post_rejects_fee_on_transfer_stakes_without_stranding_funds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+    let reporter = Address::generate(&env);
+    let token = env.register(FeeToken, ());
+    let fee_token = FeeTokenClient::new(&env, &token);
+    let stake = 1_000i128;
+
+    client.set_profile(&author, &String::from_str(&env, "author"), &token);
+    let post_id = client.create_post(&author, &String::from_str(&env, "post"));
+    fee_token.mint(&reporter, &stake);
+    let contract_balance_before = fee_token.balance(&client.address);
+
+    client.report_post(
+        &reporter,
+        &post_id,
+        &token,
+        &stake,
+        &BytesN::from_array(&env, &[7u8; 32]),
+    );
+    assert_eq!(fee_token.balance(&client.address), contract_balance_before);
+    assert_eq!(fee_token.balance(&reporter), 810);
+    assert!(client.get_report(&post_id, &reporter).is_none());
+    assert_eq!(client.get_report_count(&post_id), 0);
 }
 
 // ── Lazy Cleanup Tests ────────────────────────────────────────────────────────
