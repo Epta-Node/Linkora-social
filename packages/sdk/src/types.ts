@@ -48,6 +48,12 @@ export interface SimulationResult {
   success: boolean;
   resourceFee: string;
   footprint?: LedgerFootprint;
+  /**
+   * Base-64 XDR of the soroban transaction data the assembled submit
+   * artifact carries (issue #1356). The submit path reuses this data
+   * identically, so a caller can assert dry-run/submit parity from it.
+   */
+  sorobanData?: string;
   error?: string;
   eventLog?: unknown;
 }

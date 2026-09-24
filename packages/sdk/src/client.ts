@@ -424,59 +424,115 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * }
    * ```
    */
-  async simulate(method: string, ...args: xdr.ScVal[]): Promise<SimulationResult> {
-    const server = this._rpcServer;
-    const contract = new Contract(this._contractId);
-    const buildOp = () => contract.call(method, ...args);
+  async simulate(method: string, ...args: Array<xdr.ScVal | Account>): Promise<SimulationResult> {
+    // Issue #1356: the trailing argument may optionally be the real source
+    // `Account`, so the reported footprint/soroban-data is derived from the
+    // SAME pipeline the submit path uses (and therefore matches it exactly).
+    const rest: unknown[] = [...args];
+    let sourceAccount: Account | undefined;
+    if (rest.length > 0 && rest[rest.length - 1] instanceof Account) {
+      sourceAccount = rest.pop() as Account;
+    }
+    if (!sourceAccount) {
+      const source = Keypair.random();
+      sourceAccount = new Account(source.publicKey(), "0");
+    }
 
-    const source = Keypair.random();
-    const account = new Account(source.publicKey(), "0");
-    const tx = new TransactionBuilder(account, {
+    const scValArgs = rest as xdr.ScVal[];
+    const { simulation } = await this.simulateInvocationOnContract(
+      method,
+      this._contractId,
+      sourceAccount,
+      scValArgs
+    );
+
+    // Footprint and soroban transaction data are extracted by the ONE shared
+    // pipeline (issue #1356) — the same artifact the submit path signs and
+    // sends, so a dry-run cannot diverge from the real submission.
+    const resourceFee = simulation.minResourceFee || "0";
+    const { footprint, sorobanData } = this.extractSorobanArtifacts(simulation);
+
+    return { success: true, resourceFee, footprint, sorobanData };
+  }
+
+  /**
+   * Shared footprint/soroban-data pipeline (issue #1356).
+   *
+   * Builds the invocation transaction ONCE, runs the simulation through the
+   * RPC server, and assembles the submit-ready transaction from the
+   * simulation (resource fees + soroban transaction data + auth entries).
+   * Both the dry-run reporter (`simulate`) and the submission path
+   * (`prepareTransaction`, whose output is what gets signed and submitted)
+   * MUST use this single pipeline so a simulation cannot diverge from the
+   * real submission on footprint entry count or data amount.
+   */
+  private async simulateInvocationOnContract(
+    method: string,
+    contractId: string,
+    sourceAccount: Account,
+    args: xdr.ScVal[]
+  ): Promise<{ simulation: rpc.Api.SimulateTransactionResponse; assembled: Transaction }> {
+    const server = this.createRpcServer();
+    const contract = new Contract(contractId);
+
+    const rawTx = new TransactionBuilder(sourceAccount, {
       fee: "100",
       networkPassphrase: this._networkPassphrase,
     })
-      .addOperation(buildOp())
+      .addOperation(contract.call(method, ...args))
       .setTimeout(DEFAULT_TIMEOUT)
       .build();
 
-    const result = await server.simulateTransaction(tx);
+    const simulation = await server.simulateTransaction(rawTx);
 
-    if (isSimulationError(result)) {
+    if (isSimulationError(simulation)) {
       throw new SimulationError(
-        `Transaction simulation failed: ${result.error}`,
-        result.events,
-        result.error
+        `Transaction simulation failed: ${simulation.error}`,
+        simulation.events,
+        simulation.error
       );
     }
 
-    if (!isSimulationSuccess(result) || !result.result) {
-      throw new SimulationError("Unknown simulation error", undefined, result);
+    if (!isSimulationSuccess(simulation) || !simulation.result) {
+      throw new SimulationError("Unknown simulation error", undefined, simulation);
     }
 
-    const resourceFee = result.minResourceFee || "0";
+    // assembleTransaction applies resource fees, soroban transaction data and
+    // the auth entries produced by simulation (required by require_auth()).
+    const assembled = rpc.assembleTransaction(rawTx, simulation).build() as Transaction;
 
+    return { simulation, assembled };
+  }
+
+  /**
+   * Shared extraction of the ledger footprint and soroban transaction data
+   * from a simulation result — the single source both the dry-run report and
+   * the submit path read from (issue #1356).
+   */
+  private extractSorobanArtifacts(simulation: rpc.Api.SimulateTransactionResponse): {
+    footprint: LedgerFootprint;
+    sorobanData?: string;
+  } {
     let footprint: LedgerFootprint = { readOnly: [], readWrite: [] };
-    if (result.transactionData) {
+    let sorobanData: string | undefined;
+
+    if (simulation.transactionData) {
       try {
-        const built = result.transactionData.build();
+        const built = simulation.transactionData.build();
+        const fp = built.resources().footprint();
         footprint = {
-          readOnly: built
-            .resources()
-            .footprint()
-            .readOnly()
-            .map((e: unknown) => JSON.stringify(e)),
-          readWrite: built
-            .resources()
-            .footprint()
-            .readWrite()
-            .map((e: unknown) => JSON.stringify(e)),
+          readOnly: fp.readOnly().map((e: unknown) => JSON.stringify(e)),
+          readWrite: fp.readWrite().map((e: unknown) => JSON.stringify(e)),
         };
+        // The assembled submit artifact carries exactly this soroban
+        // transaction data, so reporting it lets callers assert parity.
+        sorobanData = built.toXDR("base64");
       } catch {
         // Keep empty footprint if structure extraction fails
       }
     }
 
-    return { success: true, resourceFee, footprint };
+    return { footprint, sorobanData };
   }
 
   /**
@@ -531,38 +587,16 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     sourceAccount: Account,
     ...args: xdr.ScVal[]
   ): Promise<Transaction> {
-    const server = this.createRpcServer();
-    const contract = new Contract(contractId);
-
-    const rawTx = new TransactionBuilder(sourceAccount, {
-      fee: "100",
-      networkPassphrase: this._networkPassphrase,
-    })
-      .addOperation(contract.call(method, ...args))
-      .setTimeout(DEFAULT_TIMEOUT)
-      .build();
-
-    const simulationResult = await server.simulateTransaction(rawTx);
-
-    if (isSimulationError(simulationResult)) {
-      throw new SimulationError(
-        `Transaction preparation failed: ${simulationResult.error}`,
-        simulationResult.events,
-        simulationResult.error
-      );
-    }
-
-    if (!isSimulationSuccess(simulationResult) || !simulationResult.result) {
-      throw new SimulationError(
-        "Unknown simulation error during transaction preparation",
-        undefined,
-        simulationResult
-      );
-    }
-
-    // assembleTransaction applies resource fees, soroban transaction data and
-    // the auth entries produced by simulation (required by require_auth()).
-    return rpc.assembleTransaction(rawTx, simulationResult).build() as Transaction;
+    // Issue #1356: route preparation through the ONE shared
+    // simulate-and-assemble pipeline so the submitted transaction carries
+    // exactly the footprint/soroban-data the simulation reported.
+    const { assembled } = await this.simulateInvocationOnContract(
+      method,
+      contractId,
+      sourceAccount,
+      args
+    );
+    return assembled;
   }
 
   /**
