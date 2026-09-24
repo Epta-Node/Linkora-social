@@ -18,6 +18,55 @@ fn setup_token(env: &Env, admin: &Address) -> Address {
     token_id.address()
 }
 
+#[contracttype]
+#[derive(Clone)]
+enum FeeTokenKey {
+    Balance(Address),
+}
+
+#[contract]
+struct FeeToken;
+
+#[contractimpl]
+impl FeeToken {
+    pub fn mint(env: Env, to: Address, amount: i128) {
+        let key = FeeTokenKey::Balance(to);
+        let balance: i128 = env.storage().persistent().get(&key).unwrap_or(0);
+        env.storage().persistent().set(&key, &(balance + amount));
+    }
+
+    pub fn decimals() -> u32 {
+        7
+    }
+
+    pub fn balance(env: Env, id: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&FeeTokenKey::Balance(id))
+            .unwrap_or(0)
+    }
+
+    pub fn transfer(env: Env, from: Address, to: Address, amount: i128) {
+        from.require_auth();
+        let from_key = FeeTokenKey::Balance(from.clone());
+        let to_key = FeeTokenKey::Balance(to);
+        let from_balance: i128 = env.storage().persistent().get(&from_key).unwrap_or(0);
+        assert!(from_balance >= amount);
+        let to_balance: i128 = env.storage().persistent().get(&to_key).unwrap_or(0);
+        let received = if from == env.current_contract_address() {
+            amount
+        } else {
+            amount - amount / 10
+        };
+        env.storage()
+            .persistent()
+            .set(&from_key, &(from_balance - amount));
+        env.storage()
+            .persistent()
+            .set(&to_key, &(to_balance + received));
+    }
+}
+
 pub fn setup_contract(env: &Env) -> (LinkoraContractClient<'_>, Address, Address) {
     let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(env, &contract_id);

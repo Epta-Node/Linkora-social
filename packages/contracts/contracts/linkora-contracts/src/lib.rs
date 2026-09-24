@@ -71,6 +71,7 @@ pub enum StorageKey {
     PostTipCooldownsCount(u64),    // persistent: post_id -> u32
     PostTipCooldownsIdx(u64, u32), // persistent: (post_id, seq) -> Address
     UpgradeProposal,               // instance: staged WASM upgrade proposal
+    RentContinuation(Address),     // temporary: paid rent pagination state for a user
 }
 
 // ── Instance-storage key constants (small scalars, not contracttype) ──────────
@@ -101,6 +102,10 @@ const UPGRADE_TIMELOCK_LEDGERS: u32 = 17_280; // approximately one day at 5s/led
 
 const LEDGER_BUMP: u32 = 535_000;
 const LEDGER_THRESHOLD: u32 = 535_000 - 100;
+/// Maximum number of persistent keys extended by one rent call.
+const MAX_RENT_KEYS_PER_CALL: u32 = 50;
+/// Maximum graph index positions inspected while building one rent page.
+const MAX_RENT_GRAPH_SCANS_PER_CALL: u32 = 15;
 
 // ── Tip Cooldown ──────────────────────────────────────────────────────────────
 //
@@ -248,6 +253,14 @@ pub struct Report {
     pub reason_hash: BytesN<32>,
     pub created_ledger: u32,
     pub status: ReportStatus,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RentContinuation {
+    pub token: Address,
+    pub target_ttl: u32,
+    pub next_cursor: u32,
 }
 
 // ── Events ────────────────────────────────────────────────────────────────────
@@ -963,6 +976,7 @@ impl LinkoraContract {
     /// * Panics if profile does not exist
     pub fn delete_profile(env: Env, user: Address) {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         user.require_auth();
         validate_non_default_address(&env, "user", &user);
         let key = StorageKey::Profile(user.clone());
@@ -1312,6 +1326,7 @@ impl LinkoraContract {
         nullifier: BytesN<32>,
     ) -> bool {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         validate_non_default_address(&env, "user", &user);
 
         let root_key = StorageKey::CredentialRoot(user.clone());
@@ -1694,6 +1709,7 @@ impl LinkoraContract {
     /// users per call. Idempotent: already-migrated edges are skipped.
     pub fn migrate_follow_graph(env: Env, admin: Address, users: Vec<Address>) {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
@@ -1719,6 +1735,10 @@ impl LinkoraContract {
                 .get::<_, Vec<Address>>(&following_key)
             {
                 for followee in following_list.iter() {
+                    if user == followee || Self::is_either_blocked(&env, &user, &followee) {
+                        Self::cleanup_follow_on_block(&env, &user, &followee);
+                        continue;
+                    }
                     let edge_key = StorageKey::Edge(user.clone(), followee.clone());
                     if !env.storage().persistent().has(&edge_key) {
                         // Write edge
@@ -1773,6 +1793,10 @@ impl LinkoraContract {
                 .get::<_, Vec<Address>>(&followers_key)
             {
                 for follower in followers_list.iter() {
+                    if follower == user || Self::is_either_blocked(&env, &follower, &user) {
+                        Self::cleanup_follow_on_block(&env, &follower, &user);
+                        continue;
+                    }
                     let edge_key = StorageKey::Edge(follower.clone(), user.clone());
                     if !env.storage().persistent().has(&edge_key) {
                         // Write edge
@@ -2503,6 +2527,7 @@ impl LinkoraContract {
         threshold: u32,
     ) {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
         validate_non_default_address(&env, "token", &token);
@@ -2564,6 +2589,7 @@ impl LinkoraContract {
         amount: i128,
     ) {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         validate_non_default_address(&env, "depositor", &depositor);
         validate_non_default_address(&env, "token", &token);
         validate_amount(&env, "deposit amount", amount);
@@ -2632,6 +2658,7 @@ impl LinkoraContract {
         recipient: Address,
     ) {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         validate_address_list(&env, "signers", &signers);
         validate_unique_signers(&env, "signers", &signers);
         validate_non_default_address(&env, "recipient", &recipient);
@@ -3835,8 +3862,9 @@ impl LinkoraContract {
     /// * Panics if rent rate is not configured
     /// * Panics if amount is too small for any extension
     /// * Panics if treasury is not set
-    pub fn pay_rent(env: Env, user: Address, token: Address, amount: i128) {
+    pub fn pay_rent(env: Env, user: Address, token: Address, amount: i128) -> Option<u32> {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         user.require_auth();
         validate_non_default_address(&env, "user", &user);
         validate_non_default_address(&env, "token", &token);
@@ -3907,6 +3935,41 @@ impl LinkoraContract {
             extended_to_ledger,
         }
         .publish(&env);
+
+        next_cursor
+    }
+
+    /// Continues a previously paid rent extension, processing at most
+    /// [`MAX_RENT_KEYS_PER_CALL`] more keys. No additional token payment is
+    /// collected. Returns the next cursor, or `None` when all keys are done.
+    pub fn continue_pay_rent(env: Env, user: Address) -> Option<u32> {
+        Self::bump_instance(&env);
+        Self::require_not_paused(&env);
+        user.require_auth();
+        validate_non_default_address(&env, "user", &user);
+
+        let continuation_key = StorageKey::RentContinuation(user.clone());
+        let mut continuation: RentContinuation = env
+            .storage()
+            .temporary()
+            .get(&continuation_key)
+            .expect("no rent continuation");
+        let next_cursor = Self::extend_user_keys_page(
+            &env,
+            &user,
+            continuation.next_cursor,
+            continuation.target_ttl,
+        );
+        if let Some(cursor) = next_cursor {
+            continuation.next_cursor = cursor;
+            env.storage()
+                .temporary()
+                .set(&continuation_key, &continuation);
+            Self::bump_temp(&env, &continuation_key);
+        } else {
+            env.storage().temporary().remove(&continuation_key);
+        }
+        next_cursor
     }
 
     /// Reports a post for moderation. The reporter must stake tokens as
@@ -3933,6 +3996,7 @@ impl LinkoraContract {
         reason_hash: BytesN<32>,
     ) {
         Self::bump_instance(&env);
+        Self::require_not_paused(&env);
         reporter.require_auth();
         validate_non_default_address(&env, "reporter", &reporter);
         validate_non_default_address(&env, "token", &token);
@@ -3966,11 +4030,18 @@ impl LinkoraContract {
         );
 
         assert!(stake_amount > 0, "stake amount must be positive");
-        token::Client::new(&env, &token).transfer(
-            &reporter,
-            env.current_contract_address(),
-            &stake_amount,
-        );
+        let token_client = token::Client::new(&env, &token);
+        let contract = env.current_contract_address();
+        let balance_before = token_client.balance(&contract);
+        token_client.transfer(&reporter, &contract, &stake_amount);
+        let balance_after = token_client.balance(&contract);
+        let actual_received = balance_after.saturating_sub(balance_before);
+        if actual_received != stake_amount {
+            if actual_received > 0 {
+                token_client.transfer(&contract, &reporter, &actual_received);
+            }
+            return;
+        }
 
         let count_key = StorageKey::ReportCount(post_id);
         let count: u32 = env.storage().persistent().get(&count_key).unwrap_or(0);
@@ -4080,7 +4151,7 @@ impl LinkoraContract {
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
         validate_non_default_address(&env, "user", &user);
-        let keys = Self::get_user_keys(&env, &user);
+        let (keys, _) = Self::get_user_keys_page(&env, &user, 0);
         let mut bumped = 0;
         for key in keys.iter() {
             if bumped >= 50 {
@@ -4102,92 +4173,121 @@ impl LinkoraContract {
         bumped
     }
 
-    fn get_user_keys(env: &Env, user: &Address) -> Vec<StorageKey> {
+    fn extend_user_keys_page(
+        env: &Env,
+        user: &Address,
+        cursor: u32,
+        target_ttl: u32,
+    ) -> Option<u32> {
+        let (keys, next_cursor) = Self::get_user_keys_page(env, user, cursor);
+        for key in keys.iter() {
+            if env.storage().persistent().has(&key) {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&key, target_ttl, target_ttl);
+            }
+        }
+        next_cursor
+    }
+
+    /// Returns at most [`MAX_RENT_KEYS_PER_CALL`] keys and a graph cursor for
+    /// the next page. A call inspects at most
+    /// [`MAX_RENT_GRAPH_SCANS_PER_CALL`] graph positions even when entries are
+    /// missing, keeping work bounded for sparse or partially expired indexes.
+    fn get_user_keys_page(
+        env: &Env,
+        user: &Address,
+        cursor: u32,
+    ) -> (Vec<StorageKey>, Option<u32>) {
         let mut keys = Vec::new(env);
 
-        let profile_key = StorageKey::Profile(user.clone());
-        if env.storage().persistent().has(&profile_key) {
-            keys.push_back(profile_key.clone());
-            if let Some(profile) = env.storage().persistent().get::<_, Profile>(&profile_key) {
-                let username_key = StorageKey::UsernameIndex(profile.username);
-                if env.storage().persistent().has(&username_key) {
-                    keys.push_back(username_key);
+        // Fixed-size keys are included only on the first page.
+        if cursor == 0 {
+            let profile_key = StorageKey::Profile(user.clone());
+            if env.storage().persistent().has(&profile_key) {
+                keys.push_back(profile_key.clone());
+                if let Some(profile) = env.storage().persistent().get::<_, Profile>(&profile_key) {
+                    let username_key = StorageKey::UsernameIndex(profile.username);
+                    if env.storage().persistent().has(&username_key) {
+                        keys.push_back(username_key);
+                    }
+                }
+            }
+
+            let fixed_keys = [
+                StorageKey::AuthorPosts(user.clone()),
+                StorageKey::Blocks(user.clone()),
+                StorageKey::BlockedBy(user.clone()),
+                StorageKey::FollowingCount(user.clone()),
+                StorageKey::FollowersCount(user.clone()),
+            ];
+            for key in fixed_keys {
+                if env.storage().persistent().has(&key) {
+                    keys.push_back(key);
                 }
             }
         }
 
-        let author_posts_key = StorageKey::AuthorPosts(user.clone());
-        if env.storage().persistent().has(&author_posts_key) {
-            keys.push_back(author_posts_key);
-        }
+        let following_count = env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&StorageKey::FollowingCount(user.clone()))
+            .unwrap_or(0);
+        let followers_count = env
+            .storage()
+            .persistent()
+            .get::<_, u32>(&StorageKey::FollowersCount(user.clone()))
+            .unwrap_or(0);
+        let total_positions = following_count.saturating_add(followers_count);
+        let mut position = cursor;
+        let mut scanned = 0u32;
 
-        let blocks_key = StorageKey::Blocks(user.clone());
-        if env.storage().persistent().has(&blocks_key) {
-            keys.push_back(blocks_key);
-        }
-
-        let blocked_by_key = StorageKey::BlockedBy(user.clone());
-        if env.storage().persistent().has(&blocked_by_key) {
-            keys.push_back(blocked_by_key);
-        }
-
-        let following_count_key = StorageKey::FollowingCount(user.clone());
-        let mut following_count = 0;
-        if env.storage().persistent().has(&following_count_key) {
-            keys.push_back(following_count_key.clone());
-            following_count = env
-                .storage()
-                .persistent()
-                .get::<_, u32>(&following_count_key)
-                .unwrap_or(0);
-        }
-
-        let followers_count_key = StorageKey::FollowersCount(user.clone());
-        let mut followers_count = 0;
-        if env.storage().persistent().has(&followers_count_key) {
-            keys.push_back(followers_count_key.clone());
-            followers_count = env
-                .storage()
-                .persistent()
-                .get::<_, u32>(&followers_count_key)
-                .unwrap_or(0);
-        }
-
-        for seq in 0..following_count {
-            let idx_key = StorageKey::FollowingIdx(user.clone(), seq);
+        // Each graph position contributes at most three keys. Stop before a
+        // position when fewer than three slots remain so no relation is split
+        // across pages.
+        while position < total_positions
+            && scanned < MAX_RENT_GRAPH_SCANS_PER_CALL
+            && keys.len() <= MAX_RENT_KEYS_PER_CALL.saturating_sub(3)
+        {
+            let (idx_key, is_following) = if position < following_count {
+                (StorageKey::FollowingIdx(user.clone(), position), true)
+            } else {
+                (
+                    StorageKey::FollowersIdx(user.clone(), position - following_count),
+                    false,
+                )
+            };
             if env.storage().persistent().has(&idx_key) {
                 keys.push_back(idx_key.clone());
-                if let Some(followee) = env.storage().persistent().get::<_, Address>(&idx_key) {
-                    let pos_key = StorageKey::FollowingPos(user.clone(), followee.clone());
+                if let Some(other) = env.storage().persistent().get::<_, Address>(&idx_key) {
+                    let pos_key = if is_following {
+                        StorageKey::FollowingPos(user.clone(), other.clone())
+                    } else {
+                        StorageKey::FollowersPos(user.clone(), other.clone())
+                    };
                     if env.storage().persistent().has(&pos_key) {
                         keys.push_back(pos_key);
                     }
-                    let edge_key = StorageKey::Edge(user.clone(), followee);
+                    let edge_key = if is_following {
+                        StorageKey::Edge(user.clone(), other)
+                    } else {
+                        StorageKey::Edge(other, user.clone())
+                    };
                     if env.storage().persistent().has(&edge_key) {
                         keys.push_back(edge_key);
                     }
                 }
             }
+            position += 1;
+            scanned += 1;
         }
 
-        for seq in 0..followers_count {
-            let idx_key = StorageKey::FollowersIdx(user.clone(), seq);
-            if env.storage().persistent().has(&idx_key) {
-                keys.push_back(idx_key.clone());
-                if let Some(follower) = env.storage().persistent().get::<_, Address>(&idx_key) {
-                    let pos_key = StorageKey::FollowersPos(user.clone(), follower.clone());
-                    if env.storage().persistent().has(&pos_key) {
-                        keys.push_back(pos_key);
-                    }
-                    let edge_key = StorageKey::Edge(follower, user.clone());
-                    if env.storage().persistent().has(&edge_key) {
-                        keys.push_back(edge_key);
-                    }
-                }
-            }
-        }
-
-        keys
+        let next_cursor = if position < total_positions {
+            Some(position)
+        } else {
+            None
+        };
+        (keys, next_cursor)
     }
 
     /// Reviews a pending report with a moderator verdict.
