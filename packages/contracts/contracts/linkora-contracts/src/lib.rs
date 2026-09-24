@@ -3784,7 +3784,10 @@ impl LinkoraContract {
         }
 
         let divisor = (rent_rate_bps as i128) * base;
-        let ledgers_to_extend = (amount * 10_000) / divisor;
+        let scaled_amount = amount.checked_mul(10_000).unwrap_or_else(|| {
+            env.panic_with_error(ContractError::MathOverflow)
+        });
+        let ledgers_to_extend = scaled_amount / divisor;
         require_with_error!(
             &env,
             ledgers_to_extend > 0,

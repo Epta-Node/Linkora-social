@@ -7309,6 +7309,24 @@ fn pay_rent_rejects_mismatched_token() {
     client.pay_rent(&user, &other_token, &1_000_000_000i128);
 }
 
+#[test]
+#[should_panic(expected = "Error(Contract, #143)")]
+fn pay_rent_rejects_max_size_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_contract(&env);
+    client.set_rent_rate_bps(&admin, &100);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    // Max allowed amount by validation, but it will overflow when * 10000
+    let max_amount = 1_000_000_000_000_000_000_000_000_000_000_000_000i128;
+    client.pay_rent(&user, &token, &max_amount);
+}
+
 // ── Lazy Cleanup Tests ────────────────────────────────────────────────────────
 
 #[test]
