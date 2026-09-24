@@ -1,0 +1,4 @@
+{
+  "$comment": "Budget for the gzipped size of the SDK's reachable source graph, walked from packages/sdk/src/index.ts (see src/__tests__/bundle-size.test.ts, Epta-Node#1364). Measured at introduction: ~57 KiB. Raise only with justification in the PR.",
+  "budgetKbGzip": 80
+}

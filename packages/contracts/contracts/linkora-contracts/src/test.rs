@@ -2344,6 +2344,52 @@ fn test_set_treasury_emits_treasury_updated_event() {
     assert_ne!(client.get_treasury(), Some(old_treasury));
 }
 
+// ── Spurious EmergencyBypassEvent regression tests (issue #1373) ─────────────
+
+#[test]
+fn test_set_fee_emits_exactly_one_event_no_bypass() {
+    // Issue #1373: set_fee is a routine admin setter — it must emit exactly
+    // one event (FeeUpdatedEvent) and never a spurious EmergencyBypassEvent.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let events_before = env.events().all().events().len();
+    client.set_fee(&admin, &750);
+    let events_after = env.events().all().events().len();
+
+    assert_eq!(client.get_fee_bps(), 750);
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "set_fee must emit exactly one event — a second event would be the \
+         spurious EmergencyBypassEvent (issue #1373)"
+    );
+}
+
+#[test]
+fn test_set_treasury_emits_exactly_one_event_no_bypass() {
+    // Issue #1373: set_treasury is a routine admin setter — it must emit
+    // exactly one event (TreasuryUpdatedEvent) and never a spurious
+    // EmergencyBypassEvent.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let events_before = env.events().all().events().len();
+    let new_treasury = Address::generate(&env);
+    client.set_treasury(&admin, &new_treasury);
+    let events_after = env.events().all().events().len();
+
+    assert_eq!(client.get_treasury(), Some(new_treasury));
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "set_treasury must emit exactly one event — a second event would be \
+         the spurious EmergencyBypassEvent (issue #1373)"
+    );
+}
+
 #[test]
 #[should_panic]
 fn test_set_fee_non_admin_panics() {
@@ -6505,9 +6551,10 @@ fn test_register_oracle_update_key() {
         &600u64,
     ));
 
-    // Rotate to a new key.
+    // Rotate to a new key via the explicit rotation entrypoint (issue #1245).
     let new_key = oracle_signing_key(2);
-    register_oracle(&client, &admin, &symbol_short!("analytics"), &new_key, &env);
+    let new_pubkey = oracle_pubkey(&env, &new_key);
+    client.rotate_oracle(&admin, &symbol_short!("analytics"), &new_pubkey);
 
     // Old signature must now fail — sign a different report so nullifier does
     // not collide, then try the old key's signature on the new report.
@@ -6536,6 +6583,128 @@ fn test_register_oracle_update_key() {
         );
     }));
     assert!(result2.is_err(), "old key must not verify after rotation");
+}
+
+#[test]
+#[should_panic(expected = "oracle already registered; use rotate_oracle")]
+fn test_register_oracle_existing_name_panics() {
+    // Issue #1245: re-registering an existing name must not silently
+    // overwrite the oracle key — rotation is explicit.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let first = oracle_signing_key(1);
+    let first_pubkey = oracle_pubkey(&env, &first);
+    client.register_oracle(&admin, &symbol_short!("analytics"), &first_pubkey);
+
+    let second = oracle_signing_key(2);
+    let second_pubkey = oracle_pubkey(&env, &second);
+    client.register_oracle(&admin, &symbol_short!("analytics"), &second_pubkey);
+}
+
+#[test]
+fn test_rotate_oracle_replaces_key_and_emits_rotation_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    env.ledger().set_timestamp(500);
+
+    let old_key = oracle_signing_key(1);
+    let old_pubkey = oracle_pubkey(&env, &old_key);
+    client.register_oracle(&admin, &symbol_short!("analytics"), &old_pubkey);
+
+    let events_before = env.events().all().events().len();
+
+    let new_key = oracle_signing_key(2);
+    let new_pubkey = oracle_pubkey(&env, &new_key);
+    client.rotate_oracle(&admin, &symbol_short!("analytics"), &new_pubkey);
+
+    // Exactly one event is emitted by rotate_oracle: OracleRotatedEvent.
+    let events_after = env.events().all().events().len();
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "rotate_oracle must emit exactly one event (OracleRotatedEvent)"
+    );
+
+    // The stored key is the new pubkey (old key is retired).
+    let contract_id = client.address.clone();
+    env.as_contract(&contract_id, || {
+        let stored: soroban_sdk::BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::OracleKey(symbol_short!("analytics")))
+            .expect("oracle key must exist after rotation");
+        assert_eq!(stored, new_pubkey);
+        assert_ne!(stored, old_pubkey);
+    });
+
+    // Rotation works end-to-end: the new key verifies a fresh attestation.
+    let report = Bytes::from_slice(&env, b"explicit rotation");
+    let new_sig = sign_attestation(&env, &new_key, &report);
+    let creator = Address::generate(&env);
+    let result = client.verify_analytics_attestation(
+        &symbol_short!("analytics"),
+        &report,
+        &new_sig,
+        &creator,
+        &100u64,
+        &600u64,
+    );
+    assert!(result, "rotated key must verify");
+}
+
+#[test]
+#[should_panic(expected = "oracle not registered")]
+fn test_rotate_oracle_unregistered_name_panics() {
+    // Issue #1245: rotation is explicit — rotating a name that was never
+    // registered must revert.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let signing_key = oracle_signing_key(1);
+    let pubkey = oracle_pubkey(&env, &signing_key);
+    client.rotate_oracle(&admin, &symbol_short!("ghost"), &pubkey);
+}
+
+#[test]
+fn test_register_oracle_different_names_still_allowed() {
+    // Issue #1245: only the same name is refused — distinct names register
+    // normally without any rotation ceremony.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let key_a = oracle_signing_key(1);
+    let key_b = oracle_signing_key(2);
+    client.register_oracle(
+        &admin,
+        &symbol_short!("alpha"),
+        &oracle_pubkey(&env, &key_a),
+    );
+    client.register_oracle(
+        &admin,
+        &symbol_short!("beta"),
+        &oracle_pubkey(&env, &key_b),
+    );
+
+    let contract_id = client.address.clone();
+    env.as_contract(&contract_id, || {
+        let stored_a: soroban_sdk::BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::OracleKey(symbol_short!("alpha")))
+            .expect("alpha must be registered");
+        let stored_b: soroban_sdk::BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::OracleKey(symbol_short!("beta")))
+            .expect("beta must be registered");
+        assert_eq!(stored_a, oracle_pubkey(&env, &key_a));
+        assert_eq!(stored_b, oracle_pubkey(&env, &key_b));
+    });
 }
 
 #[test]

@@ -8,6 +8,7 @@
     "build:contracts": "pnpm --filter contracts build",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "check:bundle": "turbo run check:bundle",
     "test:integration": "pnpm --filter contracts test:integration",
     "codegen": "pnpm build:contracts && pnpm --filter @linkora/codegen generate",
     "codegen:check": "pnpm codegen && git diff --exit-code packages/sdk/src/generated/ packages/sdk/src/events/types.ts",
