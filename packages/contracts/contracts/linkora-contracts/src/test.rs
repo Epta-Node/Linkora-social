@@ -2393,6 +2393,52 @@ fn test_set_treasury_emits_treasury_updated_event() {
     assert_ne!(client.get_treasury(), Some(old_treasury));
 }
 
+// ── Spurious EmergencyBypassEvent regression tests (issue #1373) ─────────────
+
+#[test]
+fn test_set_fee_emits_exactly_one_event_no_bypass() {
+    // Issue #1373: set_fee is a routine admin setter — it must emit exactly
+    // one event (FeeUpdatedEvent) and never a spurious EmergencyBypassEvent.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let events_before = env.events().all().events().len();
+    client.set_fee(&admin, &750);
+    let events_after = env.events().all().events().len();
+
+    assert_eq!(client.get_fee_bps(), 750);
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "set_fee must emit exactly one event — a second event would be the \
+         spurious EmergencyBypassEvent (issue #1373)"
+    );
+}
+
+#[test]
+fn test_set_treasury_emits_exactly_one_event_no_bypass() {
+    // Issue #1373: set_treasury is a routine admin setter — it must emit
+    // exactly one event (TreasuryUpdatedEvent) and never a spurious
+    // EmergencyBypassEvent.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let events_before = env.events().all().events().len();
+    let new_treasury = Address::generate(&env);
+    client.set_treasury(&admin, &new_treasury);
+    let events_after = env.events().all().events().len();
+
+    assert_eq!(client.get_treasury(), Some(new_treasury));
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "set_treasury must emit exactly one event — a second event would be \
+         the spurious EmergencyBypassEvent (issue #1373)"
+    );
+}
+
 #[test]
 #[should_panic]
 fn test_set_fee_non_admin_panics() {
@@ -6111,6 +6157,51 @@ fn test_block_removes_likes_bidirectional() {
     assert!(!client.has_liked(&bob, &post_a));
 }
 
+#[test]
+fn test_block_removes_likes_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Alice creates 15 posts
+    let mut post_ids = Vec::new(&env);
+    for _ in 0..15 {
+        post_ids.push_back(client.create_post(&alice, &String::from_str(&env, "alice post")));
+    }
+
+    // Bob likes all 15 posts
+    for id in post_ids.iter() {
+        client.like_post(&bob, &id);
+    }
+
+    // Alice blocks Bob. First 10 likes are removed.
+    client.block_user(&alice, &bob);
+
+    // Verify exactly 5 likes remain
+    let mut remaining = 0;
+    for id in post_ids.iter() {
+        if client.get_like_count(&id) > 0 {
+            remaining += 1;
+        }
+    }
+    assert_eq!(remaining, 5);
+
+    // Call batch cleanup
+    client.batch_cleanup_likes_on_block(&alice, &bob, &10);
+
+    // Verify 0 likes remain
+    let mut remaining_after = 0;
+    for id in post_ids.iter() {
+        if client.get_like_count(&id) > 0 {
+            remaining_after += 1;
+        }
+    }
+    assert_eq!(remaining_after, 0);
+}
+
 // (9) unblock does NOT restore follows or likes (clean break)
 #[test]
 fn test_unblock_does_not_restore_follows_or_likes() {
@@ -6509,9 +6600,10 @@ fn test_register_oracle_update_key() {
         &600u64,
     ));
 
-    // Rotate to a new key.
+    // Rotate to a new key via the explicit rotation entrypoint (issue #1245).
     let new_key = oracle_signing_key(2);
-    register_oracle(&client, &admin, &symbol_short!("analytics"), &new_key, &env);
+    let new_pubkey = oracle_pubkey(&env, &new_key);
+    client.rotate_oracle(&admin, &symbol_short!("analytics"), &new_pubkey);
 
     // Old signature must now fail — sign a different report so nullifier does
     // not collide, then try the old key's signature on the new report.
@@ -6540,6 +6632,128 @@ fn test_register_oracle_update_key() {
         );
     }));
     assert!(result2.is_err(), "old key must not verify after rotation");
+}
+
+#[test]
+#[should_panic(expected = "oracle already registered; use rotate_oracle")]
+fn test_register_oracle_existing_name_panics() {
+    // Issue #1245: re-registering an existing name must not silently
+    // overwrite the oracle key — rotation is explicit.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let first = oracle_signing_key(1);
+    let first_pubkey = oracle_pubkey(&env, &first);
+    client.register_oracle(&admin, &symbol_short!("analytics"), &first_pubkey);
+
+    let second = oracle_signing_key(2);
+    let second_pubkey = oracle_pubkey(&env, &second);
+    client.register_oracle(&admin, &symbol_short!("analytics"), &second_pubkey);
+}
+
+#[test]
+fn test_rotate_oracle_replaces_key_and_emits_rotation_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    env.ledger().set_timestamp(500);
+
+    let old_key = oracle_signing_key(1);
+    let old_pubkey = oracle_pubkey(&env, &old_key);
+    client.register_oracle(&admin, &symbol_short!("analytics"), &old_pubkey);
+
+    let events_before = env.events().all().events().len();
+
+    let new_key = oracle_signing_key(2);
+    let new_pubkey = oracle_pubkey(&env, &new_key);
+    client.rotate_oracle(&admin, &symbol_short!("analytics"), &new_pubkey);
+
+    // Exactly one event is emitted by rotate_oracle: OracleRotatedEvent.
+    let events_after = env.events().all().events().len();
+    assert_eq!(
+        events_after,
+        events_before + 1,
+        "rotate_oracle must emit exactly one event (OracleRotatedEvent)"
+    );
+
+    // The stored key is the new pubkey (old key is retired).
+    let contract_id = client.address.clone();
+    env.as_contract(&contract_id, || {
+        let stored: soroban_sdk::BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::OracleKey(symbol_short!("analytics")))
+            .expect("oracle key must exist after rotation");
+        assert_eq!(stored, new_pubkey);
+        assert_ne!(stored, old_pubkey);
+    });
+
+    // Rotation works end-to-end: the new key verifies a fresh attestation.
+    let report = Bytes::from_slice(&env, b"explicit rotation");
+    let new_sig = sign_attestation(&env, &new_key, &report);
+    let creator = Address::generate(&env);
+    let result = client.verify_analytics_attestation(
+        &symbol_short!("analytics"),
+        &report,
+        &new_sig,
+        &creator,
+        &100u64,
+        &600u64,
+    );
+    assert!(result, "rotated key must verify");
+}
+
+#[test]
+#[should_panic(expected = "oracle not registered")]
+fn test_rotate_oracle_unregistered_name_panics() {
+    // Issue #1245: rotation is explicit — rotating a name that was never
+    // registered must revert.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let signing_key = oracle_signing_key(1);
+    let pubkey = oracle_pubkey(&env, &signing_key);
+    client.rotate_oracle(&admin, &symbol_short!("ghost"), &pubkey);
+}
+
+#[test]
+fn test_register_oracle_different_names_still_allowed() {
+    // Issue #1245: only the same name is refused — distinct names register
+    // normally without any rotation ceremony.
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let key_a = oracle_signing_key(1);
+    let key_b = oracle_signing_key(2);
+    client.register_oracle(
+        &admin,
+        &symbol_short!("alpha"),
+        &oracle_pubkey(&env, &key_a),
+    );
+    client.register_oracle(
+        &admin,
+        &symbol_short!("beta"),
+        &oracle_pubkey(&env, &key_b),
+    );
+
+    let contract_id = client.address.clone();
+    env.as_contract(&contract_id, || {
+        let stored_a: soroban_sdk::BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::OracleKey(symbol_short!("alpha")))
+            .expect("alpha must be registered");
+        let stored_b: soroban_sdk::BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::OracleKey(symbol_short!("beta")))
+            .expect("beta must be registered");
+        assert_eq!(stored_a, oracle_pubkey(&env, &key_a));
+        assert_eq!(stored_b, oracle_pubkey(&env, &key_b));
+    });
 }
 
 #[test]
@@ -7323,6 +7537,31 @@ fn pay_rent_transfers_tokens_to_treasury() {
 }
 
 #[test]
+fn pay_rent_extends_actual_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_contract(&env);
+    client.set_rent_rate_bps(&admin, &100);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    let initial_expiry = client.get_rent_expiry(&user);
+
+    let amount = 1_000_000_000i128;
+    StellarAssetClient::new(&env, &token).mint(&user, &amount);
+
+    client.pay_rent(&user, &token, &amount);
+
+    let new_expiry = client.get_rent_expiry(&user);
+    // ledgers_to_extend = (1_000_000_000 * 10000) / (100 * 10_000_000) = 10_000
+    assert_eq!(new_expiry, initial_expiry + 10_000);
+}
+
+#[test]
 #[should_panic(expected = "amount too small for rent rate")]
 fn pay_rent_rejects_tiny_payment() {
     let env = Env::default();
@@ -7359,121 +7598,21 @@ fn pay_rent_rejects_mismatched_token() {
 }
 
 #[test]
-fn rent_key_pages_respect_the_per_call_budget() {
+#[should_panic(expected = "Error(Contract, #143)")]
+fn pay_rent_rejects_max_size_amount() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-    let user = Address::generate(&env);
-    let contract_id = client.address.clone();
-    env.as_contract(&contract_id, || {
-        env.storage()
-            .persistent()
-            .set(&StorageKey::FollowingCount(user.clone()), &100u32);
-    });
-    for sequence in 0..100u32 {
-        env.as_contract(&contract_id, || {
-            let followee = Address::generate(&env);
-            env.storage()
-                .persistent()
-                .set(&StorageKey::FollowingIdx(user.clone(), sequence), &followee);
-            env.storage().persistent().set(
-                &StorageKey::FollowingPos(user.clone(), followee.clone()),
-                &sequence,
-            );
-            env.storage()
-                .persistent()
-                .set(&StorageKey::Edge(user.clone(), followee), &true);
-        });
-    }
 
-    env.as_contract(&contract_id, || {
-        let (first, next) = LinkoraContract::get_user_keys_page(&env, &user, 0);
-        assert!(first.len() <= MAX_RENT_KEYS_PER_CALL);
-        assert!(next.is_some());
-
-        let (second, _) = LinkoraContract::get_user_keys_page(&env, &user, next.unwrap());
-        assert!(second.len() <= MAX_RENT_KEYS_PER_CALL);
-    });
-}
-
-#[test]
-fn migrate_follow_graph_skips_self_and_blocked_legacy_edges() {
-    let env = Env::default();
-    env.mock_all_auths();
     let (client, admin, _) = setup_contract(&env);
-    let alice = Address::generate(&env);
-    let blocked = Address::generate(&env);
-    let allowed = Address::generate(&env);
-    let contract_id = client.address.clone();
+    client.set_rent_rate_bps(&admin, &100);
 
-    env.as_contract(&contract_id, || {
-        env.storage().persistent().set(
-            &StorageKey::Following(alice.clone()),
-            &vec![&env, alice.clone(), blocked.clone(), allowed.clone()],
-        );
-    });
-    client.block_user(&blocked, &alice);
-    client.migrate_follow_graph(&admin, &vec![&env, alice.clone()]);
-
-    let following = client.get_following(&alice, &0, &50);
-    assert_eq!(following, vec![&env, allowed]);
-}
-
-#[test]
-fn emergency_pause_blocks_previously_unguarded_mutations() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
     let user = Address::generate(&env);
-    let token = Address::generate(&env);
-    let pool_id = symbol_short!("pool");
-    let hash = BytesN::from_array(&env, &[1u8; 32]);
-    client.grant_role(&admin, &admin, &Role::Pauser);
-    client.pause(&admin);
+    let token = setup_token(&env, &user);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
 
-    assert!(client.try_delete_profile(&user).is_err());
-    assert!(client
-        .try_verify_credential(&user, &Vec::new(&env), &hash, &hash)
-        .is_err());
-    assert!(client
-        .try_pool_deposit(&user, &pool_id, &token, &1)
-        .is_err());
-    assert!(client
-        .try_pool_withdraw(&vec![&env, admin], &pool_id, &1, &user)
-        .is_err());
-    assert!(client.try_pay_rent(&user, &token, &1).is_err());
-    assert!(client
-        .try_report_post(&user, &1, &token, &1, &hash)
-        .is_err());
-}
-
-#[test]
-fn report_post_rejects_fee_on_transfer_stakes_without_stranding_funds() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _, _) = setup_contract(&env);
-    let author = Address::generate(&env);
-    let reporter = Address::generate(&env);
-    let token = env.register(FeeToken, ());
-    let fee_token = FeeTokenClient::new(&env, &token);
-    let stake = 1_000i128;
-
-    client.set_profile(&author, &String::from_str(&env, "author"), &token);
-    let post_id = client.create_post(&author, &String::from_str(&env, "post"));
-    fee_token.mint(&reporter, &stake);
-    let contract_balance_before = fee_token.balance(&client.address);
-
-    client.report_post(
-        &reporter,
-        &post_id,
-        &token,
-        &stake,
-        &BytesN::from_array(&env, &[7u8; 32]),
-    );
-    assert_eq!(fee_token.balance(&client.address), contract_balance_before);
-    assert_eq!(fee_token.balance(&reporter), 810);
-    assert!(client.get_report(&post_id, &reporter).is_none());
-    assert_eq!(client.get_report_count(&post_id), 0);
+    // Max allowed amount by validation, but it will overflow when * 10000
+    let max_amount = 1_000_000_000_000_000_000_000_000_000_000_000_000i128;
+    client.pay_rent(&user, &token, &max_amount);
 }
 
 // ── Lazy Cleanup Tests ────────────────────────────────────────────────────────

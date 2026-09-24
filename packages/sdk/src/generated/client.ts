@@ -128,6 +128,10 @@ export class GeneratedLinkoraClient {
 
   // ── Read Methods ────────────────────────────────────────────
 
+  /**
+   * Contract entrypoint: `get_pool`.
+   * SDK method: `getPool`.
+   */
   async getPool(pool_id: string): Promise<Pool | null> {
     const retval = await this.simulateCall("get_pool", scvSymbol(pool_id));
     if (!retval) return null;
@@ -140,6 +144,10 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `get_post`.
+   * SDK method: `getPost`.
+   */
   async getPost(id: bigint): Promise<Post | null> {
     const retval = await this.simulateCall("get_post", scvU64(id));
     if (!retval) return null;
@@ -152,12 +160,20 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `has_liked`.
+   * SDK method: `hasLiked`.
+   */
   async hasLiked(user: string, post_id: bigint): Promise<boolean> {
     const retval = await this.simulateCall("has_liked", scvAddress(user), scvU64(post_id));
     if (!retval) return false;
     return scValToNative(retval) as boolean;
   }
 
+  /**
+   * Contract entrypoint: `get_dm_key`.
+   * SDK method: `getDmKey`.
+   */
   async getDmKey(user: string): Promise<Uint8Array | null> {
     const retval = await this.simulateCall("get_dm_key", scvAddress(user));
     if (!retval) return null;
@@ -170,18 +186,30 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `is_blocked`.
+   * SDK method: `isBlocked`.
+   */
   async isBlocked(blocker: string, blocked: string): Promise<boolean> {
     const retval = await this.simulateCall("is_blocked", scvAddress(blocker), scvAddress(blocked));
     if (!retval) return false;
     return scValToNative(retval) as boolean;
   }
 
+  /**
+   * Contract entrypoint: `get_fee_bps`.
+   * SDK method: `getFeeBps`.
+   */
   async getFeeBps(): Promise<number> {
     const retval = await this.simulateCall("get_fee_bps");
     if (!retval) return 0;
     return scValToNative(retval) as number;
   }
 
+  /**
+   * Contract entrypoint: `get_profile`.
+   * SDK method: `getProfile`.
+   */
   async getProfile(user: string): Promise<Profile | null> {
     const retval = await this.simulateCall("get_profile", scvAddress(user));
     if (!retval) return null;
@@ -194,6 +222,10 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `get_treasury`.
+   * SDK method: `getTreasury`.
+   */
   async getTreasury(): Promise<string | null> {
     const retval = await this.simulateCall("get_treasury");
     if (!retval) return null;
@@ -206,6 +238,10 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `get_followers`.
+   * SDK method: `getFollowers`.
+   */
   async getFollowers(user: string, offset: number, limit: number): Promise<string[]> {
     const retval = await this.simulateCall(
       "get_followers",
@@ -217,6 +253,10 @@ export class GeneratedLinkoraClient {
     return scValToNative(retval) as string[];
   }
 
+  /**
+   * Contract entrypoint: `get_following`.
+   * SDK method: `getFollowing`.
+   */
   async getFollowing(user: string, offset: number, limit: number): Promise<string[]> {
     const retval = await this.simulateCall(
       "get_following",
@@ -228,24 +268,40 @@ export class GeneratedLinkoraClient {
     return scValToNative(retval) as string[];
   }
 
+  /**
+   * Contract entrypoint: `get_like_count`.
+   * SDK method: `getLikeCount`.
+   */
   async getLikeCount(post_id: bigint): Promise<bigint> {
     const retval = await this.simulateCall("get_like_count", scvU64(post_id));
     if (!retval) return 0n;
     return scValToNative(retval) as bigint;
   }
 
+  /**
+   * Contract entrypoint: `get_post_count`.
+   * SDK method: `getPostCount`.
+   */
   async getPostCount(): Promise<bigint> {
     const retval = await this.simulateCall("get_post_count");
     if (!retval) return 0n;
     return scValToNative(retval) as bigint;
   }
 
+  /**
+   * Contract entrypoint: `gov_get_config`.
+   * SDK method: `govGetConfig`.
+   */
   async govGetConfig(): Promise<GovConfig> {
     const retval = await this.simulateCall("gov_get_config");
     if (!retval) throw new Error("No return value");
     return scValToNative(retval) as GovConfig;
   }
 
+  /**
+   * Contract entrypoint: `get_pool_admins`.
+   * SDK method: `getPoolAdmins`.
+   */
   async getPoolAdmins(pool_id: string): Promise<string[] | null> {
     const retval = await this.simulateCall("get_pool_admins", scvSymbol(pool_id));
     if (!retval) return null;
@@ -258,24 +314,40 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `effective_quorum`.
+   * SDK method: `effectiveQuorum`.
+   */
   async effectiveQuorum(proposal_id: bigint): Promise<number> {
     const retval = await this.simulateCall("effective_quorum", scvU64(proposal_id));
     if (!retval) return 0;
     return scValToNative(retval) as number;
   }
 
+  /**
+   * Contract entrypoint: `gov_get_proposal`.
+   * SDK method: `govGetProposal`.
+   */
   async govGetProposal(proposal_id: bigint): Promise<GovProposal> {
     const retval = await this.simulateCall("gov_get_proposal", scvU64(proposal_id));
     if (!retval) throw new Error("No return value");
     return scValToNative(retval) as GovProposal;
   }
 
+  /**
+   * Contract entrypoint: `get_profile_count`.
+   * SDK method: `getProfileCount`.
+   */
   async getProfileCount(): Promise<bigint> {
     const retval = await this.simulateCall("get_profile_count");
     if (!retval) return 0n;
     return scValToNative(retval) as bigint;
   }
 
+  /**
+   * Contract entrypoint: `get_posts_by_author`.
+   * SDK method: `getPostsByAuthor`.
+   */
   async getPostsByAuthor(author: string, offset: number, limit: number): Promise<bigint[]> {
     const retval = await this.simulateCall(
       "get_posts_by_author",
@@ -287,6 +359,10 @@ export class GeneratedLinkoraClient {
     return scValToNative(retval) as bigint[];
   }
 
+  /**
+   * Contract entrypoint: `get_address_by_username`.
+   * SDK method: `getAddressByUsername`.
+   */
   async getAddressByUsername(username: string): Promise<string | null> {
     const retval = await this.simulateCall("get_address_by_username", scvString(username));
     if (!retval) return null;
@@ -299,6 +375,10 @@ export class GeneratedLinkoraClient {
     }
   }
 
+  /**
+   * Contract entrypoint: `get_tip_cooldown_window`.
+   * SDK method: `getTipCooldownWindow`.
+   */
   async getTipCooldownWindow(): Promise<number> {
     const retval = await this.simulateCall("get_tip_cooldown_window");
     if (!retval) return 0;
@@ -307,6 +387,10 @@ export class GeneratedLinkoraClient {
 
   // ── Write Methods (XDR envelope builders) ───────────────────
 
+  /**
+   * Contract entrypoint: `tip`.
+   * SDK method: `tip`.
+   */
   tip(tipper: string, post_id: bigint, token: string, amount: bigint): string {
     return this.buildTx(
       "tip",
@@ -317,18 +401,34 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `follow`.
+   * SDK method: `follow`.
+   */
   follow(follower: string, followee: string): string {
     return this.buildTx("follow", scvAddress(follower), scvAddress(followee));
   }
 
+  /**
+   * Contract entrypoint: `set_fee`.
+   * SDK method: `setFee`.
+   */
   setFee(fee_bps: number): string {
     return this.buildTx("set_fee", scvU32(fee_bps));
   }
 
+  /**
+   * Contract entrypoint: `upgrade`.
+   * SDK method: `upgrade`.
+   */
   upgrade(new_wasm_hash: Uint8Array): string {
     return this.buildTx("upgrade", nativeToScVal(new_wasm_hash, { type: "bytes" }));
   }
 
+  /**
+   * Contract entrypoint: `gov_veto`.
+   * SDK method: `govVeto`.
+   */
   govVeto(signers: string[], pool_id: string, proposal_id: bigint): string {
     return this.buildTx(
       "gov_veto",
@@ -338,26 +438,50 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `gov_vote`.
+   * SDK method: `govVote`.
+   */
   govVote(voter: string, proposal_id: bigint, support: boolean): string {
     return this.buildTx("gov_vote", scvAddress(voter), scvU64(proposal_id), nativeToScVal(support));
   }
 
+  /**
+   * Contract entrypoint: `unfollow`.
+   * SDK method: `unfollow`.
+   */
   unfollow(follower: string, followee: string): string {
     return this.buildTx("unfollow", scvAddress(follower), scvAddress(followee));
   }
 
+  /**
+   * Contract entrypoint: `like_post`.
+   * SDK method: `likePost`.
+   */
   likePost(user: string, post_id: bigint): string {
     return this.buildTx("like_post", scvAddress(user), scvU64(post_id));
   }
 
+  /**
+   * Contract entrypoint: `block_user`.
+   * SDK method: `blockUser`.
+   */
   blockUser(blocker: string, blocked: string): string {
     return this.buildTx("block_user", scvAddress(blocker), scvAddress(blocked));
   }
 
+  /**
+   * Contract entrypoint: `initialize`.
+   * SDK method: `initialize`.
+   */
   initialize(admin: string, treasury: string, fee_bps: number): string {
     return this.buildTx("initialize", scvAddress(admin), scvAddress(treasury), scvU32(fee_bps));
   }
 
+  /**
+   * Contract entrypoint: `create_pool`.
+   * SDK method: `createPool`.
+   */
   createPool(
     admin: string,
     pool_id: string,
@@ -375,18 +499,34 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `create_post`.
+   * SDK method: `createPost`.
+   */
   createPost(author: string, content: string): string {
     return this.buildTx("create_post", scvAddress(author), scvString(content));
   }
 
+  /**
+   * Contract entrypoint: `delete_post`.
+   * SDK method: `deletePost`.
+   */
   deletePost(author: string, post_id: bigint): string {
     return this.buildTx("delete_post", scvAddress(author), scvU64(post_id));
   }
 
+  /**
+   * Contract entrypoint: `gov_execute`.
+   * SDK method: `govExecute`.
+   */
   govExecute(proposal_id: bigint): string {
     return this.buildTx("gov_execute", scvU64(proposal_id));
   }
 
+  /**
+   * Contract entrypoint: `gov_propose`.
+   * SDK method: `govPropose`.
+   */
   govPropose(
     proposer: string,
     parameter: GovParameter,
@@ -402,6 +542,10 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `set_profile`.
+   * SDK method: `setProfile`.
+   */
   setProfile(user: string, username: string, creator_token: string): string {
     return this.buildTx(
       "set_profile",
@@ -411,6 +555,10 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `pool_deposit`.
+   * SDK method: `poolDeposit`.
+   */
   poolDeposit(depositor: string, pool_id: string, token: string, amount: bigint): string {
     return this.buildTx(
       "pool_deposit",
@@ -421,14 +569,26 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `set_treasury`.
+   * SDK method: `setTreasury`.
+   */
   setTreasury(treasury: string): string {
     return this.buildTx("set_treasury", scvAddress(treasury));
   }
 
+  /**
+   * Contract entrypoint: `unblock_user`.
+   * SDK method: `unblockUser`.
+   */
   unblockUser(blocker: string, blocked: string): string {
     return this.buildTx("unblock_user", scvAddress(blocker), scvAddress(blocked));
   }
 
+  /**
+   * Contract entrypoint: `pool_withdraw`.
+   * SDK method: `poolWithdraw`.
+   */
   poolWithdraw(signers: string[], pool_id: string, amount: bigint, recipient: string): string {
     return this.buildTx(
       "pool_withdraw",
@@ -439,6 +599,10 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `add_pool_admin`.
+   * SDK method: `addPoolAdmin`.
+   */
   addPoolAdmin(signers: string[], pool_id: string, new_admin: string): string {
     return this.buildTx(
       "add_pool_admin",
@@ -448,10 +612,18 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `delete_profile`.
+   * SDK method: `deleteProfile`.
+   */
   deleteProfile(user: string): string {
     return this.buildTx("delete_profile", scvAddress(user));
   }
 
+  /**
+   * Contract entrypoint: `publish_dm_key`.
+   * SDK method: `publishDmKey`.
+   */
   publishDmKey(user: string, x25519_pubkey: Uint8Array): string {
     return this.buildTx(
       "publish_dm_key",
@@ -460,6 +632,10 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `gov_init_config`.
+   * SDK method: `govInitConfig`.
+   */
   govInitConfig(
     quorum: number,
     time_lock_ledgers: number,
@@ -477,6 +653,10 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `remove_pool_admin`.
+   * SDK method: `removePoolAdmin`.
+   */
   removePoolAdmin(signers: string[], pool_id: string, admin: string): string {
     return this.buildTx(
       "remove_pool_admin",
@@ -486,10 +666,18 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `migrate_follow_graph`.
+   * SDK method: `migrateFollowGraph`.
+   */
   migrateFollowGraph(users: string[]): string {
     return this.buildTx("migrate_follow_graph", scvAddressVec(users));
   }
 
+  /**
+   * Contract entrypoint: `update_pool_threshold`.
+   * SDK method: `updatePoolThreshold`.
+   */
   updatePoolThreshold(signers: string[], pool_id: string, threshold: number): string {
     return this.buildTx(
       "update_pool_threshold",
@@ -499,19 +687,35 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `set_tip_cooldown_window`.
+   * SDK method: `setTipCooldownWindow`.
+   */
   setTipCooldownWindow(cooldown_ledgers: number): string {
     return this.buildTx("set_tip_cooldown_window", scvU32(cooldown_ledgers));
   }
 
   // ── Additional Write Methods ───────────────────────────────────────
+  /**
+   * Contract entrypoint: `pay_rent`.
+   * SDK method: `payRent`.
+   */
   payRent(renter: string, amount: bigint): string {
     return this.buildTx("pay_rent", scvAddress(renter), scvI128(amount));
   }
 
+  /**
+   * Contract entrypoint: `report_post`.
+   * SDK method: `reportPost`.
+   */
   reportPost(reporter: string, post_id: bigint, reason: string): string {
     return this.buildTx("report_post", scvAddress(reporter), scvU64(post_id), scvString(reason));
   }
 
+  /**
+   * Contract entrypoint: `review_report`.
+   * SDK method: `reviewReport`.
+   */
   reviewReport(admin: string, report_id: bigint, decision: boolean): string {
     return this.buildTx(
       "review_report",
@@ -521,10 +725,18 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `register_oracle`.
+   * SDK method: `registerOracle`.
+   */
   registerOracle(admin: string, oracle: string): string {
     return this.buildTx("register_oracle", scvAddress(admin), scvAddress(oracle));
   }
 
+  /**
+   * Contract entrypoint: `verify_analytics_attestation`.
+   * SDK method: `verifyAnalyticsAttestation`.
+   */
   verifyAnalyticsAttestation(
     oracleName: string,
     reportCbor: Uint8Array,
@@ -544,33 +756,57 @@ export class GeneratedLinkoraClient {
     );
   }
 
+  /**
+   * Contract entrypoint: `set_rent_rate_bps`.
+   * SDK method: `setRentRateBps`.
+   */
   setRentRateBps(admin: string, bps: number): string {
     return this.buildTx("set_rent_rate_bps", scvAddress(admin), scvU32(bps));
   }
 
+  /**
+   * Contract entrypoint: `batch_bump_user_graph`.
+   * SDK method: `batchBumpUserGraph`.
+   */
   batchBumpUserGraph(admin: string, users: string[]): string {
     return this.buildTx("batch_bump_user_graph", scvAddress(admin), scvAddressVec(users));
   }
 
   // ── Additional Read Methods ────────────────────────────────────────
+  /**
+   * Contract entrypoint: `get_rent_expiry`.
+   * SDK method: `getRentExpiry`.
+   */
   async getRentExpiry(user: string): Promise<number> {
     const retval = await this.simulateCall("get_rent_expiry", scvAddress(user));
     if (!retval) return 0;
     return scValToNative(retval) as number;
   }
 
+  /**
+   * Contract entrypoint: `get_rent_rate_bps`.
+   * SDK method: `getRentRateBps`.
+   */
   async getRentRateBps(): Promise<number> {
     const retval = await this.simulateCall("get_rent_rate_bps");
     if (!retval) return 0;
     return scValToNative(retval) as number;
   }
 
+  /**
+   * Contract entrypoint: `get_report_count`.
+   * SDK method: `getReportCount`.
+   */
   async getReportCount(): Promise<bigint> {
     const retval = await this.simulateCall("get_report_count");
     if (!retval) return 0n;
     return scValToNative(retval) as bigint;
   }
 
+  /**
+   * Contract entrypoint: `get_report`.
+   * SDK method: `getReport`.
+   */
   async getReport(report_id: bigint): Promise<any | null> {
     const retval = await this.simulateCall("get_report", scvU64(report_id));
     if (!retval) return null;

@@ -34,6 +34,9 @@ jobs:
       - name: Run JS/TS tests
         run: pnpm test
 
+      - name: Check SDK bundle-size budget and tree-shaking
+        run: pnpm check:bundle
+
       - name: Build all packages
         run: pnpm build
 
