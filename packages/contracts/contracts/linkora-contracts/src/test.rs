@@ -6062,6 +6062,51 @@ fn test_block_removes_likes_bidirectional() {
     assert!(!client.has_liked(&bob, &post_a));
 }
 
+#[test]
+fn test_block_removes_likes_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Alice creates 15 posts
+    let mut post_ids = Vec::new(&env);
+    for _ in 0..15 {
+        post_ids.push_back(client.create_post(&alice, &String::from_str(&env, "alice post")));
+    }
+
+    // Bob likes all 15 posts
+    for id in post_ids.iter() {
+        client.like_post(&bob, &id);
+    }
+
+    // Alice blocks Bob. First 10 likes are removed.
+    client.block_user(&alice, &bob);
+
+    // Verify exactly 5 likes remain
+    let mut remaining = 0;
+    for id in post_ids.iter() {
+        if client.get_like_count(&id) > 0 {
+            remaining += 1;
+        }
+    }
+    assert_eq!(remaining, 5);
+
+    // Call batch cleanup
+    client.batch_cleanup_likes_on_block(&alice, &bob, &10);
+
+    // Verify 0 likes remain
+    let mut remaining_after = 0;
+    for id in post_ids.iter() {
+        if client.get_like_count(&id) > 0 {
+            remaining_after += 1;
+        }
+    }
+    assert_eq!(remaining_after, 0);
+}
+
 // (9) unblock does NOT restore follows or likes (clean break)
 #[test]
 fn test_unblock_does_not_restore_follows_or_likes() {
