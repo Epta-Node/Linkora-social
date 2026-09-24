@@ -6062,6 +6062,51 @@ fn test_block_removes_likes_bidirectional() {
     assert!(!client.has_liked(&bob, &post_a));
 }
 
+#[test]
+fn test_block_removes_likes_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Alice creates 15 posts
+    let mut post_ids = Vec::new(&env);
+    for _ in 0..15 {
+        post_ids.push_back(client.create_post(&alice, &String::from_str(&env, "alice post")));
+    }
+
+    // Bob likes all 15 posts
+    for id in post_ids.iter() {
+        client.like_post(&bob, &id);
+    }
+
+    // Alice blocks Bob. First 10 likes are removed.
+    client.block_user(&alice, &bob);
+
+    // Verify exactly 5 likes remain
+    let mut remaining = 0;
+    for id in post_ids.iter() {
+        if client.get_like_count(&id) > 0 {
+            remaining += 1;
+        }
+    }
+    assert_eq!(remaining, 5);
+
+    // Call batch cleanup
+    client.batch_cleanup_likes_on_block(&alice, &bob, &10);
+
+    // Verify 0 likes remain
+    let mut remaining_after = 0;
+    for id in post_ids.iter() {
+        if client.get_like_count(&id) > 0 {
+            remaining_after += 1;
+        }
+    }
+    assert_eq!(remaining_after, 0);
+}
+
 // (9) unblock does NOT restore follows or likes (clean break)
 #[test]
 fn test_unblock_does_not_restore_follows_or_likes() {
@@ -7274,6 +7319,31 @@ fn pay_rent_transfers_tokens_to_treasury() {
 }
 
 #[test]
+fn pay_rent_extends_actual_expiry() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_contract(&env);
+    client.set_rent_rate_bps(&admin, &100);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    let initial_expiry = client.get_rent_expiry(&user);
+
+    let amount = 1_000_000_000i128;
+    StellarAssetClient::new(&env, &token).mint(&user, &amount);
+
+    client.pay_rent(&user, &token, &amount);
+
+    let new_expiry = client.get_rent_expiry(&user);
+    // ledgers_to_extend = (1_000_000_000 * 10000) / (100 * 10_000_000) = 10_000
+    assert_eq!(new_expiry, initial_expiry + 10_000);
+}
+
+#[test]
 #[should_panic(expected = "amount too small for rent rate")]
 fn pay_rent_rejects_tiny_payment() {
     let env = Env::default();
@@ -7307,6 +7377,24 @@ fn pay_rent_rejects_mismatched_token() {
     client.set_profile(&user, &String::from_str(&env, "alice"), &creator_token);
 
     client.pay_rent(&user, &other_token, &1_000_000_000i128);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #143)")]
+fn pay_rent_rejects_max_size_amount() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, admin, _) = setup_contract(&env);
+    client.set_rent_rate_bps(&admin, &100);
+
+    let user = Address::generate(&env);
+    let token = setup_token(&env, &user);
+    client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+
+    // Max allowed amount by validation, but it will overflow when * 10000
+    let max_amount = 1_000_000_000_000_000_000_000_000_000_000_000_000i128;
+    client.pay_rent(&user, &token, &max_amount);
 }
 
 // ── Lazy Cleanup Tests ────────────────────────────────────────────────────────

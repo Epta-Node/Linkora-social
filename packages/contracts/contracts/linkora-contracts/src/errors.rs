@@ -60,4 +60,5 @@ pub enum ContractError {
     ZeroAddress = 140,
     CannotRemoveLastAdmin = 141,
     CannotRemoveLastUpgrader = 142,
+    MathOverflow = 143,
 }

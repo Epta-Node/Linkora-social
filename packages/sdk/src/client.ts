@@ -26,6 +26,7 @@ import {
   ReadResult,
 } from "./errors.js";
 import { ClassicAccountClient, ClassicBalance } from "./classic.js";
+import { ContractState } from "./state.js";
 import { GovParameter } from "./generated/types.js";
 import type { GovProposal } from "./generated/types.js";
 import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health.js";
@@ -916,6 +917,23 @@ export class LinkoraClient extends GeneratedLinkoraClient {
       if (e instanceof NotFoundError) return null;
       throw e;
     }
+  }
+
+  /**
+   * Fetch the global state of the contract, including version and implementation WASM hash.
+   *
+   * @returns The ContractState object.
+   */
+  async getContractState(): Promise<ContractState> {
+    const retval = await this.simulateCallOnContract(this._contractId, "get_contract_state");
+    if (!retval) {
+      throw new Error("Failed to read contract state");
+    }
+    const raw: any = scValToNative(retval);
+    return {
+      version: Number(raw.version),
+      implementation_wasm_hash: raw.implementation_wasm_hash || null,
+    };
   }
 
   /**

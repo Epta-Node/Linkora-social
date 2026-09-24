@@ -24,6 +24,7 @@ use validation::{
 pub enum StorageKey {
     Post(u64),                            // persistent: post_id -> Post
     Profile(Address),                     // persistent: user -> Profile
+    RentExpiry(Address),                  // persistent: user -> u32 expiry ledger
     Following(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
     Followers(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
     Pool(Symbol),       // persistent: pool_id -> Pool
@@ -31,6 +32,7 @@ pub enum StorageKey {
     AuthorPosts(Address), // persistent: author -> Vec<u64> of post IDs
     Blocks(Address),    // persistent: blocker -> Map<Address, ()>
     BlockedBy(Address), // persistent: blocked -> Map<Address, ()> (reverse index: who blocked this user)
+    BlockLikesCursor(Address, Address), // persistent: (blocker, blocked) -> (u32, u32)
     UsernameIndex(String), // persistent: username -> owner Address (reverse index for uniqueness)
     TipCooldown(u64, Address), // temporary: (post_id, tipper) -> last-tip ledger sequence number
     PoolDepositCooldown(Symbol, Address), // temporary: (pool_id, depositor) -> last-deposit ledger sequence number
@@ -1870,6 +1872,27 @@ impl LinkoraContract {
         Self::cleanup_likes_on_block(&env, &blocker, &blocked);
 
         BlockEvent { blocker, blocked }.publish(&env);
+    }
+
+    /// Clean up like entries between blocker and blocked in batches.
+    pub fn batch_cleanup_likes_on_block(
+        env: Env,
+        blocker: Address,
+        blocked: Address,
+        max_entries: u32,
+    ) {
+        Self::bump_instance(&env);
+        let cursor_key = StorageKey::BlockLikesCursor(blocker.clone(), blocked.clone());
+        let mut cursor: (u32, u32) = env.storage().persistent().get(&cursor_key).unwrap_or((0, 0));
+        
+        let remaining = Self::process_likes_cleanup(&env, &blocker, &blocked, &mut cursor, max_entries);
+        
+        if remaining {
+            env.storage().persistent().set(&cursor_key, &cursor);
+            Self::bump(&env, &cursor_key);
+        } else {
+            env.storage().persistent().remove(&cursor_key);
+        }
     }
 
     /// Unblocks a previously blocked user.
@@ -3784,7 +3807,10 @@ impl LinkoraContract {
         }
 
         let divisor = (rent_rate_bps as i128) * base;
-        let ledgers_to_extend = (amount * 10_000) / divisor;
+        let scaled_amount = amount.checked_mul(10_000).unwrap_or_else(|| {
+            env.panic_with_error(ContractError::MathOverflow)
+        });
+        let ledgers_to_extend = scaled_amount / divisor;
         require_with_error!(
             &env,
             ledgers_to_extend > 0,
@@ -3800,17 +3826,23 @@ impl LinkoraContract {
         token::Client::new(&env, &token).transfer(&user, &treasury, &amount);
 
         // Gather all user's keys and extend them
+        let current_expiry = Self::get_rent_expiry(env.clone(), user.clone()).max(env.ledger().sequence());
+        let extended_to_ledger = current_expiry.saturating_add(ledgers_to_extend as u32);
+        
+        let expiry_key = StorageKey::RentExpiry(user.clone());
+        env.storage().persistent().set(&expiry_key, &extended_to_ledger);
+        
+        let target_ttl = extended_to_ledger.saturating_sub(env.ledger().sequence());
+
+        // Gather all user's keys and extend them
         let keys = Self::get_user_keys(&env, &user);
         for key in keys.iter() {
             if env.storage().persistent().has(&key) {
-                let target_ttl = LEDGER_BUMP.saturating_add(ledgers_to_extend as u32);
                 env.storage()
                     .persistent()
                     .extend_ttl(&key, target_ttl, target_ttl);
             }
         }
-
-        let extended_to_ledger = Self::get_rent_expiry(env.clone(), user.clone());
         RentPaidEvent {
             user: user.clone(),
             payer: user,
@@ -3933,11 +3965,12 @@ impl LinkoraContract {
     /// * Panics if profile does not exist
     pub fn get_rent_expiry(env: Env, user: Address) -> u32 {
         validate_non_default_address(&env, "user", &user);
-        let profile_key = StorageKey::Profile(user);
+        let profile_key = StorageKey::Profile(user.clone());
         if !env.storage().persistent().has(&profile_key) {
             panic!("profile does not exist");
         }
-        env.ledger().sequence().saturating_add(LEDGER_BUMP)
+        let expiry_key = StorageKey::RentExpiry(user);
+        env.storage().persistent().get(&expiry_key).unwrap_or_else(|| env.ledger().sequence().saturating_add(LEDGER_BUMP))
     }
 
     /// Sets the rent rate in basis points. Requires Admin role.
@@ -4473,49 +4506,69 @@ impl LinkoraContract {
     /// Called by block_user to enforce a clean break.
     /// Iterates over the post count and checks likes for the affected pair.
     fn cleanup_likes_on_block(env: &Env, user_a: &Address, user_b: &Address) {
-        let post_count: u64 = env.storage().instance().get(&POST_CT).unwrap_or(0);
-        if post_count == 0 {
-            return;
+        let mut cursor: (u32, u32) = (0, 0);
+        let max_entries = 10; // Hardcoded cap for initial block call
+        let remaining = Self::process_likes_cleanup(env, user_a, user_b, &mut cursor, max_entries);
+        
+        if remaining {
+            let cursor_key = StorageKey::BlockLikesCursor(user_a.clone(), user_b.clone());
+            env.storage().persistent().set(&cursor_key, &cursor);
+            Self::bump(env, &cursor_key);
         }
+    }
 
-        // Check all post IDs for likes between user_a and user_b
-        for post_id in 1..=post_count {
-            // Remove user_a's like on user_b's posts
-            let like_key_a = StorageKey::Like(post_id, user_a.clone());
-            if env.storage().persistent().has(&like_key_a) {
-                let post_key = StorageKey::Post(post_id);
-                if let Some(mut post) = env.storage().persistent().get::<_, Post>(&post_key) {
-                    if post.author == *user_b {
-                        env.storage().persistent().remove(&like_key_a);
-                        if post.like_count > 0 {
-                            post.like_count -= 1;
-                        }
-                        env.storage().persistent().set(&post_key, &post);
-                        Self::bump(env, &post_key);
-                        // Update PostLikersCount and clean up the likers index
-                        Self::swap_remove_like_from_index(env, post_id, user_a);
-                    }
-                }
-            }
-
-            // Remove user_b's like on user_a's posts
+    fn process_likes_cleanup(env: &Env, user_a: &Address, user_b: &Address, cursor: &mut (u32, u32), max_entries: u32) -> bool {
+        let mut processed = 0;
+        
+        // 1. Check user_b's likes on user_a's posts
+        let posts_a: Vec<u64> = env.storage().persistent().get(&StorageKey::AuthorPosts(user_a.clone())).unwrap_or_else(|| Vec::new(env));
+        let len_a = posts_a.len();
+        while cursor.0 < len_a && processed < max_entries {
+            let post_id = posts_a.get(cursor.0).unwrap();
             let like_key_b = StorageKey::Like(post_id, user_b.clone());
             if env.storage().persistent().has(&like_key_b) {
                 let post_key = StorageKey::Post(post_id);
                 if let Some(mut post) = env.storage().persistent().get::<_, Post>(&post_key) {
-                    if post.author == *user_a {
-                        env.storage().persistent().remove(&like_key_b);
-                        if post.like_count > 0 {
-                            post.like_count -= 1;
-                        }
-                        env.storage().persistent().set(&post_key, &post);
-                        Self::bump(env, &post_key);
-                        // Update PostLikersCount and clean up the likers index
-                        Self::swap_remove_like_from_index(env, post_id, user_b);
+                    env.storage().persistent().remove(&like_key_b);
+                    if post.like_count > 0 {
+                        post.like_count -= 1;
                     }
+                    env.storage().persistent().set(&post_key, &post);
+                    Self::bump(env, &post_key);
+                    Self::swap_remove_like_from_index(env, post_id, user_b);
                 }
             }
+            cursor.0 += 1;
+            processed += 1;
         }
+
+        if processed >= max_entries {
+            return cursor.0 < len_a || cursor.1 < env.storage().persistent().get::<_, Vec<u64>>(&StorageKey::AuthorPosts(user_b.clone())).map(|v| v.len()).unwrap_or(0);
+        }
+
+        // 2. Check user_a's likes on user_b's posts
+        let posts_b: Vec<u64> = env.storage().persistent().get(&StorageKey::AuthorPosts(user_b.clone())).unwrap_or_else(|| Vec::new(env));
+        let len_b = posts_b.len();
+        while cursor.1 < len_b && processed < max_entries {
+            let post_id = posts_b.get(cursor.1).unwrap();
+            let like_key_a = StorageKey::Like(post_id, user_a.clone());
+            if env.storage().persistent().has(&like_key_a) {
+                let post_key = StorageKey::Post(post_id);
+                if let Some(mut post) = env.storage().persistent().get::<_, Post>(&post_key) {
+                    env.storage().persistent().remove(&like_key_a);
+                    if post.like_count > 0 {
+                        post.like_count -= 1;
+                    }
+                    env.storage().persistent().set(&post_key, &post);
+                    Self::bump(env, &post_key);
+                    Self::swap_remove_like_from_index(env, post_id, user_a);
+                }
+            }
+            cursor.1 += 1;
+            processed += 1;
+        }
+
+        cursor.0 < len_a || cursor.1 < len_b
     }
 
     /// Swap-remove a user from a post's likers index.
