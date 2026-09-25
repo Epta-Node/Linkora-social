@@ -12,6 +12,7 @@ import {
   Operation,
   StrKey,
   xdr,
+  type FeeBumpTransaction,
 } from "@stellar/stellar-base";
 import { GeneratedLinkoraClient } from "./generated/client.js";
 import { Profile, Post, Pool, SimulationResult, LedgerFootprint } from "./types.js";
@@ -46,6 +47,10 @@ import {
 } from "./queue.js";
 import { submitTransaction } from "./submit.js";
 import { mapMultiOperationAuth } from "./multi-operation-auth.js";
+import {
+  buildBumpSequenceTransaction,
+  buildFeeBumpTransaction,
+} from "./tx-builder.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
@@ -2314,6 +2319,63 @@ export class LinkoraClient extends GeneratedLinkoraClient {
       cursor: opts?.cursor,
       fetchPage: (offset, limit) => this.getPostsByAuthor(author, offset, limit),
     });
+  }
+
+  // ── Fee-bump / bump-sequence support (issue #1346) ───────────────────────
+
+  /**
+   * Wrap an existing signed transaction into a fee-bump transaction so it can
+   * be resubmitted with a higher fee (e.g. when stuck in the mempool).
+   *
+   * @param innerTx A signed `Transaction` or its base-64 XDR envelope.
+   * @param feePayer The `Keypair` (or public key) of the account paying the
+   * higher fee.
+   * @param fee The higher fee in stroops; must exceed the inner transaction's
+   * fee.
+   * @returns The fee-bump transaction, ready for the fee payer's signature and
+   * submission via `submitTransaction`.
+   * @throws {InvalidInputError} When fee-bumping is not possible: the inner
+   * transaction is unsigned, already a fee bump, malformed, or the fee is not
+   * a positive stroop amount.
+   *
+   * @example
+   * ```ts
+   * const bumped = client.feeBumpTransaction(signedTxXdr, feePayerKeypair, "1000");
+   * bumped.sign(feePayerKeypair);
+   * await client.submitTransaction(bumped.toEnvelope().toXDR("base64"), { signer });
+   * ```
+   */
+  feeBumpTransaction(
+    innerTx: Transaction | string,
+    feePayer: Keypair | string,
+    fee: string
+  ): FeeBumpTransaction {
+    return buildFeeBumpTransaction(innerTx, feePayer, fee, this._networkPassphrase);
+  }
+
+  /**
+   * Build a standalone `bump_sequence` transaction for the account, to escape
+   * a stuck sequence number: submit it first, then rebuild the original
+   * transaction at the new sequence.
+   *
+   * @param source The Stellar public key of the account whose sequence to bump.
+   * @param bumpTo The sequence number to bump the account to (must exceed the
+   * current sequence).
+   * @param horizonUrl Optional Horizon URL for fetching the account.
+   * @param fee Transaction fee in stroops (default `"100"`).
+   * @returns The unsigned transaction; sign it with the source account's
+   * signer and submit.
+   * @throws {InvalidInputError} When `bumpTo` is not a positive integer.
+   */
+  async bumpSequence(
+    source: string,
+    bumpTo: string | number | bigint,
+    horizonUrl?: string,
+    fee: string = "100"
+  ): Promise<Transaction> {
+    ensureAddress(source, "source");
+    const sourceAccount = await this.getAccountForTx(source, horizonUrl);
+    return buildBumpSequenceTransaction(sourceAccount, bumpTo, this._networkPassphrase, fee);
   }
 
   private async simulateCallOnContract(
