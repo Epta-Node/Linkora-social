@@ -59,7 +59,8 @@ describe("SDK E2E Tests against Stellar Testnet", () => {
 
   describe("XDR envelope builders (offline, no network)", () => {
     const user = Keypair.random().publicKey();
-    const creatorToken = Keypair.random().publicKey();
+    // Token parameters must be Soroban contract addresses (C...) — see issue #1345
+    const creatorToken = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
 
     test("setProfile returns a non-empty XDR string", () => {
       const xdr = client.setProfile(user, "testuser", creatorToken);
