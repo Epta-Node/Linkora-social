@@ -28,6 +28,7 @@ import {
   initRateLimiters,
   closeRateLimiters,
   isWsIpRateLimited,
+  isWsAddressRateLimited,
 } from "./middleware/rateLimit";
 import { createHealthRouter } from "./routes/health";
 import { logger } from "./logger";
@@ -192,6 +193,13 @@ async function createApp() {
     // Validate required auth params
     if (!address || !timestampStr || !signature) {
       ws.close(1008, "Missing required query params: address, timestamp, signature");
+      return;
+    }
+
+    // Rate limit per-address reconnect attempts (token bucket)
+    if (await isWsAddressRateLimited(address)) {
+      logger.warn({ ip: clientIp, address }, "WebSocket address reconnect rate limit exceeded");
+      ws.close(1008, "Reconnect rate limit exceeded for address");
       return;
     }
 

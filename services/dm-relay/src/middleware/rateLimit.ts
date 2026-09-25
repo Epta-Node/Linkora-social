@@ -214,10 +214,116 @@ export class RedisWsRateLimitStore implements WsRateLimitStore {
   }
 }
 
+// ── WebSocket per-address reconnect token bucket ──────────────────────────────
+
+export const WS_ADDRESS_BURST = parseInt(process.env.WS_ADDRESS_BURST || "5", 10);
+export const WS_ADDRESS_REFILL_MS = parseInt(process.env.WS_ADDRESS_REFILL_MS || "2000", 10);
+
+export interface WsAddressRateLimitStore {
+  /**
+   * Consume one reconnect token for `address`.
+   * Returns `true` if allowed (consumed), `false` if rate limited (bucket exhausted).
+   */
+  consume(address: string, nowMs?: number): Promise<boolean>;
+  clear(): Promise<void>;
+}
+
+export class InMemoryWsAddressRateLimitStore implements WsAddressRateLimitStore {
+  private buckets = new Map<string, { tokens: number; lastRefill: number }>();
+
+  constructor(
+    private burst: number = WS_ADDRESS_BURST,
+    private refillMs: number = WS_ADDRESS_REFILL_MS
+  ) {}
+
+  async consume(address: string, nowMs: number = Date.now()): Promise<boolean> {
+    const entry = this.buckets.get(address);
+    if (!entry) {
+      this.buckets.set(address, { tokens: this.burst - 1, lastRefill: nowMs });
+      return true;
+    }
+
+    const elapsed = Math.max(0, nowMs - entry.lastRefill);
+    const refilled = elapsed / this.refillMs;
+    const tokens = Math.min(this.burst, entry.tokens + refilled);
+
+    if (tokens >= 1) {
+      this.buckets.set(address, { tokens: tokens - 1, lastRefill: nowMs });
+      return true;
+    }
+
+    this.buckets.set(address, { tokens, lastRefill: nowMs });
+    return false;
+  }
+
+  async clear(): Promise<void> {
+    this.buckets.clear();
+  }
+}
+
+export class RedisWsAddressRateLimitStore implements WsAddressRateLimitStore {
+  constructor(
+    private client: Redis,
+    private burst: number = WS_ADDRESS_BURST,
+    private refillMs: number = WS_ADDRESS_REFILL_MS,
+    private keyPrefix = "rl:dm-relay:ws:addr:"
+  ) {}
+
+  async consume(address: string, nowMs: number = Date.now()): Promise<boolean> {
+    const key = `${this.keyPrefix}${address}`;
+    const script = `
+      local key = KEYS[1]
+      local burst = tonumber(ARGV[1])
+      local refillMs = tonumber(ARGV[2])
+      local now = tonumber(ARGV[3])
+
+      local data = redis.call("HMGET", key, "tokens", "lastRefill")
+      local tokens = tonumber(data[1])
+      local lastRefill = tonumber(data[2])
+
+      if not tokens or not lastRefill then
+        tokens = burst - 1
+        lastRefill = now
+        redis.call("HMSET", key, "tokens", tokens, "lastRefill", lastRefill)
+        redis.call("PEXPIRE", key, math.ceil(burst * refillMs * 2))
+        return 1
+      end
+
+      local elapsed = math.max(0, now - lastRefill)
+      local refilled = elapsed / refillMs
+      tokens = math.min(burst, tokens + refilled)
+
+      if tokens >= 1 then
+        tokens = tokens - 1
+        lastRefill = now
+        redis.call("HMSET", key, "tokens", tokens, "lastRefill", lastRefill)
+        redis.call("PEXPIRE", key, math.ceil(burst * refillMs * 2))
+        return 1
+      else
+        redis.call("HMSET", key, "tokens", tokens, "lastRefill", lastRefill)
+        redis.call("PEXPIRE", key, math.ceil(burst * refillMs * 2))
+        return 0
+      end
+    `;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await (this.client as any).eval(script, 1, key, this.burst, this.refillMs, nowMs);
+    return Number(res) === 1;
+  }
+
+  async clear(): Promise<void> {
+    const keys = await this.client.keys(`${this.keyPrefix}*`);
+    if (keys.length > 0) {
+      await this.client.del(...keys);
+    }
+  }
+}
+
 // ── Module state ──────────────────────────────────────────────────────────────
 
 let redisClient: Redis | null = null;
 let wsStore: WsRateLimitStore = new InMemoryWsRateLimitStore();
+let wsAddressStore: WsAddressRateLimitStore = new InMemoryWsAddressRateLimitStore();
 let storeStatus: RateLimitStoreStatus = { store: "memory", shared: false };
 
 /**
@@ -320,6 +426,7 @@ export async function initRateLimiters(): Promise<void> {
     if (client && store) {
       redisClient = client;
       wsStore = new RedisWsRateLimitStore(client);
+      wsAddressStore = new RedisWsAddressRateLimitStore(client);
       storeStatus = { store: "redis", shared: true };
       console.info("[rate-limiter] Using Redis store (shared across instances)");
       buildLimiters(store);
@@ -330,6 +437,7 @@ export async function initRateLimiters(): Promise<void> {
   }
 
   wsStore = new InMemoryWsRateLimitStore();
+  wsAddressStore = new InMemoryWsAddressRateLimitStore();
   storeStatus = { store: "memory", shared: false };
   buildLimiters();
 }
@@ -368,14 +476,40 @@ export async function isWsIpRateLimited(ip: string, nowMs: number = Date.now()):
   }
 }
 
+/**
+ * True when `address` has exceeded the WebSocket reconnect token bucket limit.
+ * Backed by Redis when configured, so the cap applies deployment-wide.
+ */
+export async function isWsAddressRateLimited(
+  address: string,
+  nowMs: number = Date.now()
+): Promise<boolean> {
+  try {
+    const allowed = await wsAddressStore.consume(address, nowMs);
+    return !allowed;
+  } catch (err) {
+    console.error(
+      "[rate-limiter] WebSocket address rate-limit check failed, allowing connection:",
+      err
+    );
+    return false;
+  }
+}
+
 /** Replace the WebSocket store (tests). */
 export function setWsRateLimitStore(store: WsRateLimitStore): void {
   wsStore = store;
 }
 
+/** Replace the WebSocket address store (tests). */
+export function setWsAddressRateLimitStore(store: WsAddressRateLimitStore): void {
+  wsAddressStore = store;
+}
+
 /** Reset WebSocket counters (tests). */
 export async function resetWsRateLimit(): Promise<void> {
   await wsStore.clear();
+  await wsAddressStore.clear();
 }
 
 // ── Synchronous fallback so the middleware can be used before initRateLimiters

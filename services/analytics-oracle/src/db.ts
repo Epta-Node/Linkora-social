@@ -19,8 +19,15 @@ export class CreatorStatsValidationError extends Error {
   }
 }
 
+const MIN_I64 = -9223372036854775808n;
+const MAX_I64 = 9223372036854775807n;
+
 function isNonNegativeBigint(v: bigint): boolean {
   return v >= 0n;
+}
+
+function isI64(v: bigint): boolean {
+  return v >= MIN_I64 && v <= MAX_I64;
 }
 
 function validateCreatorStats(stats: CreatorStats): void {
@@ -48,9 +55,9 @@ function validateCreatorStats(stats: CreatorStats): void {
     );
   }
 
-  if (!isNonNegativeBigint(stats.followerDelta)) {
+  if (typeof stats.followerDelta !== "bigint" || !isI64(stats.followerDelta)) {
     throw new CreatorStatsValidationError(
-      `followerDelta must be non-negative, got ${stats.followerDelta}`,
+      `followerDelta must be an i64 bigint, got ${stats.followerDelta}`,
       "followerDelta",
       stats.followerDelta
     );
@@ -103,15 +110,21 @@ export async function fetchCreatorStats(
     [windowStart.toString(), windowEnd.toString()]
   );
 
-  return result.rows.map((row) => {
-    const stats: CreatorStats = {
-      creatorAddress: row.creator,
-      totalTips: BigInt(row.total_tips),
-      postCount: BigInt(row.post_count),
-      followerDelta: BigInt(row.follower_delta),
-      uniqueTippers: parseInt(row.unique_tippers, 10),
-    };
-    validateCreatorStats(stats);
-    return stats;
-  });
+  const statsList: CreatorStats[] = [];
+  for (const row of result.rows) {
+    try {
+      const stats: CreatorStats = {
+        creatorAddress: row.creator,
+        totalTips: BigInt(row.total_tips),
+        postCount: BigInt(row.post_count),
+        followerDelta: BigInt(row.follower_delta),
+        uniqueTippers: parseInt(row.unique_tippers, 10),
+      };
+      validateCreatorStats(stats);
+      statsList.push(stats);
+    } catch (err) {
+      console.error(`[analytics-oracle] Invalid stats row for creator ${row.creator}:`, err);
+    }
+  }
+  return statsList;
 }

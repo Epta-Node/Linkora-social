@@ -141,9 +141,13 @@ export function validateReport(report: AnalyticsReport): void {
     );
   }
 
-  if (!isNonNegativeBigint(report.followerDelta)) {
+  if (
+    typeof report.followerDelta !== "bigint" ||
+    report.followerDelta < -9223372036854775808n ||
+    report.followerDelta > 9223372036854775807n
+  ) {
     throw new ValidationError(
-      `followerDelta must be non-negative, got ${report.followerDelta}`,
+      `followerDelta must be an i64 integer, got ${report.followerDelta}`,
       "followerDelta",
       report.followerDelta
     );
