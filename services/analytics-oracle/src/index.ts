@@ -72,6 +72,9 @@ const attestationCache = new AttestationCache<SignedAttestation>({
 // cached signature produced under the previous key.
 const signerId = oracleSigner.fingerprint();
 attestationCache.setSignerId(signerId);
+oracleSigner.onRotate((fingerprint) => {
+  attestationCache.setSignerId(fingerprint);
+});
 
 let lastWindowEnd = BigInt(0);
 
@@ -104,70 +107,78 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
   }
 
   for (const s of stats) {
-    let creatorBytes: Uint8Array;
     try {
-      creatorBytes = Keypair.fromPublicKey(s.creatorAddress).rawPublicKey();
-    } catch {
-      logger.warn({ creatorAddress: s.creatorAddress }, "Skipping invalid address");
-      continue;
-    }
+      let creatorBytes: Uint8Array;
+      try {
+        creatorBytes = Keypair.fromPublicKey(s.creatorAddress).rawPublicKey();
+      } catch {
+        logger.warn({ creatorAddress: s.creatorAddress }, "Skipping invalid address");
+        continue;
+      }
 
-    const report: AnalyticsReport = {
-      version: 1,
-      creator: creatorBytes,
-      windowStart,
-      windowEnd,
-      totalTips: s.totalTips,
-      postCount: s.postCount,
-      followerDelta: s.followerDelta,
-      uniqueTippers: s.uniqueTippers,
-    };
-
-    const reportCbor = encodeReport(report);
-    const { signature, reportHash } = oracleSigner.signReport(reportCbor);
-
-    // Audit log: every signing includes the public-key fingerprint and the
-    // ledger window, never the private key material.
-    logger.info(
-      {
-        fingerprint: oracleSigner.fingerprint(),
-        creatorAddress: s.creatorAddress,
-        windowStart: windowStart.toString(),
-        windowEnd: windowEnd.toString(),
-        reportHash: reportHash.toString("hex"),
-      },
-      "Attestation signed"
-    );
-
-    let txHash: string;
-    try {
-      txHash = await submitAttestation(
-        rpcServer,
-        NETWORK_PASSPHRASE,
-        CONTRACT_ID,
-        ORACLE_NAME,
-        reportCbor,
-        signature,
-        oracleSigner.keypair(),
-        s.creatorAddress,
+      const report: AnalyticsReport = {
+        version: 1,
+        creator: creatorBytes,
         windowStart,
-        windowEnd
+        windowEnd,
+        totalTips: s.totalTips,
+        postCount: s.postCount,
+        followerDelta: s.followerDelta,
+        uniqueTippers: s.uniqueTippers,
+      };
+
+      const reportCbor = encodeReport(report);
+      const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+
+      // Audit log: every signing includes the public-key fingerprint and the
+      // ledger window, never the private key material.
+      logger.info(
+        {
+          fingerprint: oracleSigner.fingerprint(),
+          creatorAddress: s.creatorAddress,
+          windowStart: windowStart.toString(),
+          windowEnd: windowEnd.toString(),
+          reportHash: reportHash.toString("hex"),
+        },
+        "Attestation signed"
       );
-      logger.info({ creatorAddress: s.creatorAddress, txHash }, "Creator attested");
+
+      let txHash: string;
+      try {
+        txHash = await submitAttestation(
+          rpcServer,
+          NETWORK_PASSPHRASE,
+          CONTRACT_ID,
+          ORACLE_NAME,
+          reportCbor,
+          signature,
+          oracleSigner.keypair(),
+          s.creatorAddress,
+          windowStart,
+          windowEnd
+        );
+        logger.info({ creatorAddress: s.creatorAddress, txHash }, "Creator attested");
+      } catch (err) {
+        logger.error({ creatorAddress: s.creatorAddress, err }, "Attestation submission failed");
+        continue;
+      }
+
+      attestationCache.set(s.creatorAddress, {
+        oracleName: ORACLE_NAME,
+        signerKey: oracleSigner.fingerprint(),
+        keyVersion: oracleSigner.keyVersion,
+        rotationEpoch: oracleSigner.rotationEpoch,
+        reportCbor,
+        reportHash: reportHash.toString("hex"),
+        signature,
+        txHash,
+        report,
+        submittedAt: Date.now(),
+      });
     } catch (err) {
-      logger.error({ creatorAddress: s.creatorAddress, err }, "Attestation submission failed");
+      logger.error({ creatorAddress: s.creatorAddress, err }, "Error processing creator stats");
       continue;
     }
-
-    attestationCache.set(s.creatorAddress, {
-      oracleName: ORACLE_NAME,
-      reportCbor,
-      reportHash: reportHash.toString("hex"),
-      signature,
-      txHash,
-      report,
-      submittedAt: Date.now(),
-    });
   }
 }
 
@@ -180,13 +191,48 @@ async function scheduleLoop(currentLedger: bigint): Promise<void> {
     return;
   }
 
-  // Window-start invalidation: cached attestations reference the *previous*
-  // report window, which is now closed. Drop them so a stale attestation is
-  // never served once the oracle begins covering the new window.
-  attestationCache.beginWindow(windowStart, windowEnd);
+  const MAX_RETRIES = 3;
+  let attempt = 0;
+  let success = false;
+  let lastError: unknown;
 
-  lastWindowEnd = windowEnd;
-  await runWindow(windowStart, windowEnd);
+  while (attempt < MAX_RETRIES && !success) {
+    attempt++;
+    try {
+      // Window-start invalidation: cached attestations reference the *previous*
+      // report window, which is now closed. Drop them so a stale attestation is
+      // never served once the oracle begins covering the new window.
+      attestationCache.beginWindow(windowStart, windowEnd);
+      await runWindow(windowStart, windowEnd);
+      success = true;
+    } catch (err) {
+      lastError = err;
+      logger.warn(
+        {
+          attempt,
+          maxRetries: MAX_RETRIES,
+          windowStart: windowStart.toString(),
+          windowEnd: windowEnd.toString(),
+          err,
+        },
+        "Window processing failed, retrying"
+      );
+      if (attempt < MAX_RETRIES) {
+        const backoffMs = Math.pow(2, attempt - 1) * 100;
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+
+  if (success) {
+    lastWindowEnd = windowEnd;
+  } else {
+    logger.error(
+      { windowStart: windowStart.toString(), windowEnd: windowEnd.toString(), err: lastError },
+      "Window processing failed after retries; lastWindowEnd not advanced"
+    );
+    throw lastError;
+  }
 }
 
 const app = express();
@@ -248,6 +294,9 @@ app.get("/attestations/:creator", validateParams(creatorParamsSchema), (req, res
 
   res.json({
     oracleName: att.oracleName,
+    signerKey: att.signerKey,
+    keyVersion: att.keyVersion,
+    rotationEpoch: att.rotationEpoch,
     reportHash: att.reportHash,
     reportCbor: att.reportCbor.toString("hex"),
     signature: att.signature.toString("hex"),

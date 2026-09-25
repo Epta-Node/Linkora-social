@@ -16,6 +16,9 @@ export interface AnalyticsReport {
 
 export interface SignedAttestation {
   oracleName: string;
+  signerKey: string;
+  keyVersion: number;
+  rotationEpoch: number;
   reportCbor: Buffer;
   reportHash: string; // hex sha256
   signature: Buffer; // 64-byte Ed25519 signature

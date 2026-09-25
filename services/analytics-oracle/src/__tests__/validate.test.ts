@@ -172,18 +172,9 @@ describe("validateReport", () => {
       expect(() => validateReport({ ...VALID_REPORT, followerDelta: 0n })).not.toThrow();
     });
 
-    it("rejects negative followerDelta", () => {
-      expect(() => validateReport({ ...VALID_REPORT, followerDelta: -1n })).toThrow(
-        ValidationError
-      );
-    });
-
-    it("includes field name in error", () => {
-      try {
-        validateReport({ ...VALID_REPORT, followerDelta: -5n });
-      } catch (e) {
-        expect((e as ValidationError).field).toBe("followerDelta");
-      }
+    it("accepts negative followerDelta (net unfollows)", () => {
+      expect(() => validateReport({ ...VALID_REPORT, followerDelta: -10n })).not.toThrow();
+      expect(() => encodeReport({ ...VALID_REPORT, followerDelta: -10n })).not.toThrow();
     });
   });
 

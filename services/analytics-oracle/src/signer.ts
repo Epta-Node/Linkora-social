@@ -19,7 +19,10 @@ ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 export class Signer {
   private seed: Uint8Array;
   private _keypair: Keypair;
+  private _keyVersion = 1;
+  private _rotationEpoch = 1;
   private disposed = false;
+  private onRotateListeners: Array<(fingerprint: string) => void> = [];
 
   constructor(seed: Uint8Array) {
     // Take our own copy so the caller's buffer can be zeroed independently.
@@ -29,6 +32,19 @@ export class Signer {
       { fingerprint: this.fingerprint(), source: "signer-init" },
       "Oracle signer initialised"
     );
+  }
+
+  get keyVersion(): number {
+    return this._keyVersion;
+  }
+
+  get rotationEpoch(): number {
+    return this._rotationEpoch;
+  }
+
+  /** Register a callback invoked whenever key rotation occurs. */
+  onRotate(listener: (fingerprint: string) => void): void {
+    this.onRotateListeners.push(listener);
   }
 
   /** Fingerprint of the current public key (hex). Used in audit logs. */
@@ -61,12 +77,22 @@ export class Signer {
     const old = this.seed;
     this.seed = new Uint8Array(newSeed);
     this._keypair = Keypair.fromRawEd25519Seed(Buffer.from(this.seed));
+    this._keyVersion++;
+    this._rotationEpoch++;
     zeroise(old);
+    const newFingerprint = this.fingerprint();
     logger.info(
-      { fingerprint: this.fingerprint(), source: "signer-rotate" },
+      { fingerprint: newFingerprint, source: "signer-rotate" },
       "Oracle signer key rotated"
     );
-    return this.fingerprint();
+    for (const listener of this.onRotateListeners) {
+      try {
+        listener(newFingerprint);
+      } catch (err) {
+        logger.error({ err }, "Error in onRotate listener");
+      }
+    }
+    return newFingerprint;
   }
 
   /**
