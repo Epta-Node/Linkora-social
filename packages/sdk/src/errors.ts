@@ -363,3 +363,18 @@ export function mapError(err: unknown): LinkoraError {
   const msg = err instanceof Error ? err.message : String(err);
   return mapByRegex(msg, err);
 }
+
+/**
+ * Thrown when importing a portable signed transaction fails: malformed
+ * payload, tampered XDR (digest mismatch), wrong network, unsigned
+ * envelope, or unparseable XDR (issue #1357).
+ */
+export class InvalidSignedTransactionError extends LinkoraError {
+  constructor(
+    message: string,
+    details?: Record<string, unknown>,
+    originalError?: unknown
+  ) {
+    super(message, "INVALID_SIGNED_TRANSACTION", details, originalError);
+  }
+}
