@@ -135,6 +135,17 @@ export class TimeoutError extends LinkoraError {
 }
 
 /**
+ * Raised when every bounded retry attempt for an idempotent request has
+ * failed (issue #1363). Carries the number of attempts made and the final
+ * transport error as `originalError`.
+ */
+export class RetryExhaustedError extends LinkoraError {
+  constructor(message: string, details?: Record<string, unknown>, originalError?: unknown) {
+    super(message, "RETRY_EXHAUSTED", details, originalError);
+  }
+}
+
+/**
  * Thrown when an on-chain contract invocation fails (simulation error, contract
  * FAILED status, or a diagnostic trap returned by Soroban).
  */
