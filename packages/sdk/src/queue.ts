@@ -115,6 +115,7 @@ export interface QueuePersistence {
 
 export interface QueueSigner {
   signTransaction(xdr: string): Promise<string>;
+  getPublicKey?(): Promise<string>;
 }
 
 export interface SimulationResult {

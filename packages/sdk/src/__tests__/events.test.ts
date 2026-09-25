@@ -97,6 +97,16 @@ describe("parseContractEvent", () => {
     expect(evt.followee).toBe("GFOLLOWEE");
   });
 
+  it("attributes events to the configured contract source", () => {
+    const raw = rawEvent({
+      contractId: "TOKEN_FACTORY",
+      topics: [enc("follow")],
+      data: enc({ follower: "GFOLLOWER", followee: "GFOLLOWEE" }),
+    });
+    const evt = parseContractEvent(raw, "TOKEN_FACTORY") as FollowEvent;
+    expect(evt.meta.source).toEqual({ contractId: "TOKEN_FACTORY", kind: "token-factory" });
+  });
+
   it("decodes PostCreatedEvent", () => {
     const raw = rawEvent({
       topics: [enc("post_created")],

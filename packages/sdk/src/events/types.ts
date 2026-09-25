@@ -23,7 +23,14 @@ export interface LinkoraEventMeta {
   id?: string;
   pagingToken?: string;
   txHash?: string;
+  /** Contract that emitted the event. Kept typed for multi-contract clients. */
+  source: EventSource;
   raw: SorobanEvent;
+}
+
+export interface EventSource {
+  contractId?: string;
+  kind: "linkora" | "token-factory" | "unknown";
 }
 
 interface BaseLinkoraEvent {
@@ -301,7 +308,15 @@ function payloadFrom(topics: unknown[], data: Record<string, unknown>): Record<s
   return payload;
 }
 
-function meta(raw: SorobanEvent): LinkoraEventMeta {
+export function eventSource(raw: SorobanEvent, tokenFactoryId?: string): EventSource {
+  if (!raw.contractId) return { kind: "unknown" };
+  if (tokenFactoryId && raw.contractId === tokenFactoryId) {
+    return { contractId: raw.contractId, kind: "token-factory" };
+  }
+  return { contractId: raw.contractId, kind: "linkora" };
+}
+
+function meta(raw: SorobanEvent, tokenFactoryId?: string): LinkoraEventMeta {
   return {
     ledger: raw.ledger,
     ledgerClosedAt: raw.ledgerClosedAt,
@@ -309,6 +324,7 @@ function meta(raw: SorobanEvent): LinkoraEventMeta {
     id: raw.id,
     pagingToken: raw.pagingToken,
     txHash: raw.txHash,
+    source: eventSource(raw, tokenFactoryId),
     raw,
   };
 }
@@ -353,14 +369,14 @@ function strArray(value: unknown): string[] {
  * }
  * ```
  */
-export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
+export function parseContractEvent(raw: SorobanEvent, tokenFactoryId?: string): LinkoraEvent | null {
   try {
     const topics = decodeMany(raw.topics ?? raw.topic);
     const eventType = findEventType(topics);
     if (!eventType) return null;
 
     const payload = payloadFrom(topics, decodeData(raw.data ?? raw.value));
-    const eventMeta = meta(raw);
+    const eventMeta = meta(raw, tokenFactoryId);
 
     switch (eventType) {
       case "rent_paid":
