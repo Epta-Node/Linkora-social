@@ -3173,6 +3173,20 @@ fn test_pool_withdraw_exactly_threshold_2_of_3_succeeds() {
 }
 
 #[test]
+#[should_panic(expected = "signers must not contain duplicate addresses")]
+fn test_pool_withdraw_rejects_duplicate_signers_for_threshold() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let (client, _, pool_id, _, admins) = setup_pool(&env, 3, 2, 100);
+    let recipient = Address::generate(&env);
+    let signer = admins.get(0).unwrap();
+    let duplicate_signers = vec![&env, signer.clone(), signer];
+
+    client.pool_withdraw(&duplicate_signers, &pool_id, &50, &recipient);
+}
+
+#[test]
 fn test_pool_withdraw_superset_of_threshold_also_succeeds() {
     // Having more signers than the threshold is always acceptable.
     let env = Env::default();

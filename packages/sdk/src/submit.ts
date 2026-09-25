@@ -11,6 +11,7 @@ import { Transaction, TransactionBuilder } from "@stellar/stellar-base";
 import type { RpcClient, SimulationResult, QueueSigner, RunOptions } from "./queue.js";
 import { TransactionQueue } from "./queue.js";
 import type { LinkoraClient } from "./client.js";
+import { validateTransactionSource } from "./tx-builder.js";
 
 /**
  * Adapter that wraps rpc.Server to implement the RpcClient interface.
@@ -119,6 +120,10 @@ export async function submitTransaction(
     "Test SDF Network ; September 2015";
 
   const server = client.createRpcServer();
+  const unsignedTransaction = TransactionBuilder.fromXDR(xdrString, networkPassphrase);
+  if (unsignedTransaction instanceof Transaction) {
+    await validateTransactionSource(unsignedTransaction, signer);
+  }
   const rpcAdapter: RpcClient = {
     async getAccountSequence(accountId: string) {
       const account = await client.classic.getAccount(accountId);

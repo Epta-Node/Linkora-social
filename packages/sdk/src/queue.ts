@@ -66,6 +66,7 @@ export interface QueueStep {
 
 export interface QueueSigner {
   signTransaction(xdr: string): Promise<string>;
+  getPublicKey?(): Promise<string>;
 }
 
 export interface SimulationResult {
