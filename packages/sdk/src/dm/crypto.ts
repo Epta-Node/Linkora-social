@@ -165,3 +165,118 @@ export function decryptDirectMessage(
   
   return decryptMessage(sharedSecret, ciphertext, conversationId, messageIndex);
 }
+
+// ── Key Rotation & Grace-Period Decryption (Issue #1352) ─────────────────────
+
+export interface OutboxItem {
+  id: string;
+  plaintext: string;
+  messageIndex: number;
+}
+
+export interface RotatedOutboxItem {
+  id: string;
+  ciphertext: Uint8Array;
+  messageIndex: number;
+}
+
+export interface KeyRotationOptions {
+  /** Outbox items to re-encrypt under the newly derived key pair. */
+  pendingOutbox?: OutboxItem[];
+  /** Optional custom new keypair (if omitted, a cryptographically secure random keypair is generated). */
+  newKeyPair?: DmKeyPair;
+}
+
+export interface KeyRotationEvent {
+  oldPublicKey: Uint8Array;
+  newPublicKey: Uint8Array;
+  rotatedAt: number;
+  reEncryptedOutbox: RotatedOutboxItem[];
+}
+
+export interface KeyMap {
+  currentKey: Uint8Array;
+  historicalKeys?: Uint8Array[];
+}
+
+/**
+ * Perform a first-class DM key rotation.
+ * Generates/accepts a new keypair, re-encrypts pending outbox messages, and returns rotation details.
+ */
+export function rotateConversationKey(
+  currentPrivateKey: Uint8Array,
+  theirPublicKey: Uint8Array,
+  myAddress: string,
+  theirAddress: string,
+  options: KeyRotationOptions = {}
+): { newKeyPair: DmKeyPair; rotationEvent: KeyRotationEvent } {
+  const newKeyPair = options.newKeyPair ?? generateDmKeypair();
+  const oldPublicKey = x25519.getPublicKey(currentPrivateKey);
+  const rotatedAt = Date.now();
+
+  const reEncryptedOutbox: RotatedOutboxItem[] = (options.pendingOutbox ?? []).map((item) => {
+    const ciphertext = encryptDirectMessage(
+      newKeyPair.privateKey,
+      theirPublicKey,
+      myAddress,
+      theirAddress,
+      item.plaintext,
+      item.messageIndex
+    );
+    return {
+      id: item.id,
+      ciphertext,
+      messageIndex: item.messageIndex,
+    };
+  });
+
+  const rotationEvent: KeyRotationEvent = {
+    oldPublicKey,
+    newPublicKey: newKeyPair.publicKey,
+    rotatedAt,
+    reEncryptedOutbox,
+  };
+
+  return {
+    newKeyPair,
+    rotationEvent,
+  };
+}
+
+/**
+ * Decrypt a message attempting the current key first, falling back to historical keys during grace period.
+ */
+export function decryptDirectMessageWithGracePeriod(
+  myPrivateKeyMap: KeyMap,
+  theirPublicKeyMap: KeyMap,
+  myAddress: string,
+  theirAddress: string,
+  ciphertext: Uint8Array,
+  messageIndex: number
+): string {
+  const myKeys = [myPrivateKeyMap.currentKey, ...(myPrivateKeyMap.historicalKeys ?? [])];
+  const theirKeys = [theirPublicKeyMap.currentKey, ...(theirPublicKeyMap.historicalKeys ?? [])];
+
+  let lastError: unknown = null;
+
+  for (const myPriv of myKeys) {
+    for (const theirPub of theirKeys) {
+      try {
+        return decryptDirectMessage(
+          myPriv,
+          theirPub,
+          myAddress,
+          theirAddress,
+          ciphertext,
+          messageIndex
+        );
+      } catch (err) {
+        lastError = err;
+      }
+    }
+  }
+
+  throw lastError instanceof DecryptionError
+    ? lastError
+    : new DecryptionError(`Failed to decrypt message with active or historical keys: ${String(lastError)}`);
+}

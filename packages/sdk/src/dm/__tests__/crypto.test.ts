@@ -350,3 +350,80 @@ describe("RelayClient sendMessage retry logic", () => {
     expect(mockFetch).toHaveBeenCalledTimes(4);
   }, 15_000);
 });
+
+// ── Key Rotation & Grace Period Tests (Issue #1352) ─────────────────────────
+
+describe("Key Rotation & Grace Period (Issue #1352)", () => {
+  const aliceAddr = "GA111111111111111111111111111111111111111111111111111111";
+  const bobAddr = "GB222222222222222222222222222222222222222222222222222222";
+
+  it("rotateConversationKey generates a new key pair and re-encrypts pending outbox", () => {
+    const aliceOld = generateDmKeypair();
+    const bob = generateDmKeypair();
+
+    const pendingOutbox = [
+      { id: "msg1", plaintext: "Hello Bob", messageIndex: 1 },
+      { id: "msg2", plaintext: "Unsent draft", messageIndex: 2 },
+    ];
+
+    const { newKeyPair: aliceNew, rotationEvent } = rotateConversationKey(
+      aliceOld.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      { pendingOutbox }
+    );
+
+    expect(rotationEvent.oldPublicKey).toEqual(aliceOld.publicKey);
+    expect(rotationEvent.newPublicKey).toEqual(aliceNew.publicKey);
+    expect(rotationEvent.reEncryptedOutbox).toHaveLength(2);
+
+    // Verify Bob can decrypt the re-encrypted outbox message using Alice's new key
+    const decryptedMsg1 = decryptDirectMessage(
+      bob.privateKey,
+      aliceNew.publicKey,
+      bobAddr,
+      aliceAddr,
+      rotationEvent.reEncryptedOutbox[0].ciphertext,
+      1
+    );
+    expect(decryptedMsg1).toBe("Hello Bob");
+  });
+
+  it("decryptDirectMessageWithGracePeriod decrypts messages encrypted with historical keys during grace period", () => {
+    const aliceOld = generateDmKeypair();
+    const aliceNew = generateDmKeypair();
+    const bob = generateDmKeypair();
+
+    // Alice encrypted a message to Bob using her OLD key before rotation
+    const cipherOld = encryptDirectMessage(
+      aliceOld.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "Old secret message",
+      100
+    );
+
+    // Bob attempts to decrypt with Alice's new key as current key, but has Alice's old key in historicalKeys
+    const alicePublicKeyMap = {
+      currentKey: aliceNew.publicKey,
+      historicalKeys: [aliceOld.publicKey],
+    };
+
+    const bobPrivateKeyMap = {
+      currentKey: bob.privateKey,
+    };
+
+    const decrypted = decryptDirectMessageWithGracePeriod(
+      bobPrivateKeyMap,
+      alicePublicKeyMap,
+      bobAddr,
+      aliceAddr,
+      cipherOld,
+      100
+    );
+
+    expect(decrypted).toBe("Old secret message");
+  });
+});

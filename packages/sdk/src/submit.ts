@@ -11,7 +11,8 @@ import { Transaction, TransactionBuilder } from "@stellar/stellar-base";
 import type { RpcClient, SimulationResult, QueueSigner, RunOptions } from "./queue.js";
 import { TransactionQueue } from "./queue.js";
 import type { LinkoraClient } from "./client.js";
-import { validateTransactionSource } from "./tx-builder.js";
+import { checkSorobanLimits } from "./utils/retry.js";
+import { ValidationError } from "./errors.js";
 
 /**
  * Adapter that wraps rpc.Server to implement the RpcClient interface.
@@ -114,6 +115,17 @@ export async function submitTransaction(
   opts?: RunOptions
 ): Promise<string> {
   const xdrString = typeof xdrOrTx === "string" ? xdrOrTx : xdrOrTx.toEnvelope().toXDR("base64");
+
+  // Pre-validate transaction envelope size & limits up front (Issue #1347)
+  const opCount = typeof xdrOrTx === "string" ? 1 : xdrOrTx.operations.length;
+  const limitReport = checkSorobanLimits(xdrString, opCount);
+  if (!limitReport.withinLimits) {
+    throw new ValidationError(
+      `Transaction exceeds Soroban limits up front: ${limitReport.warnings.join(" ")}`,
+      { report: limitReport }
+    );
+  }
+
   const networkPassphrase =
     (client as unknown as { _networkPassphrase?: string })._networkPassphrase ??
     (client as unknown as { networkPassphrase?: string }).networkPassphrase ??
