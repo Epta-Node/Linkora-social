@@ -25,6 +25,9 @@ jest.mock("@stellar/stellar-base", () => ({
     isValidEd25519PublicKey: jest.fn(
       (value: string) => typeof value === "string" && value.startsWith("G")
     ),
+    isValidContract: jest.fn(
+      (value: string) => typeof value === "string" && value.startsWith("C")
+    ),
   },
   nativeToScVal: jest.fn((val: unknown, opts?: unknown) => ({
     _type: "scval",
@@ -57,12 +60,12 @@ describe("LinkoraClient write methods", () => {
   const val = (v: unknown) => expect.objectContaining({ _val: v });
 
   it("setProfile", () => {
-    expect(client.setProfile("GUSER", "alice", "GTOKEN")).toBe(XDR);
+    expect(client.setProfile("GUSER", "alice", "CTOKEN")).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith(
       "set_profile",
       addr("GUSER"),
       val("alice"),
-      addr("GTOKEN")
+      addr("CTOKEN")
     );
   });
 
@@ -107,46 +110,46 @@ describe("LinkoraClient write methods", () => {
   });
 
   it("tip includes token argument", () => {
-    expect(client.tip("GSENDER", 3, "GTOKEN", 500)).toBe(XDR);
+    expect(client.tip("GSENDER", 3, "CTOKEN", 500)).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith(
       "tip",
       addr("GSENDER"),
       val(3n),
-      addr("GTOKEN"),
+      addr("CTOKEN"),
       val(500n)
     );
   });
 
   it("tip accepts bigint amount", () => {
-    expect(client.tip("GSENDER", 3, "GTOKEN", 1000n)).toBe(XDR);
+    expect(client.tip("GSENDER", 3, "CTOKEN", 1000n)).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith(
       "tip",
       addr("GSENDER"),
       val(3n),
-      addr("GTOKEN"),
+      addr("CTOKEN"),
       val(1000n)
     );
   });
 
   it("createPool includes pool_id", () => {
-    expect(client.createPool("GADMIN", "pool1", "GTOKEN", ["GA", "GB"], 2)).toBe(XDR);
+    expect(client.createPool("GADMIN", "pool1", "CTOKEN", ["GA", "GB"], 2)).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith(
       "create_pool",
       addr("GADMIN"),
       val("pool1"),
-      addr("GTOKEN"),
+      addr("CTOKEN"),
       expect.anything(),
       val(2)
     );
   });
 
   it("poolDeposit", () => {
-    expect(client.poolDeposit("GDEPOSITOR", "pool1", "GTOKEN", 1000)).toBe(XDR);
+    expect(client.poolDeposit("GDEPOSITOR", "pool1", "CTOKEN", 1000)).toBe(XDR);
     expect(mockCall).toHaveBeenCalledWith(
       "pool_deposit",
       addr("GDEPOSITOR"),
       val("pool1"),
-      addr("GTOKEN"),
+      addr("CTOKEN"),
       val(1000n)
     );
   });
@@ -315,14 +318,14 @@ describe("prepare*Tx methods (Submittable)", () => {
       toEnvelope: () => ({ toXDR: () => "PREPARED_XDR" }),
     } as unknown as Awaited<ReturnType<typeof client.prepareTransaction>>);
 
-    const result = await client.preparePoolDepositTx("GDEP", "pool-1", "GTOKEN", 1000n);
+    const result = await client.preparePoolDepositTx("GDEP", "pool-1", "CTOKEN", 1000n);
     expect(result).toBe("PREPARED_XDR");
     expect(client.prepareTransaction).toHaveBeenCalledWith(
       "pool_deposit",
       expect.objectContaining({ _accountId: "GDEP" }),
       addr("GDEP"),
       val("pool-1"),
-      addr("GTOKEN"),
+      addr("CTOKEN"),
       val(1000n)
     );
   });
@@ -355,14 +358,14 @@ describe("prepare*Tx methods (Submittable)", () => {
       toEnvelope: () => ({ toXDR: () => "PREPARED_XDR" }),
     } as unknown as Awaited<ReturnType<typeof client.prepareTransaction>>);
 
-    const result = await client.prepareCreatePoolTx("GA", "pool-1", "GTOKEN", ["GA", "GB"], 2);
+    const result = await client.prepareCreatePoolTx("GA", "pool-1", "CTOKEN", ["GA", "GB"], 2);
     expect(result).toBe("PREPARED_XDR");
     expect(client.prepareTransaction).toHaveBeenCalledWith(
       "create_pool",
       expect.objectContaining({ _accountId: "GA" }),
       addr("GA"),
       val("pool-1"),
-      addr("GTOKEN"),
+      addr("CTOKEN"),
       expect.objectContaining({ _opts: { type: "vec" } }),
       val(2)
     );
@@ -377,11 +380,11 @@ describe("prepare*Tx methods (Submittable)", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
-    const result = await client.prepareIncreaseAllowanceTx("GDEP", "GTOKEN", "CPOOL", 1000n);
+    const result = await client.prepareIncreaseAllowanceTx("GDEP", "CTOKEN", "CPOOL", 1000n);
     expect(result).toBe("PREPARED_XDR");
     expect(prepareOn).toHaveBeenCalledWith(
       "increase_allowance",
-      "GTOKEN",
+      "CTOKEN",
       expect.objectContaining({ _accountId: "GDEP" }),
       addr("GDEP"),
       addr("CPOOL"),

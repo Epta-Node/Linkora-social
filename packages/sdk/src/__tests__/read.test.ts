@@ -348,9 +348,11 @@ describe("LinkoraClient read methods", () => {
       expect(() => client.setProfile("GUSER", "alice", contractId)).not.toThrow();
     });
 
-    it("accepts valid account addresses (G...)", () => {
+    it("rejects account public keys as creator tokens (token params are contract-only)", () => {
       const accountKey = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
-      expect(() => client.setProfile("GUSER", "alice", accountKey)).not.toThrow();
+      expect(() => client.setProfile("GUSER", "alice", accountKey)).toThrow(
+        "creatorToken must be a valid Soroban contract address"
+      );
     });
 
     it("rejects invalid addresses", () => {
