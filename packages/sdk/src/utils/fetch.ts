@@ -5,6 +5,11 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 /**
  * Wrapper around `fetch` that aborts the request after a configurable timeout.
  *
+ * A caller-supplied `init.signal` is combined with the internal timeout
+ * controller so either can cancel the request (issue #1344): a caller abort
+ * propagates as the original `AbortError` — distinguishable from a timeout —
+ * while an internal timeout raises {@link TimeoutError}.
+ *
  * @param url The URL to fetch.
  * @param init Standard `RequestInit` options.
  * @param timeoutMs Timeout in milliseconds (default 30 000). Pass `0` to disable.
@@ -20,22 +25,36 @@ export async function fetchWithTimeout(
     return fetch(url, init);
   }
 
+  const callerSignal = init?.signal ?? null;
   const controller = new AbortController();
+  const forwardCallerAbort = () => controller.abort();
+  if (callerSignal) {
+    if (callerSignal.aborted) {
+      controller.abort();
+    } else {
+      callerSignal.addEventListener("abort", forwardCallerAbort);
+    }
+  }
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const urlText = typeof url === "string" ? url : url.toString();
 
   try {
     return await fetch(url, { ...init, signal: controller.signal });
   } catch (err) {
     if (isAbortError(err)) {
+      if (callerSignal?.aborted) {
+        throw err;
+      }
       throw new TimeoutError(
-        `Request to ${typeof url === "string" ? url : url.toString()} timed out after ${timeoutMs}ms`,
-        { url: typeof url === "string" ? url : url.toString(), timeoutMs },
+        `Request to ${urlText} timed out after ${timeoutMs}ms`,
+        { url: urlText, timeoutMs },
         err
       );
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", forwardCallerAbort);
   }
 }
 
