@@ -130,7 +130,10 @@ export class StreamCircuitBreaker {
   private readonly emit: (event: Record<string, unknown>) => void;
 
   constructor(options: StreamCircuitBreakerOptions = {}) {
-    this.threshold = Math.max(1, Math.floor(options.threshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD));
+    this.threshold = Math.max(
+      1,
+      Math.floor(options.threshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD)
+    );
     this.probeIntervalMs = Math.max(
       0,
       Math.floor(options.probeIntervalMs ?? DEFAULT_CIRCUIT_BREAKER_PROBE_INTERVAL_MS)
@@ -188,6 +191,7 @@ export class StreamCircuitBreaker {
     if (this._state === "half_open") {
       // The probe failed; fall back to open and serve another wait.
       this._state = "open";
+      this.emit({ metric: "stream_circuit_trip" });
       this.emit({
         metric: "stream_circuit_open",
         previousState: "half_open",

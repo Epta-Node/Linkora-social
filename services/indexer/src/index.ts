@@ -39,6 +39,8 @@ import { logger } from "./logger";
 import { initRateLimiter } from "./middleware/rateLimit";
 import { RawEventsRetentionManager } from "./retention";
 import { assertSchemaVersion } from "./schema-version";
+import { streamHealth } from "./metrics";
+import { postgresDomainCursorStore } from "./state";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -189,10 +191,38 @@ async function _ensureSchema(): Promise<void> {
     )
   `);
   await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS indexer_domain_cursor (
+      domain           TEXT PRIMARY KEY,
+      processed_cursor BIGINT NOT NULL DEFAULT 0,
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`
     CREATE TABLE IF NOT EXISTS indexer_state (
       ledger_sequence BIGINT      PRIMARY KEY,
       state_root      TEXT        NOT NULL,
       computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS notification_outbox (
+      id BIGSERIAL PRIMARY KEY,
+      recipient TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS notification_dead_letters (
+      id BIGSERIAL PRIMARY KEY,
+      recipient TEXT NOT NULL,
+      payload JSONB NOT NULL,
+      attempts INTEGER NOT NULL,
+      error TEXT,
+      failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
 
@@ -358,6 +388,7 @@ async function main(): Promise<void> {
   // Initialise HTTP rate limiter (upgrades to Redis store when REDIS_URL is set).
   await initRateLimiter();
 
+  await _ensureSchema();
   await assertSchemaVersion(pgPool);
 
   const pipeline = new IngestPipeline(pgPool, {
@@ -382,7 +413,10 @@ async function main(): Promise<void> {
 
   const processBatch: BatchProcessor = async (events) => {
     const result = await pipeline.processBatch(events.map(toIngestEvent));
-    if (events.length > 0) healthMonitor.recordEvent();
+    if (events.length > 0) {
+      healthMonitor.recordEvent();
+      streamHealth.lastIngestedLedger = result.cursor;
+    }
     return result.cursor;
   };
 
@@ -491,6 +525,10 @@ async function main(): Promise<void> {
       contractId: CONTRACT_ID,
       startLedger: START_LEDGER,
       initialCursor,
+      domain: ["profiles", "posts", "follows", "tips"].includes(process.env.INDEXER_DOMAIN ?? "")
+        ? (process.env.INDEXER_DOMAIN as "profiles" | "posts" | "follows" | "tips")
+        : undefined,
+      domainCursorStore: postgresDomainCursorStore(pgPool),
       ratePerSec: cfg.rpcRateLimitPerSec,
       minPollMs: cfg.minPollIntervalMs,
       maxPollMs: cfg.maxPollIntervalMs,

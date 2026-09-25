@@ -40,3 +40,32 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE TRIGGER update_follow_counts_trigger
 AFTER INSERT OR DELETE ON follows
 FOR EACH ROW EXECUTE FUNCTION sync_follow_counts();
+
+-- Reconciliation is intentionally idempotent and can be run after a partial
+-- transaction or profile deletion without relying on trigger history.
+CREATE OR REPLACE FUNCTION reconcile_follow_counts()
+RETURNS INTEGER AS $$
+DECLARE drifted INTEGER;
+BEGIN
+        SELECT COUNT(*) INTO drifted
+        FROM follow_counts c
+        FULL OUTER JOIN (
+            SELECT address AS user_address,
+                         (SELECT COUNT(*) FROM follows WHERE follower = address)::int AS following_count,
+                         (SELECT COUNT(*) FROM follows WHERE followee = address)::int AS followers_count
+            FROM profiles
+        ) e USING (user_address)
+        WHERE COALESCE(c.followers_count, 0) <> COALESCE(e.followers_count, 0)
+             OR COALESCE(c.following_count, 0) <> COALESCE(e.following_count, 0);
+
+        INSERT INTO follow_counts (user_address, followers_count, following_count)
+        SELECT address,
+                     (SELECT COUNT(*) FROM follows WHERE followee = address),
+                     (SELECT COUNT(*) FROM follows WHERE follower = address)
+        FROM profiles
+        ON CONFLICT (user_address) DO UPDATE SET
+            followers_count = EXCLUDED.followers_count,
+            following_count = EXCLUDED.following_count;
+        RETURN drifted;
+END;
+$$ LANGUAGE plpgsql;
