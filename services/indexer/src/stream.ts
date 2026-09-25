@@ -28,6 +28,8 @@ import {
   DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
   DEFAULT_CIRCUIT_BREAKER_PROBE_INTERVAL_MS,
 } from "./stream-circuit";
+import { streamHealth, streamCircuitTripsTotal } from "./metrics";
+import type { DomainCursorStore, IndexerDomain } from "./state";
 
 export interface RawEvent {
   type: string;
@@ -49,6 +51,9 @@ export interface StreamConfig {
   startLedger: number;
   /** Cursor (last fully processed ledger) to resume gap detection from. */
   initialCursor?: number;
+  /** Optional replica-owned cursor. Use one domain per replica. */
+  domain?: IndexerDomain;
+  domainCursorStore?: DomainCursorStore;
   /** Adaptive poll bounds. */
   minPollMs?: number;
   maxPollMs?: number;
@@ -401,6 +406,9 @@ export async function streamEvents(
   signal: AbortSignal,
   deps: StreamDeps = {}
 ): Promise<void> {
+  streamHealth.open = true;
+  streamHealth.started = true;
+  streamHealth.circuitOpen = false;
   const resolved = {
     fetchImpl: deps.fetchImpl ?? fetch,
     sleep: deps.sleep ?? defaultSleep,
@@ -420,12 +428,31 @@ export async function streamEvents(
   });
 
   let cursor = config.initialCursor ?? 0;
+  if (config.domain && config.domainCursorStore) {
+    cursor = await config.domainCursorStore.read(config.domain);
+  }
+  const commitCursor = async (nextCursor: number): Promise<number> => {
+    if (config.domain && config.domainCursorStore) {
+      await config.domainCursorStore.write(config.domain, nextCursor);
+    }
+    return nextCursor;
+  };
   let startLedger = config.startLedger;
   let pagingCursor: string | undefined;
   const breaker = new StreamCircuitBreaker({
     threshold: config.circuitBreakerThreshold ?? DEFAULT_CIRCUIT_BREAKER_THRESHOLD,
     probeIntervalMs:
       config.circuitBreakerProbeIntervalMs ?? DEFAULT_CIRCUIT_BREAKER_PROBE_INTERVAL_MS,
+    emit: (event) => {
+      if (event.metric === "stream_circuit_trip") {
+        streamCircuitTripsTotal.inc();
+        streamHealth.circuitOpen = true;
+      }
+      if (event.metric === "stream_circuit_closed") streamHealth.circuitOpen = false;
+      const line = JSON.stringify(event);
+      if (event.metric === "stream_circuit_closed") console.warn(line);
+      else console.error(line);
+    },
   });
 
   console.log(
@@ -445,6 +472,7 @@ export async function streamEvents(
       );
 
       breaker.recordSuccess();
+      streamHealth.batches += 1;
 
       if (signal.aborted) break;
 
@@ -483,7 +511,7 @@ export async function streamEvents(
           await config.backfillCoordinator.recoverGap(
             gap.fromLedger,
             gap.toLedger,
-            processBatch,
+            async (backfilledEvents) => commitCursor(await processBatch(backfilledEvents)),
             signal
           );
           // Advance the stream cursor to what the coordinator actually
@@ -506,14 +534,14 @@ export async function streamEvents(
             signal
           );
           if (backfilled.length > 0) {
-            cursor = await processBatch(backfilled);
+            cursor = await commitCursor(await processBatch(backfilled));
           }
         }
       }
 
       // ── Process the current batch ─────────────────────────────────────────
       if (events.length > 0) {
-        cursor = await processBatch(events);
+        cursor = await commitCursor(await processBatch(events));
       }
 
       if (events.length === MAX_EVENTS_PER_PAGE) {
@@ -552,6 +580,8 @@ export async function streamEvents(
       }
 
       const opened = breaker.recordPersistentFailure(err);
+      streamHealth.batchErrors += 1;
+      streamHealth.lastBatchErrorAt = Date.now();
       console.error("[stream] Error processing batch:", err);
 
       if (opened) {
@@ -568,4 +598,6 @@ export async function streamEvents(
   }
 
   console.log("[stream] Stopped.");
+  streamHealth.open = false;
+  streamHealth.circuitOpen = false;
 }

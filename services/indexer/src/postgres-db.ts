@@ -10,6 +10,7 @@ import {
   GovernanceProposal,
   GovernanceVote,
 } from "./db";
+import { followCountDriftTotal } from "./metrics";
 
 export class PostgresDatabase implements Database {
   private pool: Pool;
@@ -71,6 +72,40 @@ export class PostgresDatabase implements Database {
       `,
       [follower, followee]
     );
+  }
+
+  /** Rebuild trigger-maintained counts from the authoritative follows table. */
+  async reconcileFollowCounts(): Promise<number> {
+    const result = await this.pool.query<{ drifted: number | string }>(`
+      WITH expected AS (
+        SELECT address AS user_address,
+               (SELECT COUNT(*) FROM follows WHERE follower = address)::int AS following_count,
+               (SELECT COUNT(*) FROM follows WHERE followee = address)::int AS followers_count
+        FROM profiles
+        UNION
+        SELECT follower, COUNT(*)::int, (SELECT COUNT(*) FROM follows WHERE followee = follower)::int
+        FROM follows GROUP BY follower
+        UNION
+        SELECT followee, (SELECT COUNT(*) FROM follows WHERE follower = followee)::int, COUNT(*)::int
+        FROM follows GROUP BY followee
+      ), drift AS (
+        SELECT e.user_address
+        FROM expected e
+        FULL OUTER JOIN follow_counts c USING (user_address)
+        WHERE COALESCE(e.followers_count, 0) <> COALESCE(c.followers_count, 0)
+           OR COALESCE(e.following_count, 0) <> COALESCE(c.following_count, 0)
+      ), upsert AS (
+        INSERT INTO follow_counts (user_address, followers_count, following_count)
+        SELECT user_address, followers_count, following_count FROM expected
+        ON CONFLICT (user_address) DO UPDATE SET
+          followers_count = EXCLUDED.followers_count,
+          following_count = EXCLUDED.following_count
+      )
+      SELECT COUNT(*)::int AS drifted FROM drift
+    `);
+    const drifted = Number(result.rows[0]?.drifted ?? 0);
+    if (drifted > 0) followCountDriftTotal.inc(drifted);
+    return drifted;
   }
 
   async getFollowers(

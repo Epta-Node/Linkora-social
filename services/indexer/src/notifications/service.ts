@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { notificationPushFailuresTotal, notificationPushRetriesTotal } from "../metrics";
 
 export type NotificationEventType =
   | "FOLLOW"
@@ -33,18 +34,27 @@ export interface NotificationServiceOptions {
   deviceTokens?: Map<string, { token: string; platform: string; createdAt: string }>;
   deviceTokenStore?: DeviceTokenStore;
   pool?: Pool;
+  maxAttempts?: number;
+  retryDelayMs?: number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export class NotificationService {
   private deviceTokenStore: DeviceTokenStore;
   private sendPush: (message: Record<string, unknown>) => Promise<unknown>;
   private pool?: Pool;
+  private readonly maxAttempts: number;
+  private readonly retryDelayMs: number;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: NotificationServiceOptions = {}) {
     this.deviceTokenStore =
       options.deviceTokenStore ?? new MemoryDeviceTokenStore(options.deviceTokens ?? new Map());
     this.sendPush = options.sendPush ?? this.defaultSendPush;
     this.pool = options.pool;
+    this.maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+    this.retryDelayMs = Math.max(0, options.retryDelayMs ?? 250);
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   async registerDeviceToken(address: string, token: string, platform: string): Promise<void> {
@@ -183,15 +193,73 @@ export class NotificationService {
 
     const data = { ...options.payload, type: this.getMobileType(options.type) };
 
-    await this.sendPush({
+    const message = {
       to: token,
       title,
       body,
       sound: "default",
       data,
-    });
+    };
 
-    return true;
+    let outboxId: string | null = null;
+    if (this.pool) {
+      const queued = await this.pool.query<{ id: string }>(
+        `INSERT INTO notification_outbox (recipient, payload)
+         VALUES ($1, $2) RETURNING id`,
+        [options.recipient, JSON.stringify(message)]
+      );
+      outboxId = queued.rows[0]?.id ?? null;
+    }
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      try {
+        const response = await this.sendPush(message);
+        if (
+          response &&
+          typeof response === "object" &&
+          "ok" in response &&
+          !(response as { ok: boolean }).ok
+        ) {
+          throw new Error(
+            `Expo push request failed with status ${(response as { status?: number }).status ?? "unknown"}`
+          );
+        }
+        if (this.pool && outboxId) {
+          await this.pool.query(`DELETE FROM notification_outbox WHERE id = $1`, [outboxId]);
+        }
+        return true;
+      } catch (error) {
+        lastError = error;
+        notificationPushFailuresTotal.inc();
+        if (attempt === this.maxAttempts) break;
+        notificationPushRetriesTotal.inc();
+        if (this.pool && outboxId) {
+          await this.pool.query(
+            `UPDATE notification_outbox SET attempts = $2, last_error = $3,
+             next_attempt_at = NOW() + ($4 * INTERVAL '1 millisecond') WHERE id = $1`,
+            [
+              outboxId,
+              attempt,
+              error instanceof Error ? error.message : String(error),
+              this.retryDelayMs * 2 ** (attempt - 1),
+            ]
+          );
+        }
+        await this.sleep(this.retryDelayMs * 2 ** (attempt - 1));
+      }
+    }
+
+    if (this.pool && outboxId) {
+      await this.pool.query(
+        `INSERT INTO notification_dead_letters (recipient, payload, attempts, error)
+         SELECT recipient, payload, attempts, last_error FROM notification_outbox WHERE id = $1;
+         DELETE FROM notification_outbox WHERE id = $1`,
+        [outboxId]
+      );
+    }
+    console.warn("[notifications] Push moved to dead-letter queue", lastError);
+    return false;
   }
 
   private async defaultSendPush(message: Record<string, unknown>): Promise<unknown> {
@@ -263,7 +331,7 @@ export class MemoryDeviceTokenStore implements DeviceTokenStore {
 
   async register(address: string, token: string, platform: string): Promise<void> {
     const existing = this.deviceTokens.get(address) || [];
-    const filtered = existing.filter(t => t.token !== token);
+    const filtered = existing.filter((t) => t.token !== token);
     filtered.push({
       token,
       platform,
@@ -280,12 +348,18 @@ export class MemoryDeviceTokenStore implements DeviceTokenStore {
 
   async removeToken(address: string, token: string): Promise<void> {
     const tokens = this.deviceTokens.get(address) || [];
-    this.deviceTokens.set(address, tokens.filter(t => t.token !== token));
+    this.deviceTokens.set(
+      address,
+      tokens.filter((t) => t.token !== token)
+    );
   }
 
   async removeTokenByPlatform(address: string, platform: string): Promise<void> {
     const tokens = this.deviceTokens.get(address) || [];
-    this.deviceTokens.set(address, tokens.filter(t => t.platform !== platform));
+    this.deviceTokens.set(
+      address,
+      tokens.filter((t) => t.platform !== platform)
+    );
   }
 }
 
