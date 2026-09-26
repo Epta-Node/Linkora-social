@@ -29,6 +29,29 @@ describe("mini app bridge sandbox", () => {
     });
   });
 
+  it("rejects wallet.signTransaction with MethodUnavailable when no host handler is registered (#1553)", async () => {
+    const bridge = createMiniAppBridge({
+      permissions: ["wallet.signTransaction"],
+    });
+
+    await expect(
+      bridge.call("wallet.signTransaction", { txXdr: "unsigned" })
+    ).rejects.toMatchObject({ code: "MethodUnavailable" });
+  });
+
+  it("resolves wallet.signTransaction only with the host handler's wallet-produced signature (#1553)", async () => {
+    const bridge = createMiniAppBridge({
+      permissions: ["wallet.signTransaction"],
+      handlers: {
+        "wallet.signTransaction": async () => ({ signedXdr: "signed-by-wallet" }),
+      },
+    });
+
+    await expect(bridge.call("wallet.signTransaction", { txXdr: "unsigned" })).resolves.toEqual({
+      signedXdr: "signed-by-wallet",
+    });
+  });
+
   it("prevents a mini app from calling undeclared bridge methods", async () => {
     const bridge = createMiniAppBridge({
       permissions: ["wallet.getAddress"],

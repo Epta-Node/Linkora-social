@@ -129,10 +129,15 @@ export function rejectPendingRequest(requestId: string, error: Error): void {
   }
 }
 
+// #1553 — there is intentionally no default handler for wallet.signTransaction.
+// A default that resolved with the unsigned payload it was given let a mini
+// app treat an unsigned transaction as signed (and potentially broadcast it,
+// or record a payment as complete) whenever the host forgot to register a
+// real signing implementation. Failing closed with MethodUnavailable is the
+// only safe default on a signing boundary.
 const DEFAULT_HANDLERS: Partial<Record<BridgePermission, BridgeHandler>> = {
   "wallet.getAddress": async () => null,
   "wallet.sign": async (payload) => payload,
-  "wallet.signTransaction": async (payload) => payload,
   "profile.get": async () => {
     const address = await getWalletAddress();
     if (!address) {

@@ -58,6 +58,13 @@ export function useFeed(): UseFeedReturn {
   const loadedPostsRef = useRef(0);
   const postsLengthRef = useRef(0);
   const hasMoreRef = useRef(true);
+  // Always holds the *current* network id, independent of which network a
+  // given syncWithNetwork call started under — read after the network
+  // round-trip below to detect a switch that happened mid-flight.
+  const networkIdRef = useRef(network.id);
+  useEffect(() => {
+    networkIdRef.current = network.id;
+  }, [network.id]);
 
   // Load posts from SQLite cache
   const loadFromCache = useCallback(async (limit: number, replace: boolean) => {
@@ -86,6 +93,10 @@ export function useFeed(): UseFeedReturn {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
+      // Captured once, together with contractId/rpcUrl in this closure — see
+      // the dependency array below. Used to detect a network switch that
+      // happens while this call is still in flight (#1550).
+      const startNetworkId = network.id;
 
       try {
         // 1. Initialize DB if not done
@@ -110,12 +121,19 @@ export function useFeed(): UseFeedReturn {
         setHasMore(cached.length >= currentLoadedCount);
         hasMoreRef.current = cached.length >= currentLoadedCount;
 
-        // 5. Fire background sync for pending posts
-        void syncPendingPosts(getSyncPendingPostsOptions(contractId, rpcUrl, network.id)).then(
-          () => {
-            notifyFeedUpdate();
-          }
-        );
+        // 5. Fire background sync for pending posts — but only against the
+        // network this call actually started under. If the user switched
+        // networks while steps 1-4 above were in flight, submitting now
+        // would sign and broadcast against the wrong chain (#1550): the
+        // pending posts are quarantined (left pending) rather than pushed to
+        // whatever network happens to be selected by the time we get here.
+        if (networkIdRef.current === startNetworkId) {
+          void syncPendingPosts(getSyncPendingPostsOptions(contractId, rpcUrl, network.id)).then(
+            () => {
+              notifyFeedUpdate();
+            }
+          );
+        }
       } catch (err) {
         console.warn("Network sync failed, displaying cached data:", err);
         // Fallback: just load from cache if we haven't already
@@ -128,7 +146,7 @@ export function useFeed(): UseFeedReturn {
         loadingRef.current = false;
       }
     },
-    [loadFromCache]
+    [loadFromCache, contractId, rpcUrl, network.id]
   );
 
   // Initial load
@@ -147,8 +165,11 @@ export function useFeed(): UseFeedReturn {
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Re-runs whenever syncWithNetwork's identity changes — i.e. whenever
+    // contractId/rpcUrl/network.id change (#1550) — so switching networks
+    // re-syncs against the new one instead of the closure this effect
+    // captured on mount.
+  }, [loadFromCache, syncWithNetwork]);
 
   // Subscribe to feed updates (e.g. from optimistic creation or sync confirmation)
   useEffect(() => {
