@@ -22,6 +22,29 @@ export interface DbMessage {
 // completed" — real HTTP status codes are always >= 100.
 const IDEMPOTENCY_PENDING_STATUS = 0;
 
+/**
+ * Retention cleanup removes rows in bounded batches.
+ *
+ * A single unbounded `DELETE` over the whole expired backlog takes one long
+ * exclusive lock on the table, produces one large WAL/dead-tuple burst, and
+ * rolls back every row at once if it fails — all of which stall live message
+ * traffic. Deleting oldest-first in batches keeps each statement short and
+ * resumable, and lets the loop pause between batches.
+ */
+const CLEANUP_BATCH_SIZE = 1000;
+
+/** Pause between cleanup batches so live traffic is never starved. */
+const CLEANUP_BATCH_PAUSE_MS = 25;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Clamp a caller-supplied batch size to a positive integer. */
+function normaliseBatchSize(batchSize: number): number {
+  return Math.max(1, Math.floor(batchSize));
+}
+
 export type IdempotencyClaimResult =
   | { status: "claimed" }
   | { status: "in_progress" }
@@ -175,14 +198,45 @@ class Database {
     return parseInt(result.rows[0].count);
   }
 
-  async deleteExpiredMessages(ttlDays: number): Promise<number> {
-    const query = `
-      DELETE FROM dm_messages
-      WHERE created_at < NOW() - $1::integer * INTERVAL '1 day'
-    `;
+  /**
+   * Delete every message older than `ttlDays`, in bounded batches.
+   *
+   * Each statement removes at most `batchSize` rows (oldest first, matching
+   * the `created_at` index) and the loop stops as soon as a batch comes back
+   * short — which means the expired backlog is drained. Returns the total
+   * number of rows removed across all batches.
+   */
+  async deleteExpiredMessages(
+    ttlDays: number,
+    batchSize: number = CLEANUP_BATCH_SIZE
+  ): Promise<number> {
+    const limit = normaliseBatchSize(batchSize);
+    let total = 0;
 
-    const result = await this.pool.query(query, [ttlDays]);
-    return result.rowCount || 0;
+    for (;;) {
+      const result = await this.pool.query(
+        `
+        DELETE FROM dm_messages
+        WHERE id IN (
+          SELECT id
+          FROM dm_messages
+          WHERE created_at < NOW() - $1::integer * INTERVAL '1 day'
+          ORDER BY created_at
+          LIMIT $2
+        )
+        `,
+        [ttlDays, limit]
+      );
+
+      const deleted = result.rowCount || 0;
+      total += deleted;
+
+      // A short batch means there is nothing left that is expired.
+      if (deleted < limit) return total;
+
+      logger.info({ deleted, total }, "Expired-message cleanup batch deleted");
+      await sleep(CLEANUP_BATCH_PAUSE_MS);
+    }
   }
 
   /**
@@ -317,15 +371,46 @@ class Database {
     await this.pool.query(query, [senderAddress, key, status, JSON.stringify(body)]);
   }
 
-  async deleteExpiredIdempotencyKeys(ttlHours: number): Promise<number> {
+  /**
+   * Delete every idempotency key older than `ttlHours`, in bounded batches.
+   *
+   * Same batching rationale as {@link deleteExpiredMessages}: the primary key
+   * is the composite (sender_address, idempotency_key), so each batch selects
+   * up to `batchSize` expired keys oldest-first and deletes exactly those.
+   * Returns the total number of rows removed across all batches.
+   */
+  async deleteExpiredIdempotencyKeys(
+    ttlHours: number,
+    batchSize: number = CLEANUP_BATCH_SIZE
+  ): Promise<number> {
     const hours = Math.max(0, Math.floor(ttlHours));
-    const query = `
-      DELETE FROM message_idempotency
-      WHERE created_at < NOW() - $1::integer * INTERVAL '1 hour'
-    `;
+    const limit = normaliseBatchSize(batchSize);
+    let total = 0;
 
-    const result = await this.pool.query(query, [hours]);
-    return result.rowCount || 0;
+    for (;;) {
+      const result = await this.pool.query(
+        `
+        DELETE FROM message_idempotency
+        WHERE (sender_address, idempotency_key) IN (
+          SELECT sender_address, idempotency_key
+          FROM message_idempotency
+          WHERE created_at < NOW() - $1::integer * INTERVAL '1 hour'
+          ORDER BY created_at
+          LIMIT $2
+        )
+        `,
+        [hours, limit]
+      );
+
+      const deleted = result.rowCount || 0;
+      total += deleted;
+
+      // A short batch means there is nothing left that is expired.
+      if (deleted < limit) return total;
+
+      logger.info({ deleted, total }, "Expired idempotency-key cleanup batch deleted");
+      await sleep(CLEANUP_BATCH_PAUSE_MS);
+    }
   }
 
   async getHealthStats(): Promise<{
