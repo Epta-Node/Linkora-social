@@ -6,6 +6,7 @@ import {
   generateDmKeypair,
   type DmKeyPair,
 } from "../../../packages/sdk/src/dm/crypto";
+import { UnknownRecipientKeyError } from "./dmErrors";
 
 export interface ConversationMessage {
   id: string;
@@ -30,6 +31,16 @@ const messageListeners = new Set<(payload: Record<string, unknown>) => void>();
 function conversationKey(a: string, b: string): string {
   return [a, b].sort().join(":");
 }
+
+/**
+ * Mock "relay" directory of published public keys, keyed by address. A real
+ * relay resolves this server-side; here it's shared in-memory state so two
+ * local DmService instances can find each other's key during
+ * development/tests. Looking up an address that never published a key
+ * throws {@link UnknownRecipientKeyError} instead of falling back to
+ * anything — see `getPeerPublicKey` below.
+ */
+const publishedKeys = new Map<string, Uint8Array>();
 
 function keyStorageKey(address: string): string {
   return `linkora_dm_keypair_${address}`;
@@ -85,22 +96,12 @@ function decodeKeypair(raw: string): DmKeyPair | null {
   }
 }
 
-async function getPeerPublicKey(
-  myAddress: string,
-  otherAddress: string,
-  myKeypair: DmKeyPair
-): Promise<Uint8Array> {
-  const key = `linkora_dm_peer_${myAddress}_${otherAddress}`;
-  const raw = await SecureStore.getItemAsync(key);
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as number[];
-      return Uint8Array.from(parsed);
-    } catch {
-      // fall through to the local keypair to preserve a working round trip
-    }
+function getPeerPublicKey(otherAddress: string): Uint8Array {
+  const key = publishedKeys.get(otherAddress);
+  if (!key) {
+    throw new UnknownRecipientKeyError(otherAddress);
   }
-  return myKeypair.publicKey;
+  return key;
 }
 
 /**
@@ -139,6 +140,12 @@ export class DmService {
   async generateAndPublishKeys(): Promise<void> {
     const keypair = generateDmKeypair();
     await this.persistKeypair(keypair);
+    publishedKeys.set(this.userAddress, keypair.publicKey);
+  }
+
+  /** Whether this device has a verified/published key for `otherAddress` yet. */
+  async hasPeerKey(otherAddress: string): Promise<boolean> {
+    return publishedKeys.has(otherAddress);
   }
 
   async getMessages(otherAddress: string): Promise<ConversationEntry[]> {
@@ -150,7 +157,7 @@ export class DmService {
     return Promise.all(
       thread.map(async (message) => {
         try {
-          const peerPublicKey = await getPeerPublicKey(this.userAddress, otherAddress, keypair);
+          const peerPublicKey = getPeerPublicKey(otherAddress);
           const content = decryptDirectMessage(
             keypair.privateKey,
             peerPublicKey,
@@ -179,7 +186,9 @@ export class DmService {
       throw new Error("No DM keys available. Generate keys first.");
     }
 
-    const peerPublicKey = await getPeerPublicKey(this.userAddress, toAddress, keypair);
+    // #1561 — fail closed: no known/verified key for the recipient means no
+    // encryption and no send, rather than encrypting to our own key.
+    const peerPublicKey = getPeerPublicKey(toAddress);
     const conversationId = createConversationId(this.userAddress, toAddress);
     const messageIndex = Date.now();
     const ciphertext = encryptDirectMessage(

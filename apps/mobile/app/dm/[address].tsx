@@ -7,7 +7,11 @@ import { useNetwork } from "../../hooks/useNetwork";
 import { DmService } from "../../utils/mockDm";
 import { EmptyState, ErrorState } from "../../components/states";
 import { DmMessage, getDmMessages, initDatabase, setDmLastRead } from "../../utils/db";
-import { reconcileDmThread, sendDmMessageWithOutbox } from "../../utils/sync";
+import {
+  reconcileDmThread,
+  sendDmMessageWithOutbox,
+  UnknownRecipientKeyError,
+} from "../../utils/sync";
 
 /**
  * Local partition key for this device's DM cache. Purely local (never sent
@@ -207,8 +211,19 @@ export default function DirectMessageScreen() {
         showToast({ kind: "success", title: "Message sent" });
       }
     } catch (err) {
-      setError(`Failed to send message: ${err}`);
-      showToast({ kind: "error", title: "Failed to send message" });
+      if (err instanceof UnknownRecipientKeyError) {
+        // #1561 — recipient has no verified key: restore the draft (nothing
+        // was sent or stored) and surface this distinctly from a generic
+        // network/relay failure.
+        setNewMessage(content);
+        showToast({
+          kind: "error",
+          title: `${address?.slice(0, 8)}... hasn't set up encrypted messaging yet`,
+        });
+      } else {
+        setError(`Failed to send message: ${err}`);
+        showToast({ kind: "error", title: "Failed to send message" });
+      }
     } finally {
       setLoading(false);
     }

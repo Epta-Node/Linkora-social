@@ -1,9 +1,10 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { WebView } from "react-native-webview";
 
 import { createMiniAppBridge, registerPendingRequest } from "../../mini-apps/bridge";
+import { BridgePermission } from "../../mini-apps/permissions";
 import { useInstalledApps } from "../../mini-apps/store";
 
 const BRIDGE_INJECTION = `
@@ -65,10 +66,33 @@ export default function MiniAppHostScreen() {
   const app = useMemo(() => apps.find((a) => a.id === id), [apps, id]);
   const allowedOrigin = useMemo(() => (app ? originOf(app.entry) : null), [app]);
 
+  // #1552 — native confirmation sheet for every wallet.* and post.create
+  // call, shown fresh at each call site (never cached from install time).
+  // Dismissing/denying resolves false, which the bridge turns into a
+  // rejected promise back to the mini app.
+  const requestUserApproval = useCallback(
+    (method: BridgePermission, payload?: unknown): Promise<boolean> =>
+      new Promise((resolve) => {
+        Alert.alert(
+          "Approve action?",
+          `${app?.name ?? "This mini app"} wants to call:\n${method}\n\n` +
+            `Arguments:\n${JSON.stringify(payload, null, 2) ?? "(none)"}\n\n` +
+            `Target: ${app?.entry ?? "unknown"}`,
+          [
+            { text: "Deny", style: "cancel", onPress: () => resolve(false) },
+            { text: "Approve", onPress: () => resolve(true) },
+          ],
+          { cancelable: true, onDismiss: () => resolve(false) }
+        );
+      }),
+    [app]
+  );
+
   const bridge = useMemo(() => {
     if (!app) return null;
     return createMiniAppBridge({
       permissions: app.permissions,
+      requestUserApproval,
       handlers: {
         "post.create": async (_payload) => {
           const requestId = Date.now().toString(36) + Math.random().toString(36).slice(2);
@@ -78,7 +102,7 @@ export default function MiniAppHostScreen() {
         },
       },
     });
-  }, [app, router]);
+  }, [app, router, requestUserApproval]);
 
   const handleMessage = useCallback(
     async (event: { nativeEvent: { data: string } }) => {

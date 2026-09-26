@@ -96,7 +96,11 @@ type BridgeHandler = (payload?: unknown) => Promise<unknown> | unknown;
 
 export interface MiniAppBridgeOptions {
   permissions: BridgePermission[];
-  requestUserApproval?: (method: BridgePermission) => Promise<boolean> | boolean;
+  // #1552 — required, not optional: a bridge with no approval callback must
+  // fail to construct rather than silently auto-approving every privileged
+  // call. Callers get the method AND payload so the host can render a
+  // confirmation sheet listing exactly what it's approving.
+  requestUserApproval: (method: BridgePermission, payload?: unknown) => Promise<boolean> | boolean;
   handlers?: Partial<Record<BridgePermission, BridgeHandler>>;
 }
 
@@ -149,17 +153,28 @@ const DEFAULT_HANDLERS: Partial<Record<BridgePermission, BridgeHandler>> = {
   "profile.update": async (payload) => payload,
 };
 
+// #1552 — every wallet.* signing/sending call and post.create requires a
+// fresh, per-call-site approval. Never cached from install time: this set is
+// consulted on every `call()`, and `requestUserApproval` is invoked anew each
+// time rather than once and remembered.
 const APPROVAL_REQUIRED = new Set<BridgePermission>([
   "wallet.sign",
   "wallet.signTransaction",
   "profile.update",
+  "post.create",
 ]);
 
 export function createMiniAppBridge({
   permissions,
-  requestUserApproval = async () => true,
+  requestUserApproval,
   handlers = {},
 }: MiniAppBridgeOptions) {
+  // Runtime guard alongside the TS type: a caller that bypasses the type
+  // system (plain JS, `as any`, ...) still can't get a bridge that defaults
+  // to auto-approving privileged calls (#1552).
+  if (typeof requestUserApproval !== "function") {
+    throw new Error("createMiniAppBridge requires a requestUserApproval callback");
+  }
   const methodHandlers = { ...DEFAULT_HANDLERS, ...handlers };
 
   return {
@@ -169,7 +184,7 @@ export function createMiniAppBridge({
       assertPermission(permissions, permMethod);
 
       if (APPROVAL_REQUIRED.has(method as BridgePermission)) {
-        const approved = await requestUserApproval(method as BridgePermission);
+        const approved = await requestUserApproval(method as BridgePermission, payload);
         if (!approved) {
           throw new BridgeError("UserRejected", `User rejected ${method}`);
         }

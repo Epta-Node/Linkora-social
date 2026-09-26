@@ -3,13 +3,12 @@ import { useState, useEffect, useCallback } from "react";
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
+import { getIndexerBaseUrl } from "../utils/indexerConfig";
 
 export interface BlockedUser {
   address: string;
   reason: string;
 }
-
-const INDEXER_URL = process.env.EXPO_PUBLIC_INDEXER_URL || "http://localhost:3001";
 
 export interface UseBlockReturn {
   blocked: BlockedUser[];
@@ -42,7 +41,8 @@ export function useBlock(): UseBlockReturn {
     setError(null);
 
     try {
-      const response = await fetch(`${INDEXER_URL}/api/users/${currentUserAddress}/blocked`);
+      const indexerUrl = getIndexerBaseUrl();
+      const response = await fetch(`${indexerUrl}/api/users/${currentUserAddress}/blocked`);
       if (!response.ok) {
         throw new Error("Failed to fetch blocked users");
       }
@@ -53,7 +53,13 @@ export function useBlock(): UseBlockReturn {
       }));
       setBlocked(mapped);
     } catch (err) {
-      setError("Failed to load blocked users. Please try again.");
+      // #1559 — surface a config error distinctly instead of misattributing
+      // it to the network as a generic "please try again" failure.
+      setError(
+        err instanceof Error && err.message.includes("EXPO_PUBLIC_INDEXER_URL")
+          ? err.message
+          : "Failed to load blocked users. Please try again."
+      );
     } finally {
       setLoading(false);
     }

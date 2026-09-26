@@ -11,8 +11,12 @@ import {
   reconcilePosts,
   setDmSyncCursor,
 } from "./db";
+import { getIndexerBaseUrl } from "./indexerConfig";
+import { UnknownRecipientKeyError } from "./dmErrors";
 import { Post } from "../components/PostCard";
 import { LinkoraClient } from "linkora-sdk";
+
+export { UnknownRecipientKeyError };
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -24,12 +28,10 @@ function shortAddress(address: string): string {
  * and the post isn't already cached.
  */
 export async function fetchAndCachePosts(limit: number, offset: number): Promise<Post[]> {
-  const indexerUrl = process.env.EXPO_PUBLIC_INDEXER_URL || "http://localhost:3001";
+  const indexerUrl = getIndexerBaseUrl();
 
   // 1. Fetch posts from the indexer
-  const res = await fetch(
-    `${indexerUrl.replace(/\/$/, "")}/api/posts?limit=${limit}&offset=${offset}`
-  );
+  const res = await fetch(`${indexerUrl}/api/posts?limit=${limit}&offset=${offset}`);
   if (!res.ok) {
     throw new Error("Failed to fetch posts from indexer");
   }
@@ -114,7 +116,6 @@ export function getSyncPendingPostsOptions(
   };
 }
 
-const DEFAULT_INDEXER_URL = process.env.EXPO_PUBLIC_INDEXER_URL || "http://localhost:3001";
 const MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 30000;
@@ -221,7 +222,7 @@ export async function syncPendingPosts(options: SyncPendingPostsOptions): Promis
     contractId,
     rpcUrl,
     networkPassphrase,
-    indexerUrl = DEFAULT_INDEXER_URL,
+    indexerUrl = getIndexerBaseUrl(),
   } = options;
   const pending = await getPendingPosts();
   if (pending.length === 0) return;
@@ -255,6 +256,8 @@ export async function syncPendingPosts(options: SyncPendingPostsOptions): Promis
 export interface DmClient {
   getMessages(otherAddress: string): Promise<DmSourceMessage[]>;
   sendMessage(toAddress: string, content: string): Promise<void>;
+  /** Whether a verified/published encryption key is known for `otherAddress`. */
+  hasPeerKey(otherAddress: string): Promise<boolean>;
 }
 
 export interface DmSourceMessage {
@@ -350,6 +353,13 @@ export async function sendDmMessageWithOutbox(
   recipient: string,
   content: string
 ): Promise<DmMessage> {
+  // #1561 — check before persisting anything: a key-less recipient must
+  // reject with no local message stored, not an optimistic row that later
+  // flips to 'failed'.
+  if (!(await client.hasPeerKey(recipient))) {
+    throw new UnknownRecipientKeyError(recipient);
+  }
+
   const outboxMessage = await addOutboxDmMessage(
     conversationId,
     sender,
