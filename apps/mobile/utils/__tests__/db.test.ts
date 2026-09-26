@@ -20,7 +20,10 @@ import {
   getDmSyncCursor,
   markDmMessageFailed,
   mergeDmDeltas,
+  Migration,
+  MIGRATIONS,
   reconcilePosts,
+  runMigrations,
   setDmLastRead,
   setDmSyncCursor,
 } from "../db";
@@ -232,5 +235,49 @@ describe("getCachedPostsByIds", () => {
     expect(result.size).toBe(2);
     expect(result.has("missing-id")).toBe(false);
     expect(result.get("batch-lookup-1")).toMatchObject({ id: "batch-lookup-1" });
+  });
+});
+
+describe("schema migrations (#1560)", () => {
+  it("upgrades a fixture at the previous user_version to current, keeping existing rows intact", async () => {
+    const fixtureDb = mockCreateFakeDb();
+
+    // Simulate an "existing install": already bootstrapped at v1, with data
+    // in place, but never having run any migration added after that.
+    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+    await fixtureDb.runAsync(
+      `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
+       VALUES (?, ?, ?, ?, 0, ?, 0, 0, 'pending', ?)`,
+      ["existing-post", "GAUTHOR", "user", "hello", 1000, 1000]
+    );
+    expect(fixtureDb.__state.userVersion).toBe(1);
+
+    // A new column ships as migration v1 -> v2. Adding it as a plain second
+    // CREATE TABLE IF NOT EXISTS would be a no-op for this fixture; it must
+    // be an explicit migration that actually reaches existing rows.
+    const addPinnedColumn: Migration = async (targetDb) => {
+      await targetDb.execAsync(
+        `ALTER TABLE cached_posts ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;`
+      );
+    };
+
+    await runMigrations(fixtureDb, [MIGRATIONS[0], addPinnedColumn]);
+
+    expect(fixtureDb.__state.userVersion).toBe(2);
+    expect(fixtureDb.__state.cachedPosts.get("existing-post")).toMatchObject({
+      id: "existing-post",
+      content: "hello",
+      pinned: 0,
+    });
+  });
+
+  it("is a no-op when the database is already at the current version", async () => {
+    const fixtureDb = mockCreateFakeDb();
+    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+
+    fixtureDb.execAsync.mockClear();
+    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+
+    expect(fixtureDb.execAsync).not.toHaveBeenCalled();
   });
 });

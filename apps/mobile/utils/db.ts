@@ -83,48 +83,105 @@ function rowToDmMessage(row: DmMessageRow): DmMessage {
   };
 }
 
+/** The slice of expo-sqlite's async API migrations actually need — kept
+ * narrow (rather than the full `SQLite.SQLiteDatabase`) so tests can run
+ * migrations against a lightweight fake without implementing the whole
+ * class. */
+export interface MigratableDb {
+  execAsync(sql: string): Promise<unknown>;
+  getFirstAsync(sql: string): Promise<unknown>;
+  withTransactionAsync(fn: () => Promise<void>): Promise<void>;
+}
+
+export type Migration = (db: MigratableDb) => Promise<void>;
+
 /**
- * Initializes the database schema and indices.
+ * Ordered schema migrations, applied in sequence and tracked via
+ * `PRAGMA user_version` (#1560). Migration index `i` takes the database from
+ * version `i` to `i + 1` — never edit a shipped migration in place, since a
+ * device that already ran it has recorded the new version and won't re-run
+ * it; add a new migration to the end of this array instead.
+ *
+ * `CREATE TABLE IF NOT EXISTS` stays scoped to this first migration only:
+ * every later schema change (an added column, a new table, ...) is an
+ * explicit migration here, not a rewrite of the initial bootstrap — that's
+ * what made the previous single-bootstrap approach a silent no-op for
+ * existing installs.
+ */
+export const MIGRATIONS: Migration[] = [
+  // v0 -> v1: initial bootstrap.
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS cached_posts (
+        id TEXT PRIMARY KEY,
+        author TEXT NOT NULL,
+        username TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tip_total INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        like_count INTEGER NOT NULL,
+        has_liked INTEGER DEFAULT 0,
+        sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON cached_posts (timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS dm_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        content TEXT NOT NULL,
+        ciphertext_hash TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
+        error_message TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation_ts
+        ON dm_messages (conversation_id, timestamp ASC);
+      CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation_hash
+        ON dm_messages (conversation_id, ciphertext_hash);
+
+      CREATE TABLE IF NOT EXISTS dm_sync_state (
+        conversation_id TEXT PRIMARY KEY,
+        sync_cursor INTEGER NOT NULL DEFAULT 0,
+        last_read INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  },
+];
+
+/**
+ * Runs every migration the database hasn't seen yet, each in its own
+ * transaction, advancing `PRAGMA user_version` as it goes. Exported (with
+ * `migrations` overridable) so tests can exercise the upgrade path against a
+ * fixture pinned at an older version without waiting for a real schema
+ * change to be added to {@link MIGRATIONS}.
+ */
+export async function runMigrations(
+  targetDb: MigratableDb = db,
+  migrations: Migration[] = MIGRATIONS
+): Promise<void> {
+  const row = (await targetDb.getFirstAsync("PRAGMA user_version")) as {
+    user_version: number;
+  } | null;
+  const currentVersion = row?.user_version ?? 0;
+
+  for (let version = currentVersion; version < migrations.length; version++) {
+    await targetDb.withTransactionAsync(async () => {
+      await migrations[version](targetDb);
+      await targetDb.execAsync(`PRAGMA user_version = ${version + 1}`);
+    });
+  }
+}
+
+/**
+ * Initializes the database schema and indices, upgrading an existing install
+ * through any migrations it hasn't run yet.
  */
 export async function initDatabase(): Promise<void> {
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS cached_posts (
-      id TEXT PRIMARY KEY,
-      author TEXT NOT NULL,
-      username TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tip_total INTEGER NOT NULL,
-      timestamp INTEGER NOT NULL,
-      like_count INTEGER NOT NULL,
-      has_liked INTEGER DEFAULT 0,
-      sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
-      created_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON cached_posts (timestamp DESC);
-
-    CREATE TABLE IF NOT EXISTS dm_messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      sender TEXT NOT NULL,
-      recipient TEXT NOT NULL,
-      content TEXT NOT NULL,
-      ciphertext_hash TEXT NOT NULL,
-      timestamp INTEGER NOT NULL,
-      sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
-      error_message TEXT,
-      created_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation_ts
-      ON dm_messages (conversation_id, timestamp ASC);
-    CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation_hash
-      ON dm_messages (conversation_id, ciphertext_hash);
-
-    CREATE TABLE IF NOT EXISTS dm_sync_state (
-      conversation_id TEXT PRIMARY KEY,
-      sync_cursor INTEGER NOT NULL DEFAULT 0,
-      last_read INTEGER NOT NULL DEFAULT 0
-    );
-  `);
+  await runMigrations(db);
 }
 
 /**

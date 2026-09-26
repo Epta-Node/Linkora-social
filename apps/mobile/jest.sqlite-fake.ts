@@ -13,11 +13,43 @@ export function createFakeDb() {
   const dmMessages = new Map<string, Row>();
   const dmSyncState = new Map<string, { sync_cursor: number; last_read: number }>();
   const cachedPosts = new Map<string, Row>();
+  let userVersion = 0;
 
   return {
-    __state: { dmMessages, dmSyncState, cachedPosts },
+    __state: {
+      dmMessages,
+      dmSyncState,
+      cachedPosts,
+      get userVersion() {
+        return userVersion;
+      },
+    },
 
-    execAsync: jest.fn(async () => {}),
+    execAsync: jest.fn(async (sql: string) => {
+      const versionMatch = sql.match(/PRAGMA user_version\s*=\s*(\d+)/);
+      if (versionMatch) {
+        userVersion = Number(versionMatch[1]);
+        return;
+      }
+
+      // Models `ALTER TABLE cached_posts ADD COLUMN <name> <type> [DEFAULT <default>]`
+      // for the migration test (#1560) — applies the new column, with its
+      // default, to every already-cached row.
+      const addColumnMatch = sql.match(
+        /ALTER TABLE cached_posts ADD COLUMN (\w+) \w+(?: NOT NULL)? DEFAULT ([^;\s]+)/
+      );
+      if (addColumnMatch) {
+        const [, column, rawDefault] = addColumnMatch;
+        const defaultValue = /^-?\d+$/.test(rawDefault) ? Number(rawDefault) : rawDefault;
+        for (const row of cachedPosts.values()) {
+          row[column] = defaultValue;
+        }
+        return;
+      }
+
+      // CREATE TABLE / CREATE INDEX bootstrap statements: this fake models
+      // tables as plain Maps, so there's no real schema to create.
+    }),
 
     withTransactionAsync: jest.fn(async (fn: () => Promise<void>) => {
       await fn();
@@ -275,6 +307,9 @@ export function createFakeDb() {
     }),
 
     getFirstAsync: jest.fn(async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("PRAGMA user_version")) {
+        return { user_version: userVersion };
+      }
       if (sql.includes("FROM cached_posts WHERE id = ?")) {
         const [id] = params as [string];
         return cachedPosts.get(id) ?? null;

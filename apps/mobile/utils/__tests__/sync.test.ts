@@ -18,6 +18,7 @@ import {
   reconcileDmThread,
   sendDmMessageWithOutbox,
   syncPendingPosts,
+  UnknownRecipientKeyError,
 } from "../sync";
 
 jest.mock("../db", () => ({
@@ -49,6 +50,7 @@ function fakeClient(overrides: Partial<DmClient> = {}): DmClient {
   return {
     getMessages: jest.fn().mockResolvedValue([]),
     sendMessage: jest.fn().mockResolvedValue(undefined),
+    hasPeerKey: jest.fn().mockResolvedValue(true),
     ...overrides,
   };
 }
@@ -186,6 +188,17 @@ describe("sendDmMessageWithOutbox", () => {
       syncStatus: "failed",
       errorMessage: "401 invalid signature",
     });
+  });
+
+  it("rejects with UnknownRecipientKeyError and stores no message when the recipient's key is unknown (#1561)", async () => {
+    const client = fakeClient({ hasPeerKey: jest.fn().mockResolvedValue(false) });
+
+    await expect(
+      sendDmMessageWithOutbox(client, conversationId, sender, recipient, "hey")
+    ).rejects.toBeInstanceOf(UnknownRecipientKeyError);
+
+    expect(mockedAddOutboxDmMessage).not.toHaveBeenCalled();
+    expect(client.sendMessage).not.toHaveBeenCalled();
   });
 });
 
