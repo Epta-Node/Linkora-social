@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { U32_MAX } from "./types.js";
 
 export interface CreatorStats {
   creatorAddress: string;
@@ -63,9 +64,13 @@ function validateCreatorStats(stats: CreatorStats): void {
     );
   }
 
-  if (!Number.isInteger(stats.uniqueTippers) || stats.uniqueTippers < 0) {
+  if (
+    !Number.isInteger(stats.uniqueTippers) ||
+    stats.uniqueTippers < 0 ||
+    stats.uniqueTippers > U32_MAX
+  ) {
     throw new CreatorStatsValidationError(
-      `uniqueTippers must be a non-negative integer, got ${stats.uniqueTippers}`,
+      `uniqueTippers must be a u32 integer (0-${U32_MAX}), got ${stats.uniqueTippers}`,
       "uniqueTippers",
       stats.uniqueTippers
     );
@@ -113,12 +118,15 @@ export async function fetchCreatorStats(
   const statsList: CreatorStats[] = [];
   for (const row of result.rows) {
     try {
+      const uniqueTippers = BigInt(row.unique_tippers);
       const stats: CreatorStats = {
         creatorAddress: row.creator,
         totalTips: BigInt(row.total_tips),
         postCount: BigInt(row.post_count),
         followerDelta: BigInt(row.follower_delta),
-        uniqueTippers: parseInt(row.unique_tippers, 10),
+        // PostgreSQL COUNT returns a decimal string. Parse it exactly before
+        // converting to Number, then cap it at the report's u32 maximum.
+        uniqueTippers: Number(uniqueTippers > BigInt(U32_MAX) ? BigInt(U32_MAX) : uniqueTippers),
       };
       validateCreatorStats(stats);
       statsList.push(stats);

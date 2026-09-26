@@ -1,7 +1,7 @@
 import { encode } from "cbor-x";
 import { sha256 } from "@noble/hashes/sha256";
 import { xdr } from "@stellar/stellar-sdk";
-import { AnalyticsReport } from "./types.js";
+import { AnalyticsReport, U32_MAX } from "./types.js";
 
 // ── Control-character sanitisation ─────────────────────────────────────────
 // Matches Unicode control characters (C0: U+0000–U+001F, DEL: U+007F,
@@ -153,9 +153,13 @@ export function validateReport(report: AnalyticsReport): void {
     );
   }
 
-  if (!Number.isInteger(report.uniqueTippers) || report.uniqueTippers < 0) {
+  if (
+    !Number.isInteger(report.uniqueTippers) ||
+    report.uniqueTippers < 0 ||
+    report.uniqueTippers > U32_MAX
+  ) {
     throw new ValidationError(
-      `uniqueTippers must be a non-negative integer, got ${report.uniqueTippers}`,
+      `uniqueTippers must be a u32 integer (0-${U32_MAX}), got ${report.uniqueTippers}`,
       "uniqueTippers",
       report.uniqueTippers
     );

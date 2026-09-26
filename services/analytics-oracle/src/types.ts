@@ -11,8 +11,11 @@ export interface AnalyticsReport {
   totalTips: bigint; // u128 net tip amount in stroops
   postCount: bigint; // u64 posts created in window
   followerDelta: bigint; // i64 net follower change in window
-  uniqueTippers: number; // u32 distinct tippers in window
+  uniqueTippers: number; // u32 distinct tippers in window (0 to 2^32 - 1)
 }
+
+/** Maximum count representable by the on-chain unique_tippers u32 field. */
+export const U32_MAX = 0xffff_ffff;
 
 export interface SignedAttestation {
   oracleName: string;
