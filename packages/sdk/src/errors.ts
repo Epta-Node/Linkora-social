@@ -190,6 +190,11 @@ export enum ContractErrorCode {
   PostTooLong = 11,
   InvalidInput = 12,
   SimulationFailed = 13,
+  ContractPanic = 14,
+  Overflow = 15,
+  Underflow = 16,
+  DivisionByZero = 17,
+  OutOfBounds = 18,
 }
 
 type ErrorConstructor = new (
@@ -212,6 +217,11 @@ const errorCodeRegistry: Map<ContractErrorCode, ErrorConstructor> = new Map([
   [ContractErrorCode.PostTooLong, ValidationError],
   [ContractErrorCode.InvalidInput, ValidationError],
   [ContractErrorCode.SimulationFailed, ContractError],
+  [ContractErrorCode.ContractPanic, ContractError],
+  [ContractErrorCode.Overflow, ValidationError],
+  [ContractErrorCode.Underflow, ValidationError],
+  [ContractErrorCode.DivisionByZero, ValidationError],
+  [ContractErrorCode.OutOfBounds, ValidationError],
 ]);
 
 function tryMapByErrorCode(err: unknown): LinkoraError | null {
@@ -324,6 +334,15 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
   if (/blocked/i.test(msg)) {
     return new UnauthorizedError("Operation rejected: user has blocked you.", undefined, err);
   }
+  if (/overflow|underflow|division by zero|out of bounds/i.test(msg)) {
+    return new ValidationError(`Contract math or bounds assertion failed: ${msg}`, { rawMessage: msg }, err);
+  }
+  if (/assert!|assertion failed/i.test(msg)) {
+    return new ValidationError(`Contract assertion failed: ${msg}`, { rawMessage: msg }, err);
+  }
+  if (/panic!\((?:.*)\)|contract panic|panic/i.test(msg)) {
+    return new ContractError(`Contract panic: ${msg}`, { rawMessage: msg, unmapped: false }, err);
+  }
   if (/sign|freighter|ledger|wallet/i.test(msg)) {
     return new SigningError(msg, undefined, err);
   }
@@ -336,8 +355,8 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
   if (/invalid|too long|must be positive|cannot exceed/i.test(msg)) {
     return new ValidationError(`Invalid input parameters: ${msg}`, undefined, err);
   }
-  if (/simulation failed|trap|contract error|host function/i.test(msg)) {
-    return new ContractError(msg, undefined, err);
+  if (/simulation failed|trap|contract error|host function|HostError/i.test(msg)) {
+    return new ContractError(msg, { rawMessage: msg }, err);
   }
   if (
     /connection|network|timeout|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ENETDOWN|fetch (?:failed|to connect)|load failed|net::ERR_|unreachable/i.test(
@@ -347,7 +366,8 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
     return new NetworkError(msg, undefined, err);
   }
 
-  return new LinkoraError(msg, "LINKORA_ERROR", undefined, err);
+  // Preserve raw context for unmapped panics/errors for triage
+  return new ContractError(msg, { rawMessage: msg, unmapped: true }, err);
 }
 
 export function mapError(err: unknown): LinkoraError {

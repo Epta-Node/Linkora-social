@@ -32,8 +32,15 @@ export {
   decryptMessage,
   encryptDirectMessage,
   decryptDirectMessage,
+  rotateConversationKey,
+  decryptDirectMessageWithGracePeriod,
   DecryptionError,
   type DmKeyPair,
+  type KeyMap,
+  type KeyRotationEvent,
+  type KeyRotationOptions,
+  type OutboxItem,
+  type RotatedOutboxItem,
 } from "./crypto.js";
 
 export {

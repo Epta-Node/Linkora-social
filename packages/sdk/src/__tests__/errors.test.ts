@@ -264,15 +264,47 @@ describe("mapError", () => {
   });
 
   describe("default fallback", () => {
-    it("returns LinkoraError for unknown errors", () => {
+    it("returns ContractError for unmapped errors preserving raw context", () => {
       const result = mapError("something unexpected happened");
-      expect(result).toBeInstanceOf(LinkoraError);
-      expect(result).not.toBeInstanceOf(NotFoundError);
+      expect(result).toBeInstanceOf(ContractError);
       expect(result.message).toBe("something unexpected happened");
+      expect(result.details).toEqual({ rawMessage: "something unexpected happened", unmapped: true });
     });
 
     it("handles Error objects", () => {
-      expect(mapError(new Error("custom runtime error"))).toBeInstanceOf(LinkoraError);
+      const err = new Error("custom runtime error");
+      const mapped = mapError(err);
+      expect(mapped).toBeInstanceOf(ContractError);
+      expect(mapped.details).toEqual({ rawMessage: "custom runtime error", unmapped: true });
+    });
+  });
+
+  describe("Contract Panics mapping (Issue #1354)", () => {
+    it("maps panic!('blocked') to UnauthorizedError", () => {
+      const result = mapError("HostError: Error(Contract, #6) panic!('blocked')");
+      expect(result).toBeInstanceOf(UnauthorizedError);
+      expect(result.message).toContain("blocked");
+    });
+
+    it("maps contract math panics (overflow/underflow/division by zero) to ValidationError", () => {
+      const resultOverflow = mapError("panic: arithmetic overflow in contract invocation");
+      expect(resultOverflow).toBeInstanceOf(ValidationError);
+      expect(resultOverflow.details).toHaveProperty("rawMessage");
+
+      const resultDivZero = mapError("panic: division by zero");
+      expect(resultDivZero).toBeInstanceOf(ValidationError);
+    });
+
+    it("maps assert! failures to ValidationError", () => {
+      const result = mapError("assertion failed: user_balance >= minimum_stake");
+      expect(result).toBeInstanceOf(ValidationError);
+      expect(result.message).toContain("Contract assertion failed");
+    });
+
+    it("maps explicit panic!(...) messages to ContractError with raw context", () => {
+      const result = mapError("panic!('custom_contract_state_invalid')");
+      expect(result).toBeInstanceOf(ContractError);
+      expect(result.details).toEqual({ rawMessage: "panic!('custom_contract_state_invalid')", unmapped: false });
     });
   });
 });

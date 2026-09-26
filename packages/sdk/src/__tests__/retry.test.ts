@@ -214,3 +214,70 @@ describe("withRetry", () => {
     expect(attempts[attempts.length - 1]?.reason).toBe("circuit-open");
   });
 });
+
+// ── Size Estimation & Soroban Limits Tests (Issues #1353, #1347) ────────────
+
+describe("Size Estimation & Soroban Limits (Issues #1353, #1347)", () => {
+  const {
+    estimateXdrSize,
+    estimateArgsSize,
+    validateMediaSize,
+    checkSorobanLimits,
+    SOROBAN_LIMITS,
+  } = require("../utils/retry");
+
+  describe("estimateXdrSize & estimateArgsSize (#1353)", () => {
+    it("estimates XDR bytes alignment with 4-byte padding discriminant + len", () => {
+      // 10 bytes data -> padding is 2 bytes -> 8 + 10 + 2 = 20
+      const data10 = new Uint8Array(10);
+      expect(estimateXdrSize(data10)).toBe(20);
+
+      // 12 bytes data -> padding is 0 -> 8 + 12 + 0 = 20
+      const data12 = new Uint8Array(12);
+      expect(estimateXdrSize(data12)).toBe(20);
+    });
+
+    it("estimateArgsSize calculates size for string and object payloads", () => {
+      const str = "hello world";
+      const sizeStr = estimateArgsSize(str);
+      expect(sizeStr).toBeGreaterThan(0);
+
+      const obj = { key: "value", num: 123 };
+      const sizeObj = estimateArgsSize(obj);
+      expect(sizeObj).toBe(estimateXdrSize(JSON.stringify(obj)));
+    });
+
+    it("validateMediaSize detects excess bytes when default cap is exceeded", () => {
+      const smallData = new Uint8Array(100);
+      const smallRes = validateMediaSize(smallData, 1000);
+      expect(smallRes.valid).toBe(true);
+      expect(smallRes.excessBytes).toBe(0);
+
+      const largeData = new Uint8Array(2000);
+      const largeRes = validateMediaSize(largeData, 1000);
+      expect(largeRes.valid).toBe(false);
+      expect(largeRes.excessBytes).toBeGreaterThan(0);
+    });
+  });
+
+  describe("checkSorobanLimits (#1347)", () => {
+    it("reports within limits for normal transaction payload", () => {
+      const report = checkSorobanLimits(500, 1, { instructions: 1_000_000, footprintEntries: 5 });
+      expect(report.withinLimits).toBe(true);
+      expect(report.warnings).toHaveLength(0);
+    });
+
+    it("flags advisory warnings when envelope size or budget bounds are exceeded", () => {
+      const oversizedReport = checkSorobanLimits(SOROBAN_LIMITS.MAX_XDR_SIZE_BYTES + 10, 1);
+      expect(oversizedReport.withinLimits).toBe(false);
+      expect(oversizedReport.warnings[0]).toContain("XDR size");
+
+      const overBudgetReport = checkSorobanLimits(500, 1, {
+        instructions: SOROBAN_LIMITS.MAX_INSTRUCTIONS + 1,
+        footprintEntries: SOROBAN_LIMITS.MAX_FOOTPRINT_ENTRIES + 1,
+      });
+      expect(overBudgetReport.withinLimits).toBe(false);
+      expect(overBudgetReport.warnings.length).toBe(2);
+    });
+  });
+});
