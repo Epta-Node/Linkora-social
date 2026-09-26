@@ -102,18 +102,18 @@ const rawEventsRetentionManager = new RawEventsRetentionManager(pgPool, cfg.rawE
 
 /**
  * Idempotently ensure the staging table and cursor exist. Mirrors
- * migrations/006_raw_events.sql + 012_raw_events_partitioned.sql for dev/test
+ * migrations/008_raw_events.sql + 017_raw_events_partitioned.sql for dev/test
  * environments that boot without a separate migration step.
  *
  * When raw_events already exists as a plain (non-partitioned) heap table this
- * function leaves it untouched — run migration 012 to convert it.  Fresh
+ * function leaves it untouched — run migration 017 to convert it.  Fresh
  * deployments get the partitioned layout from the start.
  */
 async function _ensureSchema(): Promise<void> {
   // ── raw_events ─────────────────────────────────────────────────────────────
   // Only create the partitioned parent when raw_events does not yet exist at
   // all.  If it already exists (partitioned or not) we leave it in place;
-  // migration 012 handles the conversion for existing deployments.
+  // migration 017 handles the conversion for existing deployments.
   const rawEventsExists = await pgPool
     .query<{ exists: boolean }>(`SELECT to_regclass('public.raw_events') IS NOT NULL AS exists`)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,7 +136,7 @@ async function _ensureSchema(): Promise<void> {
 
     // Indexes on the parent — propagated to every child partition (PG 11+).
     // PG requires all partitioning columns in a unique index, so we include
-    // ledger_sequence alongside id. Names match migration 012.
+    // ledger_sequence alongside id. Names match migration 017.
     await pgPool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_events_id1
         ON raw_events (id, ledger_sequence)
@@ -226,7 +226,7 @@ async function _ensureSchema(): Promise<void> {
     )
   `);
 
-  // ── Incremental state-root tables (migration 015) ───────────────────────
+  // ── Incremental state-root tables (migration 020) ───────────────────────
   await pgPool.query(`
     CREATE TABLE IF NOT EXISTS state_root_accumulators (
       table_name  TEXT        PRIMARY KEY,

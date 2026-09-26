@@ -187,7 +187,7 @@ describe("dropOldPartitions", () => {
   });
 
   it("converges when partitions are older than a naive cursor-based cutoff (migration replay)", async () => {
-    // Cursor lags far behind the migrated partitions (migration 012 replay):
+    // Cursor lags far behind the migrated partitions (migration 017 replay):
     // an old cursor-only cutoff would compute a negative value and drop nothing.
     // Anchoring the cutoff to max(cursor, newestPartitionHi) keeps cleaning.
     const pool = new FakePool();

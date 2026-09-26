@@ -6,12 +6,16 @@ on:
       - main
     paths:
       - "services/indexer/migrations/**"
+      - "services/indexer/lint-migrations.sh"
+      - "services/indexer/migrate.sh"
       - "tests/migrations/**"
       - "docker-compose.migrations.yml"
       - ".github/workflows/migrations.yml"
   pull_request:
     paths:
       - "services/indexer/migrations/**"
+      - "services/indexer/lint-migrations.sh"
+      - "services/indexer/migrate.sh"
       - "tests/migrations/**"
       - "docker-compose.migrations.yml"
       - ".github/workflows/migrations.yml"

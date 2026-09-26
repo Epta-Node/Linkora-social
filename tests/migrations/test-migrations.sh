@@ -105,6 +105,32 @@ dump_schema() {
 
 require_cmd docker
 
+step "Step 0/10: Migration filename lint (unique numeric prefixes)"
+# Hard requirement: apply order is derived from the filename, so two migrations
+# sharing a numeric prefix would silently hand ordering to the sort collation
+# and let a future migration run before the one it depends on.
+lint() { bash "$ROOT_DIR/services/indexer/lint-migrations.sh" "$1"; }
+
+if lint "$MIG_DIR" 2>&1 | sed 's/^/  /'; then
+    log "all migration filenames carry unique numeric prefixes"
+else
+    fail "migration filename lint reported a problem"
+fi
+
+# The lint itself must reject a duplicate prefix — prove it does, otherwise a
+# silently broken lint would let this check rot.
+LINT_NEG_DIR="$(mktemp -d)"
+trap 'rm -rf "$LINT_NEG_DIR"; cleanup' EXIT
+: > "$LINT_NEG_DIR/001_profiles.sql"
+: > "$LINT_NEG_DIR/002_posts.sql"
+: > "$LINT_NEG_DIR/002_posts_dup.sql"
+if lint "$LINT_NEG_DIR" >/dev/null 2>&1; then
+    fail "duplicate-prefix lint accepted a directory containing 002_posts.sql and 002_posts_dup.sql"
+else
+    log "duplicate-prefix lint correctly rejected a colliding set"
+fi
+rm -rf "$LINT_NEG_DIR"
+
 step "Starting fresh PostgreSQL"
 "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
 "${COMPOSE[@]}" up -d >/dev/null
@@ -354,10 +380,10 @@ for t in "${SENTINEL_TABLES[@]}"; do
     fi
 done
 
-# Column sentinel: posts.content_tsv added by 009_posts_fts.sql
+# Column sentinel: posts.content_tsv added by 013_posts_fts.sql
 COL_COUNT="$(psql_value "SELECT count(*)::int FROM information_schema.columns WHERE table_schema='public' AND table_name='posts' AND column_name='content_tsv';")"
 if [[ "$COL_COUNT" -ne 1 ]]; then
-    fail "schema-version sentinel column missing: posts.content_tsv (009_posts_fts)"
+    fail "schema-version sentinel column missing: posts.content_tsv (013_posts_fts)"
     GUARD_OK=0
 fi
 

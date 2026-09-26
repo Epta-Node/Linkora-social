@@ -2,14 +2,187 @@ openapi: "3.1.0"
 info:
   title: Linkora Indexer API
   version: "0.1.0"
-  description: REST API for querying indexed on-chain data from the Linkora protocol.
+  description: |
+    REST API for querying indexed on-chain data from the Linkora protocol.
+
+    Paths are absolute against the service root (the first server below), so
+    `/api/profiles/{address}` is served at `http://localhost:3001/api/profiles/{address}`.
+
+    Every route mounted by `createApp()` in `src/api/index.ts` is documented
+    here. The unit test `src/api/__tests__/openapi.test.ts` walks the mounted
+    Express routes and fails when one has no OpenAPI entry (or an OpenAPI entry
+    has no route), so the two cannot drift apart.
+
+    ## Authentication
+
+    Endpoints tagged **Auth: StellarSig** require the `Authorization` header
+    described under `components.securitySchemes.StellarSig`. All other
+    endpoints are public reads (some of them still subject to rate limiting).
+    `StellarSig` is accepted but not required on `GET` endpoints, where
+    `optionalStellarAuth` populates the caller's address so the rate limiter
+    can select the per-address bucket.
 
 servers:
-  - url: http://localhost:3001/api
-    description: Local development server
+  - url: http://localhost:3001
+    description: Local development server (service root)
+
+security:
+  - StellarSig: []
+
+tags:
+  - name: Health
+    description: Liveness, readiness and startup probes plus Prometheus metrics.
+  - name: Profiles
+  - name: Posts
+  - name: Feed
+  - name: Search
+  - name: Follows
+  - name: Pools
+  - name: Governance
+  - name: Users
+  - name: Notifications
+  - name: State Root
+  - name: Messages
 
 paths:
-  /profiles/{address}:
+  # ── Health / metrics (mounted outside /api) ─────────────────────────────────
+  /health:
+    get:
+      summary: Aggregated health report
+      operationId: getHealth
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Instance is ready (may be `degraded`).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded, down]
+                  uptime:
+                    type: integer
+                  version:
+                    type: string
+                  commit:
+                    type: string
+                  checks:
+                    type: object
+                    additionalProperties: true
+                  rateLimiter:
+                    type: object
+                    additionalProperties: true
+                  backfill:
+                    type: object
+                    additionalProperties: true
+        "503":
+          description: Instance is not ready; excluded from the load balancer.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /health/live:
+    get:
+      summary: Liveness probe
+      operationId: getHealthLive
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Process is running.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [alive]
+                  uptime:
+                    type: integer
+
+  /health/ready:
+    get:
+      summary: Readiness probe
+      operationId: getHealthReady
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Database, Stellar RPC and event stream are healthy.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, not_ready]
+                  degraded:
+                    type: boolean
+                  checks:
+                    type: object
+                    additionalProperties: true
+        "503":
+          description: One or more dependencies are unhealthy (or no monitor is configured).
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /health/startup:
+    get:
+      summary: Startup probe
+      operationId: getHealthStartup
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Initial bootstrap has completed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [started]
+                  startedAt:
+                    type: string
+                    format: date-time
+        "503":
+          description: Bootstrap is still in progress.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [starting]
+
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      operationId: getMetrics
+      tags: [Health]
+      security: []
+      responses:
+        "200":
+          description: Metrics in Prometheus text exposition format.
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ── Profiles ────────────────────────────────────────────────────────────────
+  /api/profiles/{address}:
     get:
       summary: Get profile by address
       operationId: getProfile
@@ -28,7 +201,8 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
-  /posts:
+  # ── Posts ───────────────────────────────────────────────────────────────────
+  /api/posts:
     get:
       summary: List posts
       operationId: listPosts
@@ -40,6 +214,12 @@ paths:
           schema:
             type: string
           description: Filter posts by author Stellar address.
+        - name: deleted
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Include deleted posts when true.
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/cursor"
       responses:
@@ -52,18 +232,13 @@ paths:
         "400":
           $ref: "#/components/responses/ValidationError"
 
-  /posts/{id}:
+  /api/posts/{id}:
     get:
       summary: Get post by ID
       operationId: getPost
       tags: [Posts]
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Numeric post ID (as a string to support large integers).
+        - $ref: "#/components/parameters/postId"
       responses:
         "200":
           description: Post found
@@ -78,7 +253,214 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
-  /follows/{address}/followers:
+  /api/posts/{id}/reports:
+    get:
+      summary: List reports filed against a post
+      operationId: listPostReports
+      tags: [Posts]
+      parameters:
+        - $ref: "#/components/parameters/postId"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Paginated list of reports
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/posts/media/config:
+    get:
+      summary: Media upload configuration
+      operationId: getMediaConfig
+      tags: [Posts]
+      security: []
+      responses:
+        "200":
+          description: Upload limits accepted by this instance.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  max_upload_bytes:
+                    type: integer
+                  allowed_image_types:
+                    type: array
+                    items:
+                      type: string
+
+  /api/posts/media:
+    post:
+      summary: Upload post media
+      operationId: uploadPostMedia
+      tags: [Posts]
+      description: Requires a valid `StellarSig` header (write endpoint).
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "201":
+          description: Media stored; returns the served URL.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Upload exceeds `max_upload_bytes`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # ── Feed ────────────────────────────────────────────────────────────────────
+  /api/feed:
+    get:
+      summary: Home feed
+      operationId: getFeed
+      tags: [Feed]
+      parameters:
+        - name: viewer
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Stellar address whose follow graph shapes the feed.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Paginated feed.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/feed/explore:
+    get:
+      summary: Explore feed
+      operationId: getExploreFeed
+      tags: [Feed]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated explore feed.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/feed/following/{address}:
+    get:
+      summary: Following feed
+      operationId: getFollowingFeed
+      tags: [Feed]
+      parameters:
+        - $ref: "#/components/parameters/address"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated feed of accounts the address follows.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  # ── Search ──────────────────────────────────────────────────────────────────
+  /api/search/posts:
+    get:
+      summary: Search posts
+      operationId: searchPosts
+      tags: [Search]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Full-text search query.
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Matching posts.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  # ── Follows ─────────────────────────────────────────────────────────────────
+  /api/follows/{address}/followers:
     get:
       summary: Get followers of an address
       operationId: getFollowers
@@ -97,7 +479,7 @@ paths:
         "400":
           $ref: "#/components/responses/ValidationError"
 
-  /follows/{address}/following:
+  /api/follows/{address}/following:
     get:
       summary: Get accounts followed by an address
       operationId: getFollowing
@@ -116,18 +498,33 @@ paths:
         "400":
           $ref: "#/components/responses/ValidationError"
 
-  /pools/{id}:
+  # ── Pools ───────────────────────────────────────────────────────────────────
+  /api/pools:
+    get:
+      summary: List pools
+      operationId: listPools
+      tags: [Pools]
+      security: []
+      responses:
+        "200":
+          description: All tip pools.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pools:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Pool"
+
+  /api/pools/{id}:
     get:
       summary: Get pool by ID
       operationId: getPool
       tags: [Pools]
       parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Pool symbol identifier.
+        - $ref: "#/components/parameters/poolId"
       responses:
         "200":
           description: Pool found
@@ -140,7 +537,323 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
 
+  /api/pools/{id}/analytics:
+    get:
+      summary: Pool analytics
+      operationId: getPoolAnalytics
+      tags: [Pools]
+      parameters:
+        - $ref: "#/components/parameters/poolId"
+      responses:
+        "200":
+          description: Aggregated pool statistics.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Governance ──────────────────────────────────────────────────────────────
+  /api/governance/proposals:
+    get:
+      summary: List governance proposals
+      operationId: listProposals
+      tags: [Governance]
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paginated proposals.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  # ── Users ───────────────────────────────────────────────────────────────────
+  /api/users/{address}/blocked:
+    get:
+      summary: List accounts blocked by an address
+      operationId: getBlocked
+      tags: [Users]
+      parameters:
+        - $ref: "#/components/parameters/address"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/limit"
+      responses:
+        "200":
+          description: Paginated block list.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/users/{address}/dm-key:
+    get:
+      summary: Get the published X25519 DM key for an address
+      operationId: getDmKey
+      tags: [Users]
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/address"
+      responses:
+        "200":
+          description: Published key (hex).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address:
+                    type: string
+                  public_key:
+                    type: string
+                  updated_ledger:
+                    type: integer
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Notifications ───────────────────────────────────────────────────────────
+  /api/notifications/register:
+    post:
+      summary: Register a device push token
+      operationId: registerDevice
+      tags: [Notifications]
+      description: Requires a valid `StellarSig` header (write endpoint).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint, publicKey]
+              properties:
+                endpoint:
+                  type: string
+                publicKey:
+                  type: string
+                deviceType:
+                  type: string
+                  enum: [web, mobile]
+      responses:
+        "200":
+          description: Token registered.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/notifications/deregister:
+    post:
+      summary: Remove a device push token
+      operationId: deregisterDevice
+      tags: [Notifications]
+      description: Requires a valid `StellarSig` header (write endpoint).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [endpoint]
+              properties:
+                endpoint:
+                  type: string
+      responses:
+        "200":
+          description: Token removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/notifications/preferences:
+    get:
+      summary: Get notification preferences
+      operationId: getNotificationPreferences
+      tags: [Notifications]
+      description: Requires a valid `StellarSig` header (the caller's own preferences).
+      responses:
+        "200":
+          description: Current preferences.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      summary: Update notification preferences
+      operationId: updateNotificationPreferences
+      tags: [Notifications]
+      description: Requires a valid `StellarSig` header (write endpoint).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Preferences updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── State root ──────────────────────────────────────────────────────────────
+  /api/state-root:
+    get:
+      summary: Get the computed state root for a ledger
+      operationId: getStateRoot
+      tags: [State Root]
+      security: []
+      parameters:
+        - name: ledger
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Ledger sequence to report on; defaults to the latest.
+      responses:
+        "200":
+          description: State root entry.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ledger_sequence:
+                    type: integer
+                  state_root:
+                    type: string
+                  computed_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Messages ────────────────────────────────────────────────────────────────
+  /api/messages:
+    post:
+      summary: Submit a direct message
+      operationId: postMessage
+      tags: [Messages]
+      description: |
+        Requires a valid `StellarSig` header (write endpoint) **and** the
+        `X-Idempotency-Key` header.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipientAddress, encryptedContent]
+              properties:
+                recipientAddress:
+                  type: string
+                encryptedContent:
+                  type: string
+      responses:
+        "202":
+          description: Message accepted for delivery.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [accepted]
+                  from:
+                    type: string
+                  to:
+                    type: string
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
 components:
+  securitySchemes:
+    StellarSig:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        Ed25519 signature over a canonical request string, sent as:
+
+        ```
+        Authorization: StellarSig <base64(JSON { address, timestamp, signature })>
+        ```
+
+        where `address` is the caller's Stellar public key (`G…`), `timestamp`
+        is the signing time, and `signature` is the base64 Ed25519 signature.
+
+        ### Canonical signing string
+
+        The exact bytes that are SHA-256 hashed and signed are built by
+        `buildAuthMessage()` in `packages/types/src/auth.ts`:
+
+        ```
+        v1:{METHOD}:{canonicalPath}:{address}:{timestamp}:{bodyHash}
+        ```
+
+        | Field           | Value |
+        | --------------- | ----- |
+        | `METHOD`        | Upper-cased HTTP method (`GET`, `POST`, …). |
+        | `canonicalPath` | Result of `canonicalizeAuthPath(req.originalUrl)` — query string dropped, trailing slashes stripped, `/` kept as `/`. Includes the `/api` mount prefix. |
+        | `address`       | Signer's Stellar public key (`G…`). |
+        | `timestamp`     | Unix epoch **milliseconds** at signing time. Must be within the configured skew of server time. |
+        | `bodyHash`      | Lowercase hex SHA-256 of the exact raw request body bytes; the empty string (`""` hash) when there is no body. |
+
+        Both the verifier and every first-party client derive the message
+        through that module, so the two sides cannot drift apart. See
+        `docs/CONTRACT_API.md` and `docs/MIGRATION_AUTH_V1.md` for a
+        self-contained reference implementation.
+
   parameters:
     address:
       name: address
@@ -149,6 +862,20 @@ components:
       schema:
         type: string
       description: Stellar account address (G…).
+    postId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Numeric post ID (as a string to support large integers).
+    poolId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Pool symbol identifier.
     limit:
       name: limit
       in: query

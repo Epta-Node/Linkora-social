@@ -26,6 +26,10 @@ if [[ ${#MIGRATIONS[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Hard requirement: unique, zero-padded numeric prefixes so apply order is
+# decided by the prefix and never by the shell's sort collation.
+bash "$SCRIPT_DIR/lint-migrations.sh" "$MIG_DIR"
+
 echo "[migrate] applying ${#MIGRATIONS[@]} migration(s) from $MIG_DIR"
 for f in "${MIGRATIONS[@]}"; do
   echo "[migrate] $(basename "$f")"

@@ -1,9 +1,42 @@
 # Indexer database migrations
 
 SQL migrations for the indexer's PostgreSQL schema. Files apply in filename
-order (`001_…` → `013_…`). They are validated on every PR by the
+order (`001_…` → `020_…`). They are validated on every PR by the
 [Migration Tests](../../../.github/workflows/migrations.yml) workflow — see
 [Running the tests](#running-the-tests).
+
+## Numbering (hard requirement, not a convention)
+
+Every migration filename **must** start with a zero-padded three-digit prefix
+followed by `_`, and **no two migrations may share the same prefix**:
+
+```
+NNN_description.sql        e.g. 016_notification_preferences.sql
+```
+
+This is a **hard requirement**, enforced by
+[`lint-migrations.sh`](../lint-migrations.sh), which runs:
+
+- in [`migrate.sh`](../migrate.sh) before any file is applied, and
+- as Step 0 of the [Migration Tests](../../../.github/workflows/migrations.yml)
+  harness, which also asserts the lint rejects a colliding set.
+
+Why it is hard rather than a convention:
+
+- Apply order is derived from the filename
+  (`migrate.sh` and the test harness glob `*.sql` and sort them). Two files
+  sharing a prefix (`006_a.sql`, `006_b.sql`) silently hand ordering to the
+  shell's sort collation, so a future `009_thing.sql` can be applied *before*
+  the `009_dependency.sql` it needs. The failure surfaces as a
+  missing-relation error against a partially migrated production database.
+- Renaming a file to "fix" its position silently changes what runs when.
+
+Renumbering a migration that has already shipped is safe: every migration is
+additive and idempotent, so the same set applied in a different (still
+dependency-correct) order produces the same schema — the harness proves this by
+applying the whole set twice and diffing against the committed snapshot.
+
+To add a migration, take `max(existing prefix) + 1`. Never reuse a prefix.
 
 ## Design rules
 
@@ -28,7 +61,7 @@ There are **no down/rollback migrations**, and this is deliberate:
 
 - Every migration is **non-destructive** — no `DROP TABLE`, no `DROP COLUMN`, no
   data-losing `ALTER`. The only `ALTER TABLE` is
-  `009_posts_fts.sql`, which does `ADD COLUMN IF NOT EXISTS … GENERATED ALWAYS`
+  `013_posts_fts.sql`, which does `ADD COLUMN IF NOT EXISTS … GENERATED ALWAYS`
   (purely additive; drops no data).
 - Because nothing is destroyed, the recovery model is **roll-forward**: a fresh
   or partially-migrated database reaches the correct state by (re-)applying the
@@ -62,16 +95,16 @@ DATABASE_URL=postgresql://linkora:linkora@localhost/linkora bash migrate.sh
 
 Notably, `indexer_state` is the **state-root** table
 (`ledger_sequence, state_root, computed_at`); the per-stream ingestion cursor
-lives in `indexer_cursor`. (An earlier revision of `006_raw_events.sql` also
+lives in `indexer_cursor`. (An earlier revision of `008_raw_events.sql` also
 defined `indexer_state` as a cursor table, colliding with the state-root
 definition — that stale block has been removed.)
 
 ---
 
-## raw_events migration path (012_raw_events_partitioned.sql)
+## raw_events migration path (017_raw_events_partitioned.sql)
 
-`012_raw_events_partitioned.sql` converts the monolithic `raw_events` table
-created by `006_raw_events.sql` into a range-partitioned table. This section
+`017_raw_events_partitioned.sql` converts the monolithic `raw_events` table
+created by `008_raw_events.sql` into a range-partitioned table. This section
 explains the migration path and what operators need to do for **existing
 deployments**.
 
@@ -100,7 +133,7 @@ pg_dump $DATABASE_URL -Fc -f raw_events_pre_012_backup.dump
 
 # 2. Apply the migration.  The harness applies all migrations in order, but
 #    you can also run it by itself:
-psql $DATABASE_URL -f services/indexer/migrations/012_raw_events_partitioned.sql
+psql $DATABASE_URL -f services/indexer/migrations/017_raw_events_partitioned.sql
 
 # 3. Verify the migration succeeded.
 psql $DATABASE_URL -c "
@@ -167,7 +200,7 @@ Relevant environment variables (all optional):
 | Variable                       | Default     | Description                                        |
 | ------------------------------ | ----------- | -------------------------------------------------- |
 | `RAW_EVENTS_RETENTION_LEDGERS` | `4000000`   | Ledgers to keep (≈ 231 days at mainnet cadence).   |
-| `RAW_EVENTS_PARTITION_SIZE`    | `1000000`   | Ledger range per bucket. Must match migration 012. |
+| `RAW_EVENTS_PARTITION_SIZE`    | `1000000`   | Ledger range per bucket. Must match migration 017. |
 | `RAW_EVENTS_ARCHIVE_ONLY`      | `false`     | Set `true` to detach but not drop old partitions.  |
 | `RAW_EVENTS_RETENTION_CRON`    | `5 * * * *` | cron schedule for the retention job.               |
 

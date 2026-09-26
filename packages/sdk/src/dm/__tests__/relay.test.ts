@@ -4,7 +4,8 @@
  * Covers `getConversationId` determinism and `detectKeyRotation` logic.
  */
 
-import { getConversationId, detectKeyRotation } from "../relay";
+import { getConversationId, detectKeyRotation, buildDmAuthMessage, hashCiphertext } from "../relay";
+import { sha256 } from "@noble/hashes/sha256";
 
 // ── getConversationId ────────────────────────────────────────────────────────
 
@@ -88,5 +89,46 @@ describe("detectKeyRotation", () => {
 
     const result = detectKeyRotation(cached, current);
     expect(result.rotated).toBe(true);
+  });
+});
+
+// ── buildDmAuthMessage ────────────────────────────────────────────────────────
+
+describe("buildDmAuthMessage", () => {
+  const to = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+  const nonce = 7;
+  const timestamp = 1700000000;
+  const ciphertextB64 = Buffer.from("sealed payload").toString("base64");
+
+  it("pins the same canonical string the relay derives", () => {
+    const digest = Buffer.from(sha256(new TextEncoder().encode(ciphertextB64))).toString("hex");
+    expect(buildDmAuthMessage(to, nonce, timestamp, ciphertextB64)).toBe(
+      `v2:${to}:${nonce}:${timestamp}:${digest}`
+    );
+  });
+
+  it("hashes the ciphertext exactly as it appears on the wire", () => {
+    expect(hashCiphertext(ciphertextB64)).toBe(
+      Buffer.from(sha256(new TextEncoder().encode(ciphertextB64))).toString("hex")
+    );
+    expect(hashCiphertext(ciphertextB64)).toHaveLength(64);
+  });
+
+  it("changes the signed message when the ciphertext is substituted", () => {
+    const original = buildDmAuthMessage(to, nonce, timestamp, ciphertextB64);
+    const tampered = buildDmAuthMessage(
+      to,
+      nonce,
+      timestamp,
+      Buffer.from("attacker payload").toString("base64")
+    );
+    expect(tampered).not.toBe(original);
+  });
+
+  it("binds recipient, nonce and timestamp as well as the ciphertext", () => {
+    const base = buildDmAuthMessage(to, nonce, timestamp, ciphertextB64);
+    expect(buildDmAuthMessage("GCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", nonce, timestamp, ciphertextB64)).not.toBe(base);
+    expect(buildDmAuthMessage(to, nonce + 1, timestamp, ciphertextB64)).not.toBe(base);
+    expect(buildDmAuthMessage(to, nonce, timestamp + 1, ciphertextB64)).not.toBe(base);
   });
 });

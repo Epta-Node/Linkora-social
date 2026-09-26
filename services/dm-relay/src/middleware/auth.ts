@@ -19,6 +19,7 @@ export function messageAuthMiddleware(authService: AuthService) {
         to: messageData.recipient,
         nonce: messageData.message_index,
         timestamp: messageData.timestamp,
+        ciphertext: messageData.ciphertext_b64,
         signature: messageData.signature,
       });
 
