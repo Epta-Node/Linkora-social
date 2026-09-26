@@ -214,10 +214,25 @@ export function recordPoolWithdrawal(
   return created;
 }
 
+/** Extracts the leading numeric amount from a formatted balance string like "18,240 XLM". */
+function parseBalanceAmount(balance: string): number {
+  const match = balance.match(/-?[\d,]+(\.\d+)?/);
+  if (!match) return 0;
+  const parsed = parseFloat(match[0].replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatBalanceAmount(amount: number, token: string): string {
+  return `${amount.toLocaleString("en-US", { maximumFractionDigits: 7 })} ${token}`;
+}
+
 export function recordPoolDeposit(poolId: string, amount: string): void {
+  const delta = parseFloat(amount);
+  if (!Number.isFinite(delta)) return;
+
   updatePool(poolId, (pool) => ({
     ...pool,
-    balance: `${amount} ${pool.token}`,
+    balance: formatBalanceAmount(parseBalanceAmount(pool.balance) + delta, pool.token),
   }));
 }
 
