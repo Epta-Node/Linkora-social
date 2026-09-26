@@ -238,7 +238,7 @@ export async function getCachedPostsByIds(ids: string[]): Promise<Map<string, Po
  * rows, and one stale-eviction delete — instead of two `runAsync` calls per
  * post inside the transaction.
  */
-export async function reconcilePosts(remotePosts: Post[]): Promise<void> {
+export async function reconcilePosts(remotePosts: Post[], evictStale: boolean = true): Promise<void> {
   if (remotePosts.length === 0) return;
 
   await db.withTransactionAsync(async () => {
@@ -292,7 +292,8 @@ export async function reconcilePosts(remotePosts: Post[]): Promise<void> {
     );
 
     // Evict stale synced rows that are no longer in the remote set.
-    if (remotePosts.length > 0) {
+    // Only do this on full refresh (evictStale=true), not during pagination.
+    if (evictStale && remotePosts.length > 0) {
       const remoteIds = remotePosts.map(() => "?").join(",");
       await db.runAsync(
         `DELETE FROM cached_posts WHERE sync_status = 'synced' AND id NOT IN (${remoteIds})`,

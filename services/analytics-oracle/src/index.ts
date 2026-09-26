@@ -41,11 +41,16 @@ const ORACLE_NAME = process.env["ORACLE_NAME"] ?? "default";
 const WINDOW_LEDGERS = BigInt(process.env["WINDOW_LEDGERS"] ?? "1000");
 const PORT = parseInt(process.env["PORT"] ?? "4000", 10);
 const NETWORK_PASSPHRASE = process.env["NETWORK_PASSPHRASE"] ?? "Test SDF Network ; September 2015";
-const ATTESTATION_CACHE_MAX_SIZE = parseInt(
-  process.env["ATTESTATION_CACHE_MAX_SIZE"] ?? "10000",
-  10
-);
-const ATTESTATION_CACHE_TTL_MS = parseInt(process.env["ATTESTATION_CACHE_TTL_MS"] ?? "3600000", 10);
+const ATTESTATION_CACHE_MAX_SIZE = (() => {
+  const val = parseInt(process.env["ATTESTATION_CACHE_MAX_SIZE"] ?? "10000", 10);
+  if (isNaN(val)) throw new Error("ATTESTATION_CACHE_MAX_SIZE must be a valid number");
+  return val;
+})();
+const ATTESTATION_CACHE_TTL_MS = (() => {
+  const val = parseInt(process.env["ATTESTATION_CACHE_TTL_MS"] ?? "3600000", 10);
+  if (isNaN(val)) throw new Error("ATTESTATION_CACHE_TTL_MS must be a valid number");
+  return val;
+})();
 const SHUTDOWN_DRAIN_TIMEOUT_MS = parseInt(process.env["SHUTDOWN_DRAIN_TIMEOUT_MS"] ?? "30000", 10);
 
 // Load the signing key from the configured secrets backend (a mounted secret

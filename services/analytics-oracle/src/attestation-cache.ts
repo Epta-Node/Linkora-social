@@ -215,6 +215,8 @@ export class AttestationCache<V> {
    * receive a stale signature for a report that is no longer current.
    */
   beginWindow(windowStart: bigint, windowEnd: bigint): void {
+    if (windowStart <= 0n) throw new RangeError("windowStart must be positive");
+    if (windowEnd <= windowStart) throw new RangeError("windowEnd must be greater than windowStart");
     const key = `${windowStart}:${windowEnd}`;
     if (key === this.windowKey) return;
     this.clear();
