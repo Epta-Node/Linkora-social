@@ -101,15 +101,34 @@ async function checkStellarRpc(rpcUrl: string): Promise<DependencyCheck> {
   try {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), 3000);
-    await fetch(rpcUrl, {
+    const response = await fetch(rpcUrl, {
       method: "POST",
       signal: ctrl.signal,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestLedger", params: [] }),
     }).finally(() => clearTimeout(timeout));
-    return { status: "up", latencyMs: Date.now() - start };
-  } catch {
-    return { status: "down", latencyMs: Date.now() - start };
+
+    const latencyMs = Date.now() - start;
+
+    // fetch() resolves for any HTTP status, so an RPC that is reachable but
+    // failing (502/503 during an outage, 401/404 on a bad URL) must be treated
+    // as down — otherwise readiness stays green while every window tick fails.
+    if (!response.ok) {
+      logger.error(
+        { status: response.status, latencyMs, rpcUrl },
+        "health: stellar rpc returned an error status"
+      );
+      return { status: "down", latencyMs, error: `http_${response.status}` };
+    }
+
+    return { status: "up", latencyMs };
+  } catch (err) {
+    const latencyMs = Date.now() - start;
+    logger.error(
+      { latencyMs, err: err instanceof Error ? err.message : String(err) },
+      "health: stellar rpc check failed"
+    );
+    return { status: "down", latencyMs, error: "unreachable" };
   }
 }
 

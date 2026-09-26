@@ -79,13 +79,27 @@ function validateCreatorStats(stats: CreatorStats): void {
 
 /**
  * Queries the indexer database for per-creator analytics in the given ledger window.
+ *
+ * Window mapping (the indexer schema carries no `ledger_sequence` on the domain
+ * tables, so the window is applied to the columns that do exist):
+ *   • `posts.created_at` is written as `to_timestamp(created_ledger)` — the ledger
+ *     encoded as a timestamp — so the ledger window is compared against the
+ *     equivalent `to_timestamp()` range. Both sides go through the same
+ *     conversion, so the comparison holds in any session time zone.
+ *   • `follows.created_at` is the INTEGER ledger that created the edge.
+ *   • `tips` records no ledger at all, so a tip is attributed to the window of
+ *     the post it was sent to.
+ *
+ * There is no `unfollows` table: an unfollow deletes the edge from `follows`
+ * instead of keeping history, so the follower delta is the number of new
+ * followers in the window and cannot go negative from this data source.
  */
 export async function fetchCreatorStats(
   db: Pool,
   windowStart: bigint,
   windowEnd: bigint
 ): Promise<CreatorStats[]> {
-  // Aggregate tips, posts, and follower changes for each creator active in the window.
+  // Aggregate tips, posts, and new followers for each creator active in the window.
   const result = await db.query<{
     creator: string;
     total_tips: string;
@@ -100,16 +114,15 @@ export async function fetchCreatorStats(
       COUNT(DISTINCT p.id)                  AS post_count,
       COALESCE(
         (SELECT COUNT(*) FROM follows f WHERE f.followee = p.author
-          AND f.ledger_sequence BETWEEN $1 AND $2) -
-        (SELECT COUNT(*) FROM unfollows uf WHERE uf.followee = p.author
-          AND uf.ledger_sequence BETWEEN $1 AND $2),
+          AND f.created_at::bigint BETWEEN $1::bigint AND $2::bigint),
         0
       )                                     AS follower_delta,
       COUNT(DISTINCT t.tipper)              AS unique_tippers
     FROM posts p
     LEFT JOIN tips t
-      ON t.post_id = p.id AND t.ledger_sequence BETWEEN $1 AND $2
-    WHERE p.ledger_sequence BETWEEN $1 AND $2
+      ON t.post_id = p.id
+    WHERE p.created_at >= to_timestamp(($1::bigint)::double precision)
+      AND p.created_at <= to_timestamp(($2::bigint)::double precision)
     GROUP BY p.author
     `,
     [windowStart.toString(), windowEnd.toString()]
