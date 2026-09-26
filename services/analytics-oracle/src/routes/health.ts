@@ -49,11 +49,6 @@ async function checkDatabase(db: Pool): Promise<DependencyCheck> {
   try {
     client = await db.connect();
 
-    // Use pg statement_timeout to enforce a hard 5-second limit on the query.
-    // This covers the case where the DB accepts the connection but hangs on
-    // executing queries (i.e. not a refused connection, just unresponsive).
-    await client.query(`SET statement_timeout = ${DB_HEALTH_TIMEOUT_MS}`);
-
     // Race the health-check query against an AbortController timer so the
     // health endpoint never blocks beyond DB_HEALTH_TIMEOUT_MS regardless of
     // whether the pg driver honours statement_timeout in all edge cases.
@@ -62,7 +57,7 @@ async function checkDatabase(db: Pool): Promise<DependencyCheck> {
 
     try {
       await Promise.race([
-        client.query("SELECT 1"),
+        client.query("SELECT 1", { statement_timeout: DB_HEALTH_TIMEOUT_MS }),
         new Promise<never>((_resolve, reject) => {
           ac.signal.addEventListener("abort", () =>
             reject(new Error(`Database health check timed out after ${DB_HEALTH_TIMEOUT_MS}ms`))
@@ -90,9 +85,15 @@ async function checkDatabase(db: Pool): Promise<DependencyCheck> {
       "health: database check failed"
     );
 
+    if (isTimeout && client) {
+      client.release(true);
+    }
+
     return { status: "down", latencyMs, error: isTimeout ? "timeout" : "error" };
   } finally {
-    client?.release();
+    if (client && !client._released) {
+      client.release();
+    }
   }
 }
 

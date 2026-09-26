@@ -121,18 +121,12 @@ export function useFeed(): UseFeedReturn {
         setHasMore(cached.length >= currentLoadedCount);
         hasMoreRef.current = cached.length >= currentLoadedCount;
 
-        // 5. Fire background sync for pending posts — but only against the
-        // network this call actually started under. If the user switched
-        // networks while steps 1-4 above were in flight, submitting now
-        // would sign and broadcast against the wrong chain (#1550): the
-        // pending posts are quarantined (left pending) rather than pushed to
-        // whatever network happens to be selected by the time we get here.
-        if (networkIdRef.current === startNetworkId) {
-          void syncPendingPosts(getSyncPendingPostsOptions(contractId, rpcUrl, network.id)).then(
-            () => {
-              notifyFeedUpdate();
-            }
-          );
+        // 5. Fire background sync for pending posts (only if wallet kit is available)
+        const syncOptions = getSyncPendingPostsOptions(contractId, rpcUrl, network.id);
+        if (syncOptions) {
+          void syncPendingPosts(syncOptions).then(() => {
+            notifyFeedUpdate();
+          });
         }
       } catch (err) {
         console.warn("Network sync failed, displaying cached data:", err);

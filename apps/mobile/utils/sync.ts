@@ -95,16 +95,17 @@ const NETWORK_PASSPHRASES: Record<string, string> = {
 /**
  * Build the options that {@link syncPendingPosts} needs from the active wallet
  * kit, a network preset's contract/RPC endpoints, and the selected network id.
+ * Returns null if the wallet kit is not available.
  */
 export function getSyncPendingPostsOptions(
   contractId: string,
   rpcUrl: string,
   networkId: string
-): SyncPendingPostsOptions {
+): SyncPendingPostsOptions | null {
   const walletKit = (globalThis as { __LINKORA_WALLET_KIT__?: WalletKitLike })
     .__LINKORA_WALLET_KIT__;
   if (!walletKit) {
-    throw new Error("Wallet kit not available");
+    return null;
   }
   return {
     walletKit,
