@@ -26,8 +26,12 @@ function shortAddress(address: string): string {
  * Fetches posts from the indexer and reconciles them with the local SQLite cache.
  * Falls back to placeholder content/username when the indexer doesn't provide them
  * and the post isn't already cached.
+ *
+ * @param limit Number of posts to fetch
+ * @param offset Starting position for pagination
+ * @param evictStale Whether to evict synced posts not in the current page (false during pagination)
  */
-export async function fetchAndCachePosts(limit: number, offset: number): Promise<Post[]> {
+export async function fetchAndCachePosts(limit: number, offset: number, evictStale: boolean = true): Promise<Post[]> {
   const indexerUrl = getIndexerBaseUrl();
 
   // 1. Fetch posts from the indexer
@@ -69,7 +73,7 @@ export async function fetchAndCachePosts(limit: number, offset: number): Promise
   }
 
   // 3. Reconcile with SQLite cache
-  await reconcilePosts(finalPosts);
+  await reconcilePosts(finalPosts, evictStale);
 
   return finalPosts;
 }

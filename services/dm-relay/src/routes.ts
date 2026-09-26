@@ -220,8 +220,8 @@ export function createRouter(database: Database, authService: AuthService): Rout
   router.post(
     "/messages",
     messageAuth,
-    idempotencyMiddleware(database),
     validateBody(SendMessageSchema),
+    idempotencyMiddleware(database),
     async (req: Request, res: Response) => {
       try {
         const messageData = req.body as z.infer<typeof SendMessageSchema>;

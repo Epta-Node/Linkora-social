@@ -104,7 +104,7 @@ export function useFeed(): UseFeedReturn {
 
         // 2. Fetch remote page and upsert to SQLite
         const offset = replace ? 0 : offsetRef.current;
-        await fetchAndCachePosts(PAGE_SIZE, offset);
+        await fetchAndCachePosts(PAGE_SIZE, offset, !replace);
 
         // 3. Evict stale rows periodically on initial refresh
         if (replace) {
