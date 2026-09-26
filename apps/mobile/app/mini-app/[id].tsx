@@ -33,8 +33,29 @@ const BRIDGE_INJECTION = `
 true;
 `;
 
+/** Origin (scheme + host + port) of a URL, or null if it can't be parsed. */
+export function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a WebView navigation request stays within the installed app's own origin. */
+export function isAllowedNavigation(allowedOrigin: string | null, requestUrl: string): boolean {
+  if (!allowedOrigin) return false;
+  return originOf(requestUrl) === allowedOrigin;
+}
+
 export default function MiniAppHostScreen() {
-  const { id, name, entry } = useLocalSearchParams<{ id: string; name: string; entry: string }>();
+  // #1551 — `entry` (and `name`) must never come from the route: a route
+  // param is attacker-controlled (e.g. a `linkora://mini-app/<id>?entry=...`
+  // deep link), so loading it would bind the installed app's permissions to
+  // whatever page the URL happens to point at. Only `id` is taken from the
+  // route; `entry`/`name` are always resolved from the installed-app record
+  // below.
+  const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const webviewRef = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +63,7 @@ export default function MiniAppHostScreen() {
 
   const { apps } = useInstalledApps();
   const app = useMemo(() => apps.find((a) => a.id === id), [apps, id]);
+  const allowedOrigin = useMemo(() => (app ? originOf(app.entry) : null), [app]);
 
   const bridge = useMemo(() => {
     if (!app) return null;
@@ -100,7 +122,7 @@ export default function MiniAppHostScreen() {
     <View style={styles.container}>
       <WebView
         ref={webviewRef}
-        source={{ uri: entry }}
+        source={{ uri: app.entry }}
         style={styles.webview}
         onMessage={handleMessage}
         onLoadEnd={() => setLoading(false)}
@@ -109,6 +131,11 @@ export default function MiniAppHostScreen() {
           setLoading(false);
           setError(description);
         }}
+        // #1551 — pin navigation to the installed app's own origin. Without
+        // this, a page loaded from `app.entry` could navigate itself (or an
+        // iframe/redirect within it) to a different origin while keeping the
+        // privileged LinkoraBridge injected into it.
+        onShouldStartLoadWithRequest={(request) => isAllowedNavigation(allowedOrigin, request.url)}
         injectedJavaScript={BRIDGE_INJECTION}
         javaScriptEnabled
         domStorageEnabled
@@ -131,7 +158,7 @@ export default function MiniAppHostScreen() {
       {loading && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator color="#6366f1" size="large" />
-          <Text style={styles.muted}>Loading {name ?? "Mini App"}...</Text>
+          <Text style={styles.muted}>Loading {app.name}...</Text>
         </View>
       )}
     </View>

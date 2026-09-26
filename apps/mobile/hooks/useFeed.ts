@@ -58,6 +58,13 @@ export function useFeed(): UseFeedReturn {
   const loadedPostsRef = useRef(0);
   const postsLengthRef = useRef(0);
   const hasMoreRef = useRef(true);
+  // Always holds the *current* network id, independent of which network a
+  // given syncWithNetwork call started under — read after the network
+  // round-trip below to detect a switch that happened mid-flight.
+  const networkIdRef = useRef(network.id);
+  useEffect(() => {
+    networkIdRef.current = network.id;
+  }, [network.id]);
 
   // Load posts from SQLite cache
   const loadFromCache = useCallback(async (limit: number, replace: boolean) => {
@@ -86,6 +93,10 @@ export function useFeed(): UseFeedReturn {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
+      // Captured once, together with contractId/rpcUrl in this closure — see
+      // the dependency array below. Used to detect a network switch that
+      // happens while this call is still in flight (#1550).
+      const startNetworkId = network.id;
 
       try {
         // 1. Initialize DB if not done
@@ -129,7 +140,7 @@ export function useFeed(): UseFeedReturn {
         loadingRef.current = false;
       }
     },
-    [loadFromCache]
+    [loadFromCache, contractId, rpcUrl, network.id]
   );
 
   // Initial load
@@ -148,8 +159,11 @@ export function useFeed(): UseFeedReturn {
     return () => {
       active = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Re-runs whenever syncWithNetwork's identity changes — i.e. whenever
+    // contractId/rpcUrl/network.id change (#1550) — so switching networks
+    // re-syncs against the new one instead of the closure this effect
+    // captured on mount.
+  }, [loadFromCache, syncWithNetwork]);
 
   // Subscribe to feed updates (e.g. from optimistic creation or sync confirmation)
   useEffect(() => {
