@@ -198,6 +198,10 @@ export function createApp(
     next();
   });
 
+  // Every route mounted here must be documented in `openapi.yaml`.
+  // `src/api/__tests__/openapi.test.ts` walks this router stack and fails CI
+  // when a mounted route is undocumented or a documented route is stale, so a
+  // new endpoint cannot ship without a contract.
   app.use("/api/profiles", createProfilesRouter(db));
   app.use("/api/posts", createPostsRouter(db, mediaUpload));
   app.use("/api/search", createSearchRouter(db));

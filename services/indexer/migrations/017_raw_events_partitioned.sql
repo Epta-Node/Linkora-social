@@ -34,7 +34,7 @@ BEGIN
       AND c.relkind = 'p'          -- 'p' = partitioned table
       AND n.nspname = 'public'
   ) THEN
-    RAISE NOTICE 'raw_events is already partitioned — skipping migration 012';
+    RAISE NOTICE 'raw_events is already partitioned — skipping migration 017';
     RETURN;
   END IF;
 END
@@ -155,7 +155,7 @@ $$;
 -- After renaming raw_events → raw_events_legacy, the FK on sent_notifications
 -- still points to the original OID (now raw_events_legacy), so on existing
 -- deployments no change is needed.  On a fresh migration run the FK was
--- created by 008_sent_notifications.sql pointing to raw_events which is now
+-- created by 010_sent_notifications.sql pointing to raw_events which is now
 -- the partitioned parent — we re-point it to raw_events_legacy(id) which has
 -- the single-column unique index idx_raw_events_id that can back a FK.
 DO $$

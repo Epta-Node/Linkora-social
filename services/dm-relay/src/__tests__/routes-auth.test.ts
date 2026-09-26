@@ -19,8 +19,11 @@ function fakeDatabase(overrides: Partial<Database> = {}): Database {
   return {
     getMessages: jest.fn().mockResolvedValue([]),
     getMessagesByRecipient: jest.fn().mockResolvedValue([]),
-    insertMessage: jest.fn(),
+    insertMessage: jest.fn().mockResolvedValue("msg-1"),
     ping: jest.fn().mockResolvedValue(undefined),
+    claimIdempotencyKey: jest.fn().mockResolvedValue({ status: "claimed" }),
+    completeIdempotencyKey: jest.fn().mockResolvedValue(undefined),
+    getIdempotencyResponse: jest.fn().mockResolvedValue(null),
     ...overrides,
   } as unknown as Database;
 }
@@ -83,6 +86,55 @@ describe("route-scoped auth", () => {
         message_index: 0,
         timestamp: Math.floor(Date.now() / 1000),
         signature: "00".repeat(64),
+      }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("accepts a correctly signed envelope", async () => {
+    const senderKp = Keypair.random();
+    const recipient = Keypair.random().publicKey();
+    const ciphertext_b64 = Buffer.from("sealed payload").toString("base64");
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = AuthService.createAuthSignature(senderKp, recipient, 0, timestamp, ciphertext_b64);
+
+    const res = await fetch(`${url}/api/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": "11111111-2222-4333-8444-555555555555",
+      },
+      body: JSON.stringify({
+        sender: senderKp.publicKey(),
+        recipient,
+        ciphertext_b64,
+        message_index: 0,
+        timestamp,
+        signature,
+      }),
+    });
+    expect(res.status).toBe(201);
+  });
+
+  it("rejects a valid signature replayed with substituted ciphertext (401)", async () => {
+    const senderKp = Keypair.random();
+    const recipient = Keypair.random().publicKey();
+    const ciphertext_b64 = Buffer.from("sealed payload").toString("base64");
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = AuthService.createAuthSignature(senderKp, recipient, 0, timestamp, ciphertext_b64);
+
+    // The signature is authentic and covers `ciphertext_b64`; the ciphertext is
+    // then swapped for attacker-chosen bytes on the way to the relay.
+    const res = await fetch(`${url}/api/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender: senderKp.publicKey(),
+        recipient,
+        ciphertext_b64: Buffer.from("attacker payload").toString("base64"),
+        message_index: 0,
+        timestamp,
+        signature,
       }),
     });
     expect(res.status).toBe(401);

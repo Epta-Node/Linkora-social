@@ -7,10 +7,12 @@
  * ever seeing plaintext.  Authentication uses Stellar Ed25519 signatures so
  * the relay can prove the sender is who they claim to be.
  *
- * Auth scheme (mirrors services/dm-relay/auth.ts):
- *   hash      = SHA-256(sender_stellar_address + unix_timestamp_seconds)
- *   signature = Ed25519_sign(freighter_private_key, hash)  — via Freighter signBlob
- *   sent as hex string in the JSON body
+ * Auth scheme (mirrors services/dm-relay/src/auth.ts):
+ *   message      = "v2:" + recipient + ":" + message_index + ":" + timestamp
+ *                  + ":" + sha256_hex(ciphertext_b64)
+ *   hash         = SHA-256(message)
+ *   signature    = Ed25519_sign(freighter_private_key, hash)  — via Freighter
+ *                  signBlob, sent as a hex string in the JSON body
  *
  * Key rotation support:
  *   Before fetching messages the caller should invoke `syncWithRotationCheck`
@@ -58,14 +60,32 @@ async function sha256Web(data: Uint8Array): Promise<Uint8Array> {
 }
 
 /**
- * Signs SHA-256(sender + timestamp) with the user's Freighter key and
+ * Signs the canonical DM message envelope with the user's Freighter key and
  * returns the 64-byte Ed25519 signature as a hex string.
+ *
+ * Canonical layout (must match `buildDmAuthMessage` in both
+ * `services/dm-relay/src/auth.ts` and `packages/sdk/src/dm/relay.ts`):
+ *
+ *   v2:{recipient}:{message_index}:{timestamp}:{sha256_hex(ciphertext_b64)}
+ *
+ * Committing to the ciphertext digest means an on-path attacker cannot swap
+ * `ciphertext_b64` on a captured signed request.
  *
  * Freighter v2 exposes signBlob(base64Data, opts) which signs raw bytes with
  * the wallet's Ed25519 private key and returns a base64-encoded signature.
  */
-async function buildAuthSignature(senderAddress: string, timestamp: number): Promise<string> {
-  const hash = await sha256Web(new TextEncoder().encode(senderAddress + String(timestamp)));
+async function buildAuthSignature(
+  senderAddress: string,
+  recipient: string,
+  messageIndex: number,
+  timestamp: number,
+  ciphertextB64: string
+): Promise<string> {
+  const ciphertextHash = bytesToHex(
+    await sha256Web(new TextEncoder().encode(ciphertextB64))
+  );
+  const authMessage = `v2:${recipient}:${messageIndex}:${timestamp}:${ciphertextHash}`;
+  const hash = await sha256Web(new TextEncoder().encode(authMessage));
 
   const { signBlob } = await import("@stellar/freighter-api");
   const signBlobFn = signBlob as (
@@ -92,15 +112,27 @@ export async function sendRelayMessage(
   messageIndex: number
 ): Promise<void> {
   const timestamp = Math.floor(Date.now() / 1000);
-  const signature = await buildAuthSignature(senderAddress, timestamp);
+  const ciphertext_b64 = bytesToBase64(ciphertext);
+  const signature = await buildAuthSignature(
+    senderAddress,
+    recipientAddress,
+    messageIndex,
+    timestamp,
+    ciphertext_b64
+  );
 
   const res = await fetch(`${RELAY_URL}/api/messages`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      // The relay requires a per-request idempotency key so client retries
+      // cannot create duplicate inbox entries.
+      "X-Idempotency-Key": crypto.randomUUID(),
+    },
     body: JSON.stringify({
       sender: senderAddress,
       recipient: recipientAddress,
-      ciphertext_b64: bytesToBase64(ciphertext),
+      ciphertext_b64,
       message_index: messageIndex,
       timestamp,
       signature,

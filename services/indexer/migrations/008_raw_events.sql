@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS raw_events (
 -- references raw_events(id)). A UNIQUE index both serves point lookups and
 -- provides the unique constraint a foreign key requires.
 -- Guard: only create the single-column unique index when raw_events is a plain
--- heap table. After migration 012 converts it to a partitioned table the index
--- must include the partition key; migration 012 creates idx_raw_events_id1 for
+-- heap table. After migration 017 converts it to a partitioned table the index
+-- must include the partition key; migration 017 creates idx_raw_events_id1 for
 -- that purpose.
 DO $$
 BEGIN
@@ -52,5 +52,5 @@ CREATE INDEX IF NOT EXISTS idx_raw_events_ledger      ON raw_events (ledger_sequ
 
 -- NOTE: The per-stream ingestion cursor lives in `indexer_cursor`
 -- (006_indexer_cursor.sql). It was originally defined here as `indexer_state`,
--- but that name now belongs to the state-root table (006_indexer_state.sql),
+-- but that name now belongs to the state-root table (007_indexer_state.sql),
 -- so the cursor definition was moved out to avoid a name collision.

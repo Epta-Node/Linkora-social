@@ -8,22 +8,22 @@ import { logger } from "./logger";
  * its presence proves that *all* migrations up to that point have been applied.
  */
 const REQUIRED_TABLES: ReadonlyArray<string> = [
-  "raw_events", // 006_raw_events
+  "raw_events", // 008_raw_events
   "indexer_cursor", // 006_indexer_cursor
-  "indexer_state", // 006_indexer_state
-  "device_tokens", // 007_device_tokens
-  "sent_notifications", // 008_sent_notifications
-  "blocks", // 010_blocks_dm_keys
-  "dm_keys", // 010_blocks_dm_keys
-  "notification_preferences", // 011_notification_preferences — sentinel for complete migration set
+  "indexer_state", // 007_indexer_state
+  "device_tokens", // 009_device_tokens
+  "sent_notifications", // 010_sent_notifications
+  "blocks", // 015_blocks_dm_keys
+  "dm_keys", // 015_blocks_dm_keys
+  "notification_preferences", // 016_notification_preferences — sentinel for complete migration set
 ];
 
 /**
  * Column-level checks that guard against a DB that has the right table names
- * but is still missing a later additive column (e.g. 009_posts_fts).
+ * but is still missing a later additive column (e.g. 013_posts_fts).
  */
 const REQUIRED_COLUMNS: ReadonlyArray<{ table: string; column: string; migration: string }> = [
-  { table: "posts", column: "content_tsv", migration: "009_posts_fts" },
+  { table: "posts", column: "content_tsv", migration: "013_posts_fts" },
 ];
 
 /**

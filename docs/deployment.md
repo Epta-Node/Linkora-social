@@ -143,7 +143,7 @@ deployment then reports `rateLimiter: { store: "memory", shared: false }` on
 
 ### Indexer
 
-The indexer uses plain SQL migrations in `services/indexer/migrations/`, numbered `001_` through `011_`. Apply them in order:
+The indexer uses plain SQL migrations in `services/indexer/migrations/`, numbered `001_` through `020_`. Apply them in order:
 
 ```bash
 # Apply all migrations (example using psql)

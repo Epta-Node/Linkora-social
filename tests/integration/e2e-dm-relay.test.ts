@@ -130,7 +130,6 @@ describe("DM Relay E2E", () => {
     console.log("[dm] 5: Encrypting message...");
     const messageContent = "Hello Bob! This is a secret E2E-encrypted message from Alice.";
     const messageIndex = 1;
-    const nonce = Date.now();
 
     let ciphertext: Uint8Array;
     let conversationId: string;
@@ -162,22 +161,31 @@ describe("DM Relay E2E", () => {
     // ── 6. Send encrypted message via relay ────────────────────────────────────
     console.log("[dm] 6: Sending encrypted message via relay...");
     const timestamp = Math.floor(Date.now() / 1000);
-    // Correct auth signature per relay's verifyMessageAuth: sha256(to + ":" + nonce + ":" + timestamp)
-    const signature = createRelayMessageSignature(accounts.alice, bobAddr, nonce, timestamp);
+    // Correct auth signature per relay's verifyMessageAuth:
+    // sha256("v2:" + to + ":" + nonce + ":" + timestamp + ":" + sha256_hex(ciphertext))
+    const signature = createRelayMessageSignature(
+      accounts.alice,
+      bobAddr,
+      messageIndex,
+      timestamp,
+      ciphertextB64
+    );
 
     const sendPayload = {
       sender: aliceAddr,
       recipient: bobAddr,
       ciphertext_b64: ciphertextB64,
       message_index: messageIndex,
-      nonce,
       timestamp,
       signature,
     };
 
     const sendResp = await fetch(`${relayUrl}/messages`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Idempotency-Key": "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      },
       body: JSON.stringify(sendPayload),
     });
 
@@ -259,17 +267,26 @@ describe("DM Relay E2E", () => {
       ws.onopen = () => {
         console.log("    WebSocket connected");
         // Send a second message to trigger a push
-        const sig2 = createRelayMessageSignature(accounts.alice, bobAddr, nonce + 1, Math.floor(Date.now() / 1000));
+        const nextTimestamp = Math.floor(Date.now() / 1000);
+        const sig2 = createRelayMessageSignature(
+          accounts.alice,
+          bobAddr,
+          messageIndex + 1,
+          nextTimestamp,
+          ciphertextB64
+        );
         fetch(`${relayUrl}/messages`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "X-Idempotency-Key": "ffffffff-0000-4111-8222-333333333333",
+          },
           body: JSON.stringify({
             sender: aliceAddr,
             recipient: bobAddr,
             ciphertext_b64: ciphertextB64,
             message_index: messageIndex + 1,
-            nonce: nonce + 1,
-            timestamp: Math.floor(Date.now() / 1000),
+            timestamp: nextTimestamp,
             signature: sig2,
           }),
         }).catch(() => {});

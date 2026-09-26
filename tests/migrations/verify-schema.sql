@@ -32,7 +32,7 @@ BEGIN
     END IF;
 
     -- 3. indexer_state must be the STATE-ROOT table, not the cursor. This guards
-    --    the 006_indexer_state.sql / 006_raw_events.sql name-collision regression.
+    --    the 007_indexer_state.sql / 008_raw_events.sql name-collision regression.
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'indexer_state' AND column_name = 'state_root'
@@ -55,8 +55,8 @@ BEGIN
     END IF;
 
     -- 5. raw_events.id must be covered by a unique index so that foreign keys
-    --    can reference it.  Before migration 012 this is a single-column unique
-    --    index on raw_events(id).  After migration 012 raw_events is a
+    --    can reference it.  Before migration 017 this is a single-column unique
+    --    index on raw_events(id).  After migration 017 raw_events is a
     --    partitioned table (whose unique index must include the partition key),
     --    so the single-column unique index lives on raw_events_legacy instead.
     --    Accept either: a unique index on id in raw_events, OR a unique index
@@ -83,7 +83,7 @@ BEGIN
     END IF;
 
     -- 6. sent_notifications.event_id must reference raw_events (before migration
-    --    012) or raw_events_legacy (after migration 012 re-points the FK).
+    --    017) or raw_events_legacy (after migration 017 re-points the FK).
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint c
         JOIN pg_class ref ON ref.oid = c.confrelid
@@ -94,7 +94,7 @@ BEGIN
         RAISE EXCEPTION 'sent_notifications is missing its foreign key to raw_events';
     END IF;
 
-    -- 7. Full-text search column added by 009_posts_fts.sql must be present.
+    -- 7. Full-text search column added by 013_posts_fts.sql must be present.
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'posts' AND column_name = 'content_tsv'

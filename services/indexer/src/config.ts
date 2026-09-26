@@ -32,7 +32,7 @@
  *                                partitions (default 4 000 000 ≈ 231 days).
  * RAW_EVENTS_PARTITION_SIZE    — Ledger range per partition bucket
  *                                (default 1 000 000).  Must match the value
- *                                used in migration 012.
+ *                                used in migration 017.
  * RAW_EVENTS_ARCHIVE_ONLY      — Set to "true" to detach rather than drop old
  *                                partitions (default false).
  * RAW_EVENTS_RETENTION_CRON    — cron schedule for the retention job

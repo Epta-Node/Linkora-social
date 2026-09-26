@@ -14,7 +14,7 @@
  *     still NULL the partition is left in place even if its ledger range has
  *     passed the retention threshold.
  *
- * Partition naming convention (set by migration 012):
+ * Partition naming convention (set by migration 017):
  *   raw_events_p<lo>_<hi>   e.g.  raw_events_p0_1000000
  *
  * Configuration (IndexerConfig.retention):
@@ -196,7 +196,7 @@ export async function ensureNextPartition(
  * partition actually present on disk (`max(currentLedger, newestPartitionHi)`),
  * and the partition list is re-read fresh every cycle.  Anchoring the cutoff
  * to a single pre-loop value taken only from the cursor starves retention
- * when the cursor lags behind migrated partitions (migration 012 replay) or
+ * when the cursor lags behind migrated partitions (migration 017 replay) or
  * when no new partition has been created yet.
  *
  * @param currentLedger  The indexer's current processed ledger cursor.
@@ -301,7 +301,7 @@ export class RawEventsRetentionManager {
    * @param currentLedger  Current processed ledger cursor from indexer_cursor.
    */
   async runOnce(currentLedger: bigint): Promise<void> {
-    // Skip if raw_events is not yet partitioned (e.g. migration 012 not run).
+    // Skip if raw_events is not yet partitioned (e.g. migration 017 not run).
     const isPartitioned = await this.pool
       .query<{ is_partitioned: boolean }>(
         `SELECT relkind = 'p' AS is_partitioned
