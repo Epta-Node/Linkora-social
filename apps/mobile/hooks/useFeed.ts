@@ -110,12 +110,13 @@ export function useFeed(): UseFeedReturn {
         setHasMore(cached.length >= currentLoadedCount);
         hasMoreRef.current = cached.length >= currentLoadedCount;
 
-        // 5. Fire background sync for pending posts
-        void syncPendingPosts(getSyncPendingPostsOptions(contractId, rpcUrl, network.id)).then(
-          () => {
+        // 5. Fire background sync for pending posts (only if wallet kit is available)
+        const syncOptions = getSyncPendingPostsOptions(contractId, rpcUrl, network.id);
+        if (syncOptions) {
+          void syncPendingPosts(syncOptions).then(() => {
             notifyFeedUpdate();
-          }
-        );
+          });
+        }
       } catch (err) {
         console.warn("Network sync failed, displaying cached data:", err);
         // Fallback: just load from cache if we haven't already

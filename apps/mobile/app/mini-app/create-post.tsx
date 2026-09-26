@@ -12,11 +12,14 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
-import { resolvePendingRequest } from "../../mini-apps/bridge";
+import { resolvePendingRequest, rejectPendingRequest } from "../../mini-apps/bridge";
+import { addOptimisticPost } from "../../utils/db";
+import { useWallet } from "../../hooks/useWallet";
 
 export default function CreatePostScreen() {
   const { requestId } = useLocalSearchParams<{ requestId: string }>();
   const router = useRouter();
+  const { address } = useWallet();
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,18 +30,42 @@ export default function CreatePostScreen() {
       return;
     }
 
-    setSubmitting(true);
-
-    const postId = `post_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-
-    // Simulate brief network delay
-    await new Promise((r) => setTimeout(r, 300));
-
-    if (requestId) {
-      resolvePendingRequest(requestId, { postId, content: trimmed });
+    if (!address) {
+      Alert.alert("Wallet not connected", "Connect your wallet to create posts.");
+      if (requestId) {
+        rejectPendingRequest(requestId, new Error("Wallet not connected"));
+      }
+      return;
     }
 
-    router.back();
+    setSubmitting(true);
+
+    try {
+      const optimisticPost = await addOptimisticPost({
+        author: address,
+        username: "me",
+        content: trimmed,
+        tip_total: 0,
+      });
+
+      if (requestId) {
+        resolvePendingRequest(requestId, {
+          postId: optimisticPost.id,
+          content: trimmed,
+          pending: true,
+        });
+      }
+
+      router.back();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to create post";
+      Alert.alert("Error", errorMsg);
+      if (requestId) {
+        rejectPendingRequest(requestId, new Error(errorMsg));
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
