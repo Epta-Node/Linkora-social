@@ -9,10 +9,44 @@ import { jest } from "@jest/globals";
 import { fetchCreatorStats } from "../db.js";
 import { AttestationCache } from "../attestation-cache.js";
 import { Signer } from "../signer.js";
-import { AnalyticsReport, SignedAttestation } from "../types.js";
+import { AnalyticsReport, SignedAttestation, U32_MAX } from "../types.js";
 import { encodeReport } from "../codec.js";
 import { Keypair } from "@stellar/stellar-sdk";
 import type { Pool } from "pg";
+
+describe("unique tipper count from PostgreSQL", () => {
+  it("preserves the unsigned boundary and clamps larger counts before encoding", async () => {
+    const mockDb = {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      query: (jest.fn() as any).mockResolvedValue({
+        rows: [2 ** 31, U32_MAX, "4294967296", "9007199254740993"].map((count) => ({
+          creator: "GBZAZSCCXRMPB4XZLT5K6VYA2PFUIAMH3HLJTXUHPOIFAXDEQECAVXZF",
+          total_tips: "0",
+          post_count: "0",
+          follower_delta: "0",
+          unique_tippers: String(count),
+        })),
+      }),
+    } as unknown as Pool;
+
+    const stats = await fetchCreatorStats(mockDb, 100n, 200n);
+    expect(stats.map((row) => row.uniqueTippers)).toEqual([2 ** 31, U32_MAX, U32_MAX, U32_MAX]);
+    for (const row of stats) {
+      expect(() =>
+        encodeReport({
+          version: 1,
+          creator: Keypair.fromPublicKey(row.creatorAddress).rawPublicKey(),
+          windowStart: 100n,
+          windowEnd: 200n,
+          totalTips: row.totalTips,
+          postCount: row.postCount,
+          followerDelta: row.followerDelta,
+          uniqueTippers: row.uniqueTippers,
+        })
+      ).not.toThrow();
+    }
+  });
+});
 
 describe("Issue 2: Negative follower deltas and creator error scoping", () => {
   it("handles net negative follower deltas (more unfollows than follows) without throwing", async () => {
