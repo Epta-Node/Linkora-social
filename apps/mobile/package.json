@@ -42,7 +42,7 @@
     "expo-secure-store": "~57.0.1",
     "expo-sqlite": "~57.0.1",
     "linkora-sdk": "workspace:*",
-    "lucide-react-native": "^0.511.0",
+    "lucide-react-native": "^1.48.0",
     "react": "19.2.3",
     "react-native": "0.86.0",
     "react-native-gesture-handler": "~2.32.0",
