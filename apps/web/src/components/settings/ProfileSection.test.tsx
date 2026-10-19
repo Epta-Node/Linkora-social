@@ -22,7 +22,7 @@ describe("ProfileSection", () => {
     await waitFor(() => {
       expect(screen.getByText("Profile")).toBeInTheDocument();
       expect(
-        screen.getByText("Update your username and creator token settings.")
+        screen.getByText("Update your username, creator token, and profile images.")
       ).toBeInTheDocument();
     });
   });

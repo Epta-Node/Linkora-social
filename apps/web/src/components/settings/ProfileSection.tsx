@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ProfileForm, ProfileFormValues } from "@/components/forms/ProfileForm";
+import { ProfileImageUploader } from "@/components/profile/ProfileImageUploader";
 import { LinkoraClient } from "linkora-sdk";
 
 interface ProfileSectionProps {
@@ -13,6 +14,12 @@ export function ProfileSection({ address }: ProfileSectionProps) {
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [mediaMessage, setMediaMessage] = useState("");
+
+  const handleImageUploaded = useCallback((kind: "avatar" | "cover") => {
+    setMediaMessage(`${kind === "avatar" ? "Profile picture" : "Cover image"} updated!`);
+    setTimeout(() => setMediaMessage(""), 3000);
+  }, []);
 
   useEffect(() => {
     async function loadProfile() {
@@ -95,16 +102,46 @@ export function ProfileSection({ address }: ProfileSectionProps) {
   return (
     <section className="bg-white rounded-lg border border-gray-200 p-6">
       <h2 className="text-xl font-semibold mb-4">Profile</h2>
-      <p className="text-sm text-gray-600 mb-4">Update your username and creator token settings.</p>
+      <p className="text-sm text-gray-600 mb-4">
+        Update your username, creator token, and profile images.
+      </p>
+
+      {mediaMessage && (
+        <div
+          className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
+          role="status"
+        >
+          {mediaMessage}
+        </div>
+      )}
+
+      <div className="mb-6 space-y-6">
+        <ProfileImageUploader
+          address={address}
+          kind="cover"
+          onUploaded={() => handleImageUploaded("cover")}
+        />
+        <ProfileImageUploader
+          address={address}
+          kind="avatar"
+          onUploaded={() => handleImageUploaded("avatar")}
+        />
+      </div>
 
       {successMessage && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm" role="status">
+        <div
+          className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm"
+          role="status"
+        >
           {successMessage}
         </div>
       )}
 
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm" role="alert">
+        <div
+          className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm"
+          role="alert"
+        >
           {errorMessage}
         </div>
       )}

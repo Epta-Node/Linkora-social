@@ -7,6 +7,7 @@ module.exports = {
   moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
+    "\\.(css|scss)$": "<rootDir>/src/__mocks__/styleMock.js",
     "^@/(.*)$": "<rootDir>/src/$1",
     "^linkora-sdk$": "<rootDir>/../../packages/sdk/src/index.ts",
     "^@linkora/types/src/(.*)$": "<rootDir>/../../packages/types/src/$1",

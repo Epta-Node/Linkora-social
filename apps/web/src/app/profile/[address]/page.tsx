@@ -14,6 +14,7 @@ import {
 } from "@/lib/LinkoraEventSubscriber";
 import { FollowDrawer } from "@/components/profile/FollowDrawer";
 import { CreatorTokenPanel } from "@/components/profile/CreatorTokenPanel";
+import { fetchProfileImageUrl } from "@/lib/profileUpload";
 import {
   TransactionBuilder,
   BASE_FEE,
@@ -65,6 +66,27 @@ export default function ProfilePage() {
   const [isBlocked, setIsBlocked] = useState(false);
   const [blocking, setBlocking] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  /* ── Custom avatar / cover (mock upload store) ─────────────────────── */
+
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!address) return;
+    Promise.all([
+      fetchProfileImageUrl(address, "avatar"),
+      fetchProfileImageUrl(address, "cover"),
+    ]).then(([avatar, cover]) => {
+      if (cancelled) return;
+      setAvatarUrl(avatar);
+      setCoverUrl(cover);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [address]);
 
   /* ── Optimistic follow state ────────────────────────────────────────── */
 
@@ -308,6 +330,17 @@ export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
       <div className="max-w-4xl mx-auto p-4 md:p-8">
+        {/* ── Cover image ────────────────────────────────────────────── */}
+        {coverUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={coverUrl}
+            alt={`${profile.username}'s cover image`}
+            className="mb-4 h-40 w-full rounded-2xl border border-[var(--bg-tertiary)] object-cover md:h-56"
+            id="profile-cover"
+          />
+        )}
+
         {/* ── Profile header ───────────────────────────────────────────── */}
         <section
           id="profile-header"
@@ -315,10 +348,11 @@ export default function ProfilePage() {
           className="flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6 bg-[var(--bg-secondary)] p-4 md:p-6 rounded-2xl border border-[var(--bg-tertiary)]"
         >
           {/* Avatar */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={blockieUrl(address)}
+            src={avatarUrl || blockieUrl(address)}
             alt={`${profile.username}'s avatar`}
-            className="w-24 h-24 rounded-full border-4 border-[var(--bg-primary)]"
+            className="w-24 h-24 rounded-full border-4 border-[var(--bg-primary)] object-cover"
             id="profile-avatar"
           />
 
