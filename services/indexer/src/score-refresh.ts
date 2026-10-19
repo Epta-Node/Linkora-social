@@ -5,6 +5,7 @@ import { scoreRefreshDeferredTotal } from "./metrics";
 /**
  * Score refresh service
  * Refreshes the post_scores materialized view on a schedule.
+ * The materialized view now includes normalized tags for case-insensitive filtering.
  *
  * `REFRESH MATERIALIZED VIEW CONCURRENTLY` only allows one concurrent refresh
  * at a time and requires exclusive access for a brief final swap, so under

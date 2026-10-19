@@ -8,7 +8,8 @@ test.describe("Feed Flow", () => {
 
   test("feed page loads and shows content area", async ({ page }) => {
     await page.goto("/feed");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
     // Feed renders a container or empty state — both are valid
     const content = page.locator('[data-testid="feed"], article, main').first();
     await expect(content).toBeVisible({ timeout: 10000 });
@@ -16,7 +17,8 @@ test.describe("Feed Flow", () => {
 
   test("connect wallet on feed page", async ({ page }) => {
     await page.goto("/feed");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
     const connectBtn = page.locator('[data-testid="connect-wallet"]').first();
     const addressChip = page.locator('[data-testid="wallet-address"]').first();
     // The injected wallet mock auto-connects on page load, so the wallet may
@@ -28,5 +30,28 @@ test.describe("Feed Flow", () => {
       }
     }
     await expect(addressChip).toBeVisible({ timeout: 10000 });
+  });
+
+  test("following feed issues a small, bounded number of requests regardless of following count", async ({ page }) => {
+    let requestsCount = 0;
+    await page.route("**/api/**", (route) => {
+      const url = route.request().url();
+      if (url.includes("/api/posts") || url.includes("/api/feed/following") || url.includes("/api/follows")) {
+        requestsCount++;
+      }
+      route.continue();
+    });
+
+    await page.goto("/feed");
+    await page.waitForLoadState("networkidle");
+
+    const followingTab = page.getByRole("button", { name: "Following" });
+    if (await followingTab.isVisible().catch(() => false)) {
+      requestsCount = 0;
+      await followingTab.click();
+      await page.waitForTimeout(500);
+      // Verify request count stays bounded (<= 2 requests per page load, rather than N requests for N followed accounts)
+      expect(requestsCount).toBeLessThanOrEqual(2);
+    }
   });
 });

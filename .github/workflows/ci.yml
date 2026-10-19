@@ -34,6 +34,9 @@ jobs:
       - name: Run JS/TS tests
         run: pnpm test
 
+      - name: Check SDK bundle-size budget and tree-shaking
+        run: pnpm check:bundle
+
       - name: Build all packages
         run: pnpm build
 
@@ -61,6 +64,23 @@ jobs:
 
       - name: Run linter
         run: pnpm lint
+
+  # gitleaks action now requires a paid license for organizations.
+  # Disabled until a license is configured or replaced with an alternative.
+  # secret-scan:
+  #   name: Secret Scanning (gitleaks)
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #
+  #     - name: Run gitleaks secret scanner
+  #       uses: gitleaks/gitleaks-action@v2.3.4
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #         GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   unit-tests:
     name: Unit Tests

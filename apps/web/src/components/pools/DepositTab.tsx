@@ -5,6 +5,7 @@ import type { PoolData, TokenMeta } from "@/hooks/usePools";
 import { formatTokenAmount, parseTokenAmount } from "@/hooks/usePools";
 import { useDeposit } from "@/hooks/usePoolContract";
 import { TxStatusBanner } from "./TxStatusBanner";
+import { PoolTxConfirmDialog } from "./PoolTxConfirmDialog";
 
 interface DepositTabProps {
   pool: PoolData;
@@ -25,6 +26,7 @@ export function DepositTab({
 }: DepositTabProps) {
   const [amount, setAmount] = useState("");
   const [amountError, setAmountError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const { status, result, error, deposit, reset } = useDeposit();
 
   const decimals = tokenMeta?.decimals ?? 7;
@@ -53,8 +55,9 @@ export function DepositTab({
     if (amountError) setAmountError(validateAmount(val));
   };
 
+  // Validating opens the confirmation summary; only confirming it reaches the wallet (#1634).
   const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
+    (e: React.FormEvent) => {
       e.preventDefault();
       const err = validateAmount(amount);
       if (err) {
@@ -62,10 +65,15 @@ export function DepositTab({
         return;
       }
       setAmountError(null);
-      await deposit(currentUser, pool.pool_id, pool.token, amount, decimals, contractAddress);
+      setConfirmOpen(true);
     },
-    [amount, validateAmount, deposit, currentUser, pool, decimals, contractAddress]
+    [amount, validateAmount]
   );
+
+  const handleConfirm = useCallback(async () => {
+    setConfirmOpen(false);
+    await deposit(currentUser, pool.pool_id, pool.token, amount, decimals, contractAddress);
+  }, [amount, deposit, currentUser, pool, decimals, contractAddress]);
 
   const handleReset = () => {
     reset();
@@ -100,6 +108,28 @@ export function DepositTab({
         onReset={status === "success" ? handleSuccessDismiss : handleReset}
         actionLabel="Deposit"
       />
+
+      {previewAmount && (
+        <PoolTxConfirmDialog
+          open={confirmOpen}
+          onConfirm={() => void handleConfirm()}
+          onCancel={() => setConfirmOpen(false)}
+          summary={{
+            action: "deposit",
+            amount: previewAmount,
+            symbol,
+            decimals,
+            token: pool.token,
+            poolId: pool.pool_id,
+            threshold: pool.threshold,
+            adminCount: pool.admins.length,
+            resultingBalance: formatTokenAmount(
+              pool.balance + parseTokenAmount(amount, decimals),
+              decimals
+            ),
+          }}
+        />
+      )}
 
       {status === "success" ? null : (
         <form onSubmit={handleSubmit} style={styles.form} noValidate>

@@ -106,7 +106,12 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-linkora}:${POSTGRES_PASSWORD:-linkora}@postgres:5432/${POSTGRES_DB:-linkora}
       SOROBAN_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
       CONTRACT_ID: ${CONTRACT_ID:-}
-      ORACLE_PRIVATE_KEY_HEX: ${ORACLE_PRIVATE_KEY_HEX:-}
+      # Signing key is read from a mounted secret FILE (hex-encoded 32-byte
+      # Ed25519 seed), never from an environment variable. Mount the file:
+      #   ORACLE_KEY_FILE=${PWD}/oracle-key.hex
+      SECRETS: file://${ORACLE_KEY_FILE:-/run/secrets/oracle-key.hex}
+      # Bearer token for the authenticated POST /admin/rotate-key endpoint.
+      ADMIN_SECRET: ${ADMIN_SECRET:-}
       ORACLE_NAME: ${ORACLE_NAME:-default}
       WINDOW_LEDGERS: ${WINDOW_LEDGERS:-1000}
       PORT: 4000
@@ -114,6 +119,9 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
     ports:
       - "4000:4000"
+    volumes:
+      # Bind-mount the oracle signing key file into the container.
+      - ${ORACLE_KEY_FILE:-./oracle-key.hex}:/run/secrets/oracle-key.hex:ro
     networks:
       - backend
       - database

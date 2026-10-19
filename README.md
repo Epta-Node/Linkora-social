@@ -97,6 +97,7 @@ schema snapshot after an intentional change.
 | Document                                                         | Description                                               |
 | ---------------------------------------------------------------- | --------------------------------------------------------- |
 | [Contract API Reference](./docs/CONTRACT_API.md)                 | Full function reference, storage layout, and event schema |
+| [Contract Archival ADR](./docs/adr/ADR-002-tombstone-archival.md) | Tombstone lifecycle, cleanup permissions, and rent policy |
 | [System Architecture](./docs/ARCHITECTURE.md)                    | Component overview and data flows                         |
 | [Design System](./docs/design/README.md)                         | UI/UX specifications and brand identity                   |
 | [Mobile UI Spec](./docs/design/MOBILE_SPEC.md)                   | Screen inventory, components, tokens, accessibility       |

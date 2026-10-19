@@ -1,6 +1,6 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { sha256 } from "@noble/hashes/sha256";
-import { AuthService, AuthError, AuthData } from "../auth";
+import { AuthService, AuthError, AuthData, buildDmAuthMessage } from "../auth";
 
 function makeKeypair(): Keypair {
   return Keypair.random();
@@ -10,13 +10,22 @@ function nowSec(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+const CIPHERTEXT = Buffer.from("sealed message bytes").toString("base64");
+
 function validAuth(senderKp: Keypair, recipientKp: Keypair, nonce: number, ts: number): AuthData {
   return {
     sender: senderKp.publicKey(),
     to: recipientKp.publicKey(),
     nonce,
     timestamp: ts,
-    signature: AuthService.createAuthSignature(senderKp, recipientKp.publicKey(), nonce, ts),
+    ciphertext: CIPHERTEXT,
+    signature: AuthService.createAuthSignature(
+      senderKp,
+      recipientKp.publicKey(),
+      nonce,
+      ts,
+      CIPHERTEXT
+    ),
   };
 }
 
@@ -48,12 +57,19 @@ describe("AuthService.verifyMessageAuth", () => {
   it("rejects a signature from the wrong keypair", () => {
     const imposter = makeKeypair();
     const ts = nowSec();
-    const sig = AuthService.createAuthSignature(imposter, recipient.publicKey(), 0, ts);
+    const sig = AuthService.createAuthSignature(
+      imposter,
+      recipient.publicKey(),
+      0,
+      ts,
+      CIPHERTEXT
+    );
     const auth: AuthData = {
       sender: sender.publicKey(), // claims to be sender
       to: recipient.publicKey(),
       nonce: 0,
       timestamp: ts,
+      ciphertext: CIPHERTEXT,
       signature: sig, // but actually signed by imposter
     };
     expect(() => service.verifyMessageAuth(auth)).toThrow(AuthError);
@@ -63,12 +79,13 @@ describe("AuthService.verifyMessageAuth", () => {
     const other = makeKeypair();
     const ts = nowSec();
     // Signed for 'other', claimed to be for 'recipient'
-    const sig = AuthService.createAuthSignature(sender, other.publicKey(), 0, ts);
+    const sig = AuthService.createAuthSignature(sender, other.publicKey(), 0, ts, CIPHERTEXT);
     const auth: AuthData = {
       sender: sender.publicKey(),
       to: recipient.publicKey(),
       nonce: 0,
       timestamp: ts,
+      ciphertext: CIPHERTEXT,
       signature: sig,
     };
     expect(() => service.verifyMessageAuth(auth)).toThrow(AuthError);
@@ -76,15 +93,46 @@ describe("AuthService.verifyMessageAuth", () => {
 
   it("rejects a signature over wrong nonce", () => {
     const ts = nowSec();
-    const sig = AuthService.createAuthSignature(sender, recipient.publicKey(), 5, ts);
+    const sig = AuthService.createAuthSignature(sender, recipient.publicKey(), 5, ts, CIPHERTEXT);
     const auth: AuthData = {
       sender: sender.publicKey(),
       to: recipient.publicKey(),
       nonce: 6, // different nonce than what was signed
       timestamp: ts,
+      ciphertext: CIPHERTEXT,
       signature: sig,
     };
     expect(() => service.verifyMessageAuth(auth)).toThrow(AuthError);
+  });
+
+  it("rejects a signature when the ciphertext has been substituted", () => {
+    const ts = nowSec();
+    const auth = validAuth(sender, recipient, 99, ts);
+    expect(service.verifyMessageAuth(auth)).toBe(true);
+
+    // Replay the exact captured signature against a different ciphertext —
+    // the signature no longer commits to the payload, so this must be rejected.
+    const tampered = { ...auth, ciphertext: Buffer.from("attacker bytes").toString("base64") };
+    expect(() => service.verifyMessageAuth(tampered)).toThrow(AuthError);
+    expect(() => service.verifyMessageAuth(tampered)).toThrow(/Invalid signature/);
+  });
+
+  it("rejects a signature when the ciphertext is empty", () => {
+    const ts = nowSec();
+    const auth = validAuth(sender, recipient, 0, ts);
+    auth.ciphertext = "";
+    expect(() => service.verifyMessageAuth(auth)).toThrow(/Missing ciphertext/);
+  });
+
+  it("builds a versioned message that commits to the ciphertext digest", () => {
+    const digest = Buffer.from(sha256(new TextEncoder().encode(CIPHERTEXT))).toString("hex");
+    expect(buildDmAuthMessage(recipient.publicKey(), 7, 1700000000, CIPHERTEXT)).toBe(
+      `v2:${recipient.publicKey()}:7:1700000000:${digest}`
+    );
+    // A different ciphertext must produce a different signed message.
+    expect(buildDmAuthMessage(recipient.publicKey(), 7, 1700000000, "AAAA")).not.toBe(
+      buildDmAuthMessage(recipient.publicKey(), 7, 1700000000, "BBBB")
+    );
   });
 
   it("rejects an expired timestamp (too old)", () => {

@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
+import { useSubmitTx } from "./useSubmitTx";
 import { markFeedPostDeleted } from "./useFeed";
 
 interface DeletePostOptions {
@@ -15,14 +16,9 @@ export interface UseDeletePostResult {
   deletePost: (options: DeletePostOptions) => Promise<boolean>;
 }
 
-async function deletePostTransaction(author: string, postId: number | string): Promise<string> {
-  // Replace with the SDK-backed `delete_post` submission once mobile signing is wired.
-  await new Promise<void>((resolve) => setTimeout(resolve, 600));
-  return `delete_post:${author}:${postId}:${Date.now()}`;
-}
-
 export function useDeletePost(): UseDeletePostResult {
   const { address, connected } = useWallet();
+  const submitTx = useSubmitTx();
   const { showPending, showSuccess, showError } = useToast();
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +48,9 @@ export function useDeletePost(): UseDeletePostResult {
       showPending();
 
       try {
-        const txHash = await deletePostTransaction(author, postId);
+        // #1591 — submitTx builds real, simulated XDR and returns the hash the
+        // chain confirmed. The feed is only updated once that hash exists.
+        const txHash = await submitTx(`delete_post:${author}:${postId}`);
         markFeedPostDeleted(String(postId));
         showSuccess(txHash);
         return true;
@@ -65,10 +63,8 @@ export function useDeletePost(): UseDeletePostResult {
         setDeleting(false);
       }
     },
-    [address, connected, deleting, showError, showPending, showSuccess]
+    [address, connected, deleting, showError, showPending, showSuccess, submitTx]
   );
 
   return { deleting, error, deletePost };
 }
-
-export { deletePostTransaction };

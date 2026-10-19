@@ -63,14 +63,15 @@ export function useLike({
     setLikeCount((current) => current + 1);
 
     try {
-      const convertedPostId = typeof postId === "number" ? postId : BigInt(postId);
-      await submitTx(`like_post:${address}:${convertedPostId}`);
+      const postIdString = String(postId);
+      await submitTx(`like_post:${address}:${postIdString}`);
       return true;
     } catch (err) {
       setLiked(false);
       setLikeCount((current) => Math.max(0, current - 1));
       const message = err instanceof Error ? err.message : "Failed to like post.";
       setError(message);
+      showError(message);
       return false;
     } finally {
       setPending(false);

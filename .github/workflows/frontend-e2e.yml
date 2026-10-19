@@ -35,12 +35,20 @@ jobs:
 
       - name: Set up environment variables for localhost testing
         run: |
+          echo "NEXT_PUBLIC_API_URL=http://localhost:3001" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_INDEXER_URL=http://localhost:3001" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_SOROBAN_RPC_URL=http://localhost:8000/rpc" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_NETWORK_PASSPHRASE=Standalone Network ; February 2017" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_CONTRACT_ID=CBQHLSNMBF4HS3UX2PV72T75V2SXE7M2EZZTQ6YC5DSXIGGY4NPSAFAF" >> $GITHUB_ENV
 
       - name: Build web application
         run: pnpm --filter apps-web build
+
+      - name: Start mock server and preview server
+        run: |
+          node apps/web/e2e-mocks/server.js &
+          pnpm --filter apps-web preview --port 3000 &
+          npx wait-on http://localhost:3000 http://localhost:3001/health http://localhost:8000/health --timeout 60000
 
       - name: Run E2E tests
         working-directory: apps/web

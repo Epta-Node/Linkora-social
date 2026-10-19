@@ -28,10 +28,12 @@ import {
   initRateLimiters,
   closeRateLimiters,
   isWsIpRateLimited,
+  isWsAddressRateLimited,
 } from "./middleware/rateLimit";
 import { createHealthRouter } from "./routes/health";
 import { logger } from "./logger";
 import { InflightCounter } from "./inflight-counter";
+import { shutdownWebSocketServer } from "./ws-shutdown";
 
 export { InflightCounter };
 
@@ -106,10 +108,8 @@ async function createApp() {
   // Custom middleware
   app.use(requestIdMiddleware);
   app.use(requestLoggerMiddleware);
-  app.use(validateContentType);
 
-  // Rate limiting
-  app.use("/api", rateLimitMiddleware);
+  app.use(validateContentType);
 
   // API routes. Auth (message-signature for POST /messages, address-ownership
   // for GET /messages/:address) is applied per-route inside createRouter,
@@ -143,7 +143,15 @@ async function createApp() {
   // Clients connect with ?address=<STELLAR_ADDRESS>&timestamp=<TS>&signature=<SIG>
   // to authenticate and receive their messages.
   const httpServer = http.createServer(app);
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  const wss = new WebSocketServer({
+    server: httpServer,
+    path: "/ws",
+    maxPayload: config.maxMessageBytes,
+  });
+
+  wss.on("error", (err: Error) => {
+    logger.error({ err }, "WebSocket server error");
+  });
 
   // Counter for DB writes that are currently executing on behalf of a
   // WebSocket connection.  The shutdown handler drains this before closing
@@ -191,6 +199,13 @@ async function createApp() {
       return;
     }
 
+    // Rate limit per-address reconnect attempts (token bucket)
+    if (await isWsAddressRateLimited(address)) {
+      logger.warn({ ip: clientIp, address }, "WebSocket address reconnect rate limit exceeded");
+      ws.close(1008, "Reconnect rate limit exceeded for address");
+      return;
+    }
+
     const timestamp = parseInt(timestampStr, 10);
     if (isNaN(timestamp)) {
       ws.close(1008, "Invalid timestamp");
@@ -215,7 +230,7 @@ async function createApp() {
     }
 
     wsConnectionCounts.set(address, currentCount + 1);
-    registerWsClient(address, ws, inflightCounter);
+    registerWsClient(address, ws, inflightCounter, config.maxMessageBytes);
 
     logger.info(
       { address, ip: clientIp, connections: currentCount + 1 },
@@ -237,12 +252,12 @@ async function createApp() {
   //
   // Shutdown sequence:
   //   1. Stop accepting new HTTP requests (httpServer.close).
-  //   2. Stop accepting new WebSocket connections (wss.close with callback).
-  //   3. Wait for the wss.close callback, which fires once all existing WS
-  //      connections have been terminated.
-  //   4. Drain any in-flight DB writes that were already in progress when
+  //   2. Drain any in-flight DB writes that were already in progress when
   //      shutdown was triggered (bounded by SHUTDOWN_DRAIN_TIMEOUT_MS).
-  //   5. Tear down ancillary services and close the DB pool.
+  //   3. Send every connected WebSocket client a 1001 close frame, then wait
+  //      for wss.close(). `wss.close()` on its own never closes established
+  //      sockets, so this step is what actually lets the callback fire.
+  //   4. Tear down ancillary services and close the DB pool.
   //
   // A hard-kill timer (drain timeout + 5 s buffer) is armed immediately so
   // the process always exits even if something hangs.
@@ -265,17 +280,10 @@ async function createApp() {
     // 1. Stop accepting new HTTP requests.
     httpServer.close();
 
-    // 2 & 3. Stop accepting new WebSocket connections and wait for existing
-    //        connections to be fully closed before proceeding.
-    await new Promise<void>((resolve) => {
-      wss.close(() => {
-        logger.info("WebSocket server drained");
-        resolve();
-      });
-    });
-
-    // 4. Wait for any DB operations that were already in flight when the WS
-    //    connections closed to finish, capped by the drain timeout.
+    // 2. Wait for any DB operations that were already in flight to finish,
+    //    capped by the drain timeout. This runs before we wait on sockets so
+    //    the drain window is spent productively rather than racing it against
+    //    client disconnects.
     if (inflightCounter.value > 0) {
       logger.info(
         { inflight: inflightCounter.value },
@@ -295,7 +303,16 @@ async function createApp() {
       }
     }
 
-    // 5. Tear down ancillary services, then close the pool.
+    // 3. Stop accepting new WebSocket connections and close the live ones so
+    //    the close callback can actually fire.
+    const connectedClients = wss.clients.size;
+    if (connectedClients > 0) {
+      logger.info({ connectedClients }, "Closing live WebSocket connections...");
+    }
+    await shutdownWebSocketServer(wss);
+    logger.info("WebSocket server drained");
+
+    // 4. Tear down ancillary services, then close the pool.
     cleanupService.stop();
     await closeRateLimiters();
     await database.close();

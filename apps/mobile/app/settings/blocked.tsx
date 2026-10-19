@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 
 import { useBlock } from "../../hooks/useBlock";
 import { useTheme } from "../../theme/useTheme";
@@ -14,6 +14,14 @@ export default function BlockedUsersScreen() {
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const { blocked, loading, error, blocking, unblockUser, refresh } = useBlock();
+
+  // Re-fetch the block list whenever this screen regains focus so a block or
+  // unblock performed from anywhere else in the session is reflected here.
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [refresh])
+  );
 
   if (loading) {
     return (

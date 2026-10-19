@@ -105,8 +105,16 @@ export class FreighterSigner implements Signer {
       this.publicKey = publicKey;
       return publicKey;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("User declined") || errorMessage.includes("User rejected")) {
+        throw new SigningError(
+          "User declined access to Freighter",
+          { reason: "user_rejected" },
+          error
+        );
+      }
       throw new SigningError(
-        `Failed to get public key from Freighter: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to get public key from Freighter: ${errorMessage}`,
         { reason: "get_public_key_failed" },
         error
       );
@@ -151,9 +159,17 @@ export class FreighterSigner implements Signer {
       return signedXdr;
     } catch (error) {
       if (error instanceof SigningError) throw error;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("User declined") || errorMessage.includes("User rejected")) {
+        throw new SigningError(
+          "Transaction signing rejected by user",
+          { reason: "user_rejected" },
+          error
+        );
+      }
       throw new SigningError(
-        `Failed to sign transaction with Freighter: ${error instanceof Error ? error.message : String(error)}`,
-        { reason: "sign_rejected" },
+        `Failed to sign transaction with Freighter: ${errorMessage}`,
+        { reason: "sign_failed" },
         error
       );
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 import {
   getStoredThemePreference,
   storeThemePreference,
@@ -15,13 +15,17 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemePreference>("dark");
+function getInitialTheme(): ThemePreference {
+  // Try to read from the DOM first (set by the inline script in layout.tsx)
+  if (typeof document !== "undefined") {
+    const domTheme = document.documentElement.dataset.theme;
+    if (domTheme === "light" || domTheme === "dark") return domTheme;
+  }
+  return getStoredThemePreference();
+}
 
-  useEffect(() => {
-    const active = getStoredThemePreference();
-    setThemeState(active);
-  }, []);
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setThemeState] = useState<ThemePreference>(getInitialTheme);
 
   const setTheme = (newTheme: ThemePreference) => {
     setThemeState(newTheme);

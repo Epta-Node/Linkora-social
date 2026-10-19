@@ -10,7 +10,7 @@ interface CachedFeed {
   posts: Post[];
   activeTab: "following" | "explore";
   scrollY: number;
-  cursor: number | null;
+  cursor: string | null;
   hasMore: boolean;
   timestamp: number;
 }
@@ -85,7 +85,7 @@ export function useFeedPersistence(activeTab: "following" | "explore") {
   }, [activeTab]);
 
   const persistFeed = useCallback(
-    (data: { posts: Post[]; cursor: number | null; hasMore: boolean }) => {
+    (data: { posts: Post[]; cursor: string | null; hasMore: boolean }) => {
       writeCachedFeed(activeTab, {
         ...data,
         activeTab,

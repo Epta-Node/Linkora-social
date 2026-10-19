@@ -19,7 +19,7 @@
  */
 
 import { EventBus, BusEvent } from "./bus";
-import { serializationRetriesTotal } from "./metrics";
+import { serializationRetriesTotal, deadLetterEventsTotal, recordProcessingLag } from "./metrics";
 
 export interface QueryResultLike {
   rowCount: number | null;
@@ -72,8 +72,12 @@ export interface IngestPipelineOptions {
    * committed. Used to publish commit-aligned metrics (e.g. the state root)
    * that must never reflect a partially-applied or rolled-back batch. Never
    * called when the transaction rolls back.
+   *
+   * `events` contains exactly the events that were committed in this batch,
+   * enabling O(batch_size) incremental state-root updates without full-table
+   * scans.
    */
-  onCommit?: (cursor: number) => Promise<void> | void;
+  onCommit?: (cursor: number, events: IngestEvent[]) => Promise<void> | void;
 }
 
 export interface BatchResult {
@@ -147,7 +151,7 @@ export class IngestPipeline {
   private readonly transactionIsolation: TransactionIsolation;
   private readonly serializationRetryAttempts: number;
   private readonly sleep: (ms: number) => Promise<void>;
-  private readonly onCommit?: (cursor: number) => Promise<void> | void;
+  private readonly onCommit?: (cursor: number, events: IngestEvent[]) => Promise<void> | void;
 
   constructor(pool: PgPoolLike, opts: IngestPipelineOptions) {
     this.pool = pool;
@@ -253,15 +257,22 @@ export class IngestPipeline {
 
       await client.query("COMMIT");
 
-      // (4) Fan out only after the durable commit.
+      // (4) Record processing lag metrics per event type.
+      const now = Date.now();
+      for (const ev of events) {
+        const eventType = typeof ev.type === "string" ? ev.type : "unknown";
+        recordProcessingLag(eventType, now);
+      }
+
+      // (5) Fan out only after the durable commit.
       for (const ev of events) {
         this.bus.publish(toBusEvent(ev));
       }
 
-      // (5) Commit-aligned side effects (e.g. state root publication) run
+      // (6) Commit-aligned side effects (e.g. state root publication) run
       // only once the batch is durably committed, never on rollback.
       if (this.onCommit) {
-        await this.onCommit(newCursor);
+        await this.onCommit(newCursor, events);
       }
 
       return { committed: true, cursor: newCursor, inserted };

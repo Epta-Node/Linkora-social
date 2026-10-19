@@ -63,9 +63,21 @@ describe("EventBus", () => {
     expect(got).toEqual(["PostCreated"]);
   });
 
-  it("supports many subscribers without a max-listener warning", () => {
+  it("supports many subscribers up to maxListeners", () => {
     const bus = new EventBus();
     for (let i = 0; i < 50; i++) bus.onAny(() => undefined);
     expect(bus.listenerCount("*")).toBe(50);
+  });
+
+  it("detects and warns on listener leaks when exceeding maxListeners", () => {
+    const bus = new EventBus(5);
+    const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+
+    for (let i = 0; i < 6; i++) {
+      bus.on("PostCreated", () => {});
+    }
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("MaxListenersExceededWarning"));
+    warnSpy.mockRestore();
   });
 });

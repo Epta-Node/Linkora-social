@@ -59,12 +59,36 @@ pub fn validate_non_default_address(env: &Env, label: &str, address: &Address) {
 }
 
 pub fn validate_address_list(env: &Env, label: &str, addresses: &Vec<Address>) {
+    require_with_error!(
+        env,
+        addresses.len() > 0,
+        format!("{label} cannot be empty")
+    );
     for (idx, address) in addresses.iter().enumerate() {
         require_with_error!(
             env,
             !is_zero_address(env, &address),
             format!("{label}[{idx}] must not be the zero address")
         );
+    }
+}
+
+/// Ensures no duplicate addresses appear in the list. Duplicate signers could
+/// let a subset of admins exceed the M-of-N threshold weight.
+pub fn validate_unique_signers(env: &Env, label: &str, addresses: &Vec<Address>) {
+    require_with_error!(
+        env,
+        addresses.len() > 0,
+        format!("{label} cannot be empty")
+    );
+    for i in 0..addresses.len() {
+        for j in (i + 1)..addresses.len() {
+            require_with_error!(
+                env,
+                addresses.get_unchecked(i) != addresses.get_unchecked(j),
+                format!("{label} must not contain duplicate addresses")
+            );
+        }
     }
 }
 
@@ -140,11 +164,34 @@ pub fn validate_username(env: &Env, username: &String) {
     }
 }
 
+pub fn validate_content(env: &Env, content: &String) {
+    require_with_error!(
+        env,
+        content.len() > 0,
+        "content cannot be empty"
+    );
+    validate_string_max_len(env, "content", content, MAX_CONTENT_LEN);
+}
+
+pub fn validate_bio(env: &Env, bio: &String) {
+    require_with_error!(
+        env,
+        bio.len() > 0,
+        "bio cannot be empty"
+    );
+    validate_string_max_len(env, "bio", bio, MAX_BIO_LEN);
+}
+
 pub fn validate_amount(env: &Env, label: &str, amount: i128) {
     require_with_error!(
         env,
-        amount > 0 && amount <= MAX_PROTOCOL_AMOUNT,
-        format!("{label} must be positive and at most {MAX_PROTOCOL_AMOUNT}")
+        amount > 0,
+        format!("{label} must be positive")
+    );
+    require_with_error!(
+        env,
+        amount <= MAX_PROTOCOL_AMOUNT,
+        format!("{label} must not exceed {MAX_PROTOCOL_AMOUNT}")
     );
 }
 
@@ -186,8 +233,17 @@ pub fn validate_signature(env: &Env, label: &str, signature: &BytesN<64>) {
     let zero = BytesN::from_array(env, &[0u8; 64]);
     require_with_error!(
         env,
-        signature != &zero,
-        format!("{label} must not be an all-zero signature")
+        signature != &zero && signature.to_array().len() == 64,
+        format!("{label} must not be an all-zero or malformed signature")
+    );
+}
+
+pub fn validate_pubkey_32(env: &Env, label: &str, pubkey: &BytesN<32>) {
+    let zero = BytesN::from_array(env, &[0u8; 32]);
+    require_with_error!(
+        env,
+        pubkey != &zero && pubkey.to_array().len() == 32,
+        format!("{label} must not be an all-zero or malformed public key")
     );
 }
 
@@ -197,4 +253,10 @@ pub fn validate_report_verdict(env: &Env, verdict: &ReportStatus) {
         !matches!(verdict, ReportStatus::Pending),
         "verdict must be upheld or dismissed"
     );
+}
+
+/// Rejects a report where the reporter is also the post author, preventing
+/// self-reporting from being used to bury one's own content.
+pub fn validate_reporter_can_report(env: &Env, reporter: &Address, author: &Address) {
+    require_with_error!(env, reporter != author, "cannot report own post");
 }

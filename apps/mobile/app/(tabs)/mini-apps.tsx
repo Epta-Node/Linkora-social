@@ -12,11 +12,9 @@ export default function MiniAppsScreen() {
 
   const handlePress = useCallback(
     (app: MiniApp) => {
-      router.push(
-        `/mini-app/${app.id}?name=${encodeURIComponent(app.name)}&entry=${encodeURIComponent(app.entry)}` as Parameters<
-          typeof router.push
-        >[0]
-      );
+      // #1551 — only the id is passed; the mini-app screen resolves entry/name
+      // from the installed-app record itself rather than trusting the route.
+      router.push(`/mini-app/${app.id}` as Parameters<typeof router.push>[0]);
     },
     [router]
   );

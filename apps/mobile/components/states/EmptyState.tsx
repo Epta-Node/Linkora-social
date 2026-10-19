@@ -27,12 +27,19 @@ export function EmptyState({
   testID = "empty-state",
 }: EmptyStateProps): JSX.Element {
   return (
-    <View
-      style={styles.container}
-      testID={testID}
-      accessibilityLabel={`${title}. ${subtitle}`}
-    >
-      <View style={styles.iconContainer}>{renderIcon(icon)}</View>
+    <View style={styles.container} testID={testID} accessibilityLabel={`${title}. ${subtitle}`}>
+      {/*
+        #1595 — the icon is decorative. Without hiding it, VoiceOver/TalkBack
+        announce the raw emoji (or an unlabelled nested node) before the title.
+      */}
+      <View
+        style={styles.iconContainer}
+        testID={`${testID}-icon`}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
+        {renderIcon(icon)}
+      </View>
       <Text style={styles.title}>{title}</Text>
       <Text style={styles.subtitle}>{subtitle}</Text>
       {onAction && actionLabel ? (

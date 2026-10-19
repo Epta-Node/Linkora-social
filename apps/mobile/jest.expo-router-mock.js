@@ -4,6 +4,7 @@ const router = {
 };
 
 module.exports = {
+  router,
   Tabs: Object.assign(({ children }) => children, {
     Screen: () => null,
   }),

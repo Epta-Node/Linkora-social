@@ -3,7 +3,6 @@
  * Handles PostReportedEvent, ReportDismissedEvent, and PostRemovedByModerationEvent
  */
 
-import { Pool } from "pg";
 import { Database } from "../db";
 
 export interface PostReportedEvent {
@@ -37,10 +36,9 @@ export interface ModerationEventContext {
  * Idempotent: Uses ON CONFLICT to prevent duplicate reports from same reporter
  */
 export async function handlePostReported(
-  pool: Pool,
+  db: Database,
   event: PostReportedEvent,
-  _context: ModerationEventContext,
-  db: Database
+  _context: ModerationEventContext
 ): Promise<void> {
   const { post_id, reporter_address, reason } = event;
   const now = new Date();
@@ -56,9 +54,6 @@ export async function handlePostReported(
     });
 
     console.log(`Post ${post_id} reported by ${reporter_address}: ${reason}`);
-
-    // TODO: Dispatch notification to post author
-    // await dispatchNotification(post_author, 'post_reported', { post_id, reason });
   } catch (error) {
     console.error(`Error handling PostReportedEvent for post ${post_id}:`, error);
     throw error;
@@ -71,10 +66,9 @@ export async function handlePostReported(
  * Idempotent: Only updates if status is still 'pending'
  */
 export async function handleReportDismissed(
-  pool: Pool,
+  db: Database,
   event: ReportDismissedEvent,
-  _context: ModerationEventContext,
-  db: Database
+  _context: ModerationEventContext
 ): Promise<void> {
   const { post_id, reporter_address, moderator_address, moderator_notes } = event;
 
@@ -90,9 +84,6 @@ export async function handleReportDismissed(
     console.log(
       `Report for post ${post_id} by ${reporter_address} dismissed by ${moderator_address}`
     );
-
-    // TODO: Dispatch notification to reporter
-    // await dispatchNotification(reporter_address, 'report_dismissed', { post_id, moderator_notes });
   } catch (error) {
     console.error(`Error handling ReportDismissedEvent for post ${post_id}:`, error);
     throw error;
@@ -105,10 +96,9 @@ export async function handleReportDismissed(
  * Idempotent: Only updates reports with 'pending' status
  */
 export async function handlePostRemovedByModeration(
-  pool: Pool,
+  db: Database,
   event: PostRemovedByModerationEvent,
-  context: ModerationEventContext,
-  db: Database
+  context: ModerationEventContext
 ): Promise<void> {
   const { post_id, moderator_address, reason } = event;
   const { ledgerSeq } = context;
@@ -129,9 +119,6 @@ export async function handlePostRemovedByModeration(
         moderator_address,
         reason
       );
-
-      // TODO: Dispatch notification to reporter
-      // await dispatchNotification(report.reporter_address, 'post_removed_by_moderation', { post_id, reason });
     }
 
     console.log(`Post ${post_id} removed by moderation (${moderator_address}): ${reason}`);

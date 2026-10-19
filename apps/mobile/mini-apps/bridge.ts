@@ -90,13 +90,52 @@ export function createBridge(options: BridgeOptions) {
 
 export type LinkoraSDK = ReturnType<typeof createBridge>;
 import { assertPermission, BridgeError, BridgePermission } from "./permissions";
-import { getWalletAddress, getItem, StorageKey } from "../utils/secureStorage";
+import { getWalletAddress } from "../utils/secureStorage";
 
 type BridgeHandler = (payload?: unknown) => Promise<unknown> | unknown;
 
+// #1554 — property names whose values must never cross the bridge boundary in
+// any direction. Matched case-insensitively after stripping `_` and `-`, so
+// `authToken`, `auth_token` and `AUTH-TOKEN` are all covered. A mini app
+// holding `profile.read` must not be able to walk away with a bearer
+// credential; the host's own handlers are re-checked here too so a handler
+// that returns a token by accident still cannot leak it.
+const SECRET_KEY_PATTERN =
+  /^(token|authtoken|accesstoken|refreshtoken|idtoken|sessiontoken|creatortoken|bearer|authorization|apikey|apisecret|secret|password|passphrase|privatekey|seedkey|seedphrase|mnemonic|jwt|cookie)$/;
+
+function isSecretKey(key: string): boolean {
+  return SECRET_KEY_PATTERN.test(key.toLowerCase().replace(/[-_]/g, ""));
+}
+
+/**
+ * Recursively drops secret-looking properties from a value on its way out of
+ * the bridge. Arrays and plain objects are walked; primitives pass through.
+ */
+export function redactBridgeSecrets<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((entry) => redactBridgeSecrets(entry)) as unknown as T;
+  }
+
+  if (value !== null && typeof value === "object") {
+    const source = value as Record<string, unknown>;
+    const redacted: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(source)) {
+      if (isSecretKey(key)) continue;
+      redacted[key] = redactBridgeSecrets(entry);
+    }
+    return redacted as unknown as T;
+  }
+
+  return value;
+}
+
 export interface MiniAppBridgeOptions {
   permissions: BridgePermission[];
-  requestUserApproval?: (method: BridgePermission) => Promise<boolean> | boolean;
+  // #1552 — required, not optional: a bridge with no approval callback must
+  // fail to construct rather than silently auto-approving every privileged
+  // call. Callers get the method AND payload so the host can render a
+  // confirmation sheet listing exactly what it's approving.
+  requestUserApproval: (method: BridgePermission, payload?: unknown) => Promise<boolean> | boolean;
   handlers?: Partial<Record<BridgePermission, BridgeHandler>>;
 }
 
@@ -129,32 +168,53 @@ export function rejectPendingRequest(requestId: string, error: Error): void {
   }
 }
 
+// #1553 — there is intentionally no default handler for wallet.signTransaction.
+// A default that resolved with the unsigned payload it was given let a mini
+// app treat an unsigned transaction as signed (and potentially broadcast it,
+// or record a payment as complete) whenever the host forgot to register a
+// real signing implementation. Failing closed with MethodUnavailable is the
+// only safe default on a signing boundary.
 const DEFAULT_HANDLERS: Partial<Record<BridgePermission, BridgeHandler>> = {
   "wallet.getAddress": async () => null,
   "wallet.sign": async (payload) => payload,
-  "wallet.signTransaction": async (payload) => payload,
   "profile.get": async () => {
     const address = await getWalletAddress();
     if (!address) {
       return null;
     }
-    const creatorToken = await getItem<string>(StorageKey.AuthToken).catch(() => null);
-    return { address, username: null, creatorToken };
+    // #1554 — the response carries the public address and nothing else. It
+    // must never contain a bearer credential: a mini app holding only
+    // `profile.read` would otherwise be able to call the indexer as the user
+    // and read/write anything the user can. `creatorToken` used to be read
+    // from the keychain and returned here, which handed the app's auth token
+    // to the least-privileged permission in the model.
+    return { address, username: null };
   },
   "profile.update": async (payload) => payload,
 };
 
+// #1552 — every wallet.* signing/sending call and post.create requires a
+// fresh, per-call-site approval. Never cached from install time: this set is
+// consulted on every `call()`, and `requestUserApproval` is invoked anew each
+// time rather than once and remembered.
 const APPROVAL_REQUIRED = new Set<BridgePermission>([
   "wallet.sign",
   "wallet.signTransaction",
   "profile.update",
+  "post.create",
 ]);
 
 export function createMiniAppBridge({
   permissions,
-  requestUserApproval = async () => true,
+  requestUserApproval,
   handlers = {},
 }: MiniAppBridgeOptions) {
+  // Runtime guard alongside the TS type: a caller that bypasses the type
+  // system (plain JS, `as any`, ...) still can't get a bridge that defaults
+  // to auto-approving privileged calls (#1552).
+  if (typeof requestUserApproval !== "function") {
+    throw new Error("createMiniAppBridge requires a requestUserApproval callback");
+  }
   const methodHandlers = { ...DEFAULT_HANDLERS, ...handlers };
 
   return {
@@ -164,7 +224,7 @@ export function createMiniAppBridge({
       assertPermission(permissions, permMethod);
 
       if (APPROVAL_REQUIRED.has(method as BridgePermission)) {
-        const approved = await requestUserApproval(method as BridgePermission);
+        const approved = await requestUserApproval(method as BridgePermission, payload);
         if (!approved) {
           throw new BridgeError("UserRejected", `User rejected ${method}`);
         }
@@ -175,7 +235,7 @@ export function createMiniAppBridge({
         throw new BridgeError("MethodUnavailable", `No handler registered for ${method}`);
       }
 
-      return handler(payload);
+      return redactBridgeSecrets(await handler(payload));
     },
   };
 }

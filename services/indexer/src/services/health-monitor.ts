@@ -27,6 +27,7 @@ import { Pool } from "pg";
 import type { RateLimitStoreStatus } from "@linkora/types/src/rate-limit-env";
 import type { BackfillCoordinator, BackfillStatus, BackfillProgress } from "./backfill-coordinator";
 import { getRateLimitStoreStatus } from "../middleware/rateLimit";
+import { streamHealth } from "../metrics";
 
 export interface DependencyCheck {
   status: "up" | "down";
@@ -34,8 +35,11 @@ export interface DependencyCheck {
 }
 
 export interface EventStreamCheck {
-  status: "connected" | "disconnected";
+  status: "connected" | "disconnected" | "stopped";
   lastEventAgo: string;
+  circuitOpen: boolean;
+  backlog: number;
+  batchErrorRate: number;
 }
 
 export interface BackfillHealthCheck {
@@ -146,10 +150,22 @@ export class HealthMonitor {
 
   private checkEventStream(): EventStreamCheck {
     if (this.lastEventAt === null) {
-      return { status: "disconnected", lastEventAgo: "n/a" };
+      return {
+        status: streamHealth.open ? "disconnected" : "stopped",
+        lastEventAgo: "n/a",
+        circuitOpen: streamHealth.circuitOpen,
+        backlog: streamHealth.rawEventsBacklog,
+        batchErrorRate: streamHealth.batches ? streamHealth.batchErrors / streamHealth.batches : 0,
+      };
     }
     const secondsAgo = Math.floor((Date.now() - this.lastEventAt) / 1000);
-    return { status: "connected", lastEventAgo: `${secondsAgo}s` };
+    return {
+      status: streamHealth.open ? "connected" : "stopped",
+      lastEventAgo: `${secondsAgo}s`,
+      circuitOpen: streamHealth.circuitOpen,
+      backlog: streamHealth.rawEventsBacklog,
+      batchErrorRate: streamHealth.batches ? streamHealth.batchErrors / streamHealth.batches : 0,
+    };
   }
 
   private checkPool(): PoolHealthCheck {
@@ -190,7 +206,13 @@ export class HealthMonitor {
         checks: {
           database: { status: "down", latencyMs: 0 },
           stellar_rpc: { status: "down", latencyMs: 0 },
-          event_stream: { status: "disconnected", lastEventAgo: "n/a" },
+          event_stream: {
+            status: "stopped",
+            lastEventAgo: "n/a",
+            circuitOpen: false,
+            backlog: 0,
+            batchErrorRate: 0,
+          },
           backfill: {
             status: "healthy",
             processedLedgers: 0,
@@ -214,7 +236,10 @@ export class HealthMonitor {
     // Not ready if circuit breaker is open or gap is too large.
     const backfillHealthy =
       backfill.status !== "circuit_open" && backfill.status !== "gap_too_large";
-    const ready = database.status === "up" && stellar_rpc.status === "up" && backfillHealthy;
+    const streamHealthy =
+      !streamHealth.started || (event_stream.status === "connected" && !event_stream.circuitOpen);
+    const ready =
+      database.status === "up" && stellar_rpc.status === "up" && backfillHealthy && streamHealthy;
 
     return {
       ready,

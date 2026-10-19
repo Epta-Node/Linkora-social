@@ -1,6 +1,7 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { axe } from "jest-axe";
 import { BlockListSection } from "./BlockListSection";
+import { writeBlockedList, BLOCKED_EVENT } from "@/lib/blockedStore";
 
 const mockAddress = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const otherAddress = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
@@ -93,5 +94,38 @@ describe("BlockListSection", () => {
     fireEvent.click(blockButton);
 
     expect(screen.getByText("Address is already blocked.")).toBeInTheDocument();
+  });
+
+  it("should re-render when the shared blocked list changes elsewhere in the session", async () => {
+    render(<BlockListSection address={mockAddress} />);
+    expect(screen.getByText("No blocked accounts.")).toBeInTheDocument();
+
+    // Simulate a block originating from another surface (e.g. a post card or
+    // profile card) in the same session.
+    act(() => {
+      writeBlockedList([otherAddress]);
+      window.dispatchEvent(new Event(BLOCKED_EVENT));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("No blocked accounts.")).not.toBeInTheDocument();
+      expect(screen.getByText(otherAddress)).toBeInTheDocument();
+    });
+  });
+
+  it("should re-render when an address is unblocked from another surface", async () => {
+    writeBlockedList([otherAddress]);
+    render(<BlockListSection address={mockAddress} />);
+    expect(screen.getByText(otherAddress)).toBeInTheDocument();
+
+    act(() => {
+      writeBlockedList([]);
+      window.dispatchEvent(new Event(BLOCKED_EVENT));
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(otherAddress)).not.toBeInTheDocument();
+      expect(screen.getByText("No blocked accounts.")).toBeInTheDocument();
+    });
   });
 });

@@ -195,11 +195,15 @@ export class LinkoraEventSubscriber {
       },
     };
 
-    const response = await fetchWithTimeout(this.config.rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }, this.config.timeoutMs);
+    const response = await fetchWithTimeout(
+      this.config.rpcUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+      this.config.timeoutMs
+    );
 
     if (!response.ok) {
       throw new Error(`RPC request failed: ${response.status} ${response.statusText}`);
@@ -359,7 +363,8 @@ export class LinkoraEventSubscriber {
 }
 
 function getGlobalWebSocketFactory(): WebSocketFactory | undefined {
-  const WebSocketCtor = (globalThis as { WebSocket?: new (url: string) => LinkoraWebSocket })
-    .WebSocket;
+  const WebSocketCtor = (
+    globalThis as unknown as { WebSocket?: new (url: string) => LinkoraWebSocket }
+  ).WebSocket;
   return WebSocketCtor ? (url: string) => new WebSocketCtor(url) : undefined;
 }

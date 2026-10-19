@@ -41,23 +41,47 @@ declare global {
 
 // ── Abuse tracking (simple in-memory store) ──────────────────────────────────
 
-interface AbuseEntry {
+export interface AbuseEntry {
   count: number;
   windowStart: number;
 }
 
-const abuseTracker = new Map<string, AbuseEntry>();
-const ABUSE_THRESHOLD = 5; // 5 429s in 60s = abuse
-const ABUSE_WINDOW_MS = 60_000;
+export const MAX_ABUSE_ENTRIES = 1000;
+export const ABUSE_THRESHOLD = 5; // 5 429s in 60s = abuse
+export const ABUSE_WINDOW_MS = 60_000;
 
-function recordAbuseAttempt(ipAddress: string): void {
+export const abuseTracker = new Map<string, AbuseEntry>();
+
+export function clearAbuseTracker(): void {
+  abuseTracker.clear();
+}
+
+export function recordAbuseAttempt(ipAddress: string): void {
   const now = Date.now();
   const entry = abuseTracker.get(ipAddress);
 
   if (!entry || now - entry.windowStart > ABUSE_WINDOW_MS) {
+    if (!entry && abuseTracker.size >= MAX_ABUSE_ENTRIES) {
+      // First pass: clean up expired entries
+      for (const [key, val] of abuseTracker.entries()) {
+        if (now - val.windowStart > ABUSE_WINDOW_MS) {
+          abuseTracker.delete(key);
+        }
+      }
+      // If still at or over capacity, evict the oldest entry (LRU)
+      if (abuseTracker.size >= MAX_ABUSE_ENTRIES) {
+        const oldestKey = abuseTracker.keys().next().value;
+        if (oldestKey !== undefined) {
+          abuseTracker.delete(oldestKey);
+        }
+      }
+    }
     abuseTracker.set(ipAddress, { count: 1, windowStart: now });
   } else {
     entry.count++;
+    // Re-insert to keep LRU order updated
+    abuseTracker.delete(ipAddress);
+    abuseTracker.set(ipAddress, entry);
     if (entry.count > ABUSE_THRESHOLD) {
       logger.error(
         {
@@ -71,18 +95,15 @@ function recordAbuseAttempt(ipAddress: string): void {
   }
 }
 
+import { getClientIP } from "./middleware/rateLimit";
+
 // ── Request logging middleware ────────────────────────────────────────────────
 
 export function requestLoggingMiddleware(req: Request, res: Response, next: NextFunction): void {
   const requestId = uuidv4();
   const startTime = Date.now();
 
-  // Determine IP address (respect X-Forwarded-For behind proxy)
-  let ipAddress = req.ip || "unknown";
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    ipAddress = forwarded.split(",")[0].trim();
-  }
+  const ipAddress = getClientIP(req);
 
   req.context = { requestId, startTime, ipAddress };
 

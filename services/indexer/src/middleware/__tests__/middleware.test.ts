@@ -26,8 +26,54 @@ import {
 } from "crypto";
 import express, { Request, Response } from "express";
 import { requestLoggingMiddleware } from "../../logger";
-import { rateLimitRead, rateLimitWrite, resetRateLimiter, RateLimiter } from "../rateLimit";
-import { requireStellarAuth } from "../stellarAuth";
+import {
+  rateLimitRead,
+  rateLimitWrite,
+  resetRateLimiter,
+  RateLimiter,
+  getClientIP,
+  isIpInCidr,
+  normalizeIp,
+} from "../rateLimit";
+
+describe("getClientIP & Trusted Proxy validation", () => {
+  it("normalizes IPv4 and IPv6-mapped IPv4 addresses", () => {
+    expect(normalizeIp("1.2.3.4")).toBe("1.2.3.4");
+    expect(normalizeIp("::ffff:1.2.3.4")).toBe("1.2.3.4");
+  });
+
+  it("validates CIDR matches correctly", () => {
+    expect(isIpInCidr("10.0.0.5", "10.0.0.0/8")).toBe(true);
+    expect(isIpInCidr("172.16.1.1", "172.16.0.0/12")).toBe(true);
+    expect(isIpInCidr("192.168.1.100", "192.168.0.0/16")).toBe(true);
+    expect(isIpInCidr("203.0.113.1", "10.0.0.0/8")).toBe(false);
+  });
+
+  it("ignores spoofed X-Forwarded-For from untrusted direct connection", () => {
+    const req = {
+      headers: { "x-forwarded-for": "1.2.3.4" },
+      socket: { remoteAddress: "203.0.113.50" },
+    };
+    expect(getClientIP(req, ["10.0.0.0/8", "127.0.0.1"])).toBe("203.0.113.50");
+  });
+
+  it("trusts X-Forwarded-For header when connection comes from trusted proxy", () => {
+    const req = {
+      headers: { "x-forwarded-for": "198.51.100.25" },
+      socket: { remoteAddress: "10.0.0.1" },
+    };
+    expect(getClientIP(req, ["10.0.0.0/8"])).toBe("198.51.100.25");
+  });
+
+  it("extracts true client IP from multi-hop X-Forwarded-For header", () => {
+    const req = {
+      headers: { "x-forwarded-for": "198.51.100.25, 10.0.0.2" },
+      socket: { remoteAddress: "10.0.0.1" },
+    };
+    expect(getClientIP(req, ["10.0.0.0/8"])).toBe("198.51.100.25");
+  });
+});
+import { requireStellarAuth, optionalStellarAuth, clearReplayCache } from "../stellarAuth";
 import { jsonWithRawBody } from "../rawBody";
 import { buildAuthMessage, canonicalizeAuthPath } from "@linkora/types/src/auth";
 
@@ -97,7 +143,11 @@ interface SignedRequest {
   method?: string;
   /** Path the credential is bound to, as the client would send it. */
   path?: string;
-  /** Body the credential is bound to. `undefined` means "no body at all". */
+  /**
+   * Body the credential is bound to.
+   * `undefined` / omitted → defaults to `{}` (JSON object, for write requests).
+   * `null` → explicitly no body (empty bytes), for GET / no-payload requests.
+   */
   body?: unknown;
 }
 
@@ -108,7 +158,8 @@ function buildStellarAuthHeader(
 ): string {
   // supertest serialises objects with JSON.stringify, so this reproduces the
   // exact bytes the server will hash.
-  const rawBody = body === undefined ? "" : JSON.stringify(body);
+  // `null` means "no body at all" — hash empty bytes, same as req.rawBody === undefined.
+  const rawBody = body === null ? "" : JSON.stringify(body);
   const message = buildAuthMessage({
     method,
     canonicalPath: canonicalizeAuthPath(path),
@@ -238,7 +289,7 @@ describe("rateLimitRead middleware (100 req/min per IP)", () => {
     // With one trusted proxy hop, the client-supplied portion of the header
     // is everything except the rightmost entry (the address our own proxy
     // observed). Rotating the spoofed prefix must not grant a fresh budget.
-    const realClientIp = "10.0.0.9";
+    const realClientIp = "203.0.113.195";
     for (let i = 0; i < 100; i++) {
       const res = await request(app)
         .get("/test")
@@ -248,19 +299,19 @@ describe("rateLimitRead middleware (100 req/min per IP)", () => {
 
     const spoofed = await request(app)
       .get("/test")
-      .set("x-forwarded-for", `203.0.113.${Math.floor(Math.random() * 254) + 1}, ${realClientIp}`);
+      .set("x-forwarded-for", `198.51.100.${Math.floor(Math.random() * 254) + 1}, ${realClientIp}`);
     expect(spoofed.status).toBe(429);
   }, 30_000);
 
   it("still isolates genuinely different clients behind the trusted proxy", async () => {
     for (let i = 0; i < 100; i++) {
-      await request(app).get("/test").set("x-forwarded-for", "1.2.3.4, 10.0.0.10");
+      await request(app).get("/test").set("x-forwarded-for", "1.2.3.4, 203.0.113.10");
     }
     expect(
-      (await request(app).get("/test").set("x-forwarded-for", "1.2.3.4, 10.0.0.10")).status
+      (await request(app).get("/test").set("x-forwarded-for", "1.2.3.4, 203.0.113.10")).status
     ).toBe(429);
     expect(
-      (await request(app).get("/test").set("x-forwarded-for", "1.2.3.4, 10.0.0.11")).status
+      (await request(app).get("/test").set("x-forwarded-for", "1.2.3.4, 203.0.113.11")).status
     ).toBe(200);
   }, 30_000);
 });
@@ -273,6 +324,7 @@ describe("requireStellarAuth middleware", () => {
 
   beforeEach(() => {
     resetRateLimiter();
+    clearReplayCache();
     kp = generateTestKeypair();
 
     app = express();
@@ -527,4 +579,160 @@ describe("getHealth() shape", () => {
     expect(typeof health.uptime).toBe("number");
     expect(health.uptime).toBeGreaterThanOrEqual(0);
   });
+});
+
+// ── Replay protection tests (issue #1326) ─────────────────────────────────────
+//
+// A valid signed request replayed within the 30 s tolerance window must be
+// rejected with 403 REPLAYED_SIGNATURE.
+
+describe("requireStellarAuth — replay protection (#1326)", () => {
+  let app: express.Express;
+  let kp: TestKeypair;
+
+  beforeEach(() => {
+    resetRateLimiter();
+    clearReplayCache();
+    kp = generateTestKeypair();
+
+    app = express();
+    app.use(jsonWithRawBody());
+    app.use(requestLoggingMiddleware);
+    const handler = (req: Request, res: Response): void => {
+      res.json({ ok: true, address: req.context?.stellarAddress });
+    };
+    app.post("/write", requireStellarAuth, handler);
+  });
+
+  it("allows a fresh signed request → 200", async () => {
+    const authHeader = buildStellarAuthHeader(kp, Date.now());
+    const res = await request(app).post("/write").set("Authorization", authHeader).send({});
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects an identical replayed request within the 30 s window → 403 REPLAYED_SIGNATURE", async () => {
+    const authHeader = buildStellarAuthHeader(kp, Date.now());
+
+    // First request: should succeed.
+    const first = await request(app).post("/write").set("Authorization", authHeader).send({});
+    expect(first.status).toBe(200);
+
+    // Replay: same header, still within the tolerance window.
+    const replay = await request(app).post("/write").set("Authorization", authHeader).send({});
+    expect(replay.status).toBe(403);
+    expect(replay.body.error.code).toBe("REPLAYED_SIGNATURE");
+  });
+
+  it("allows a second request signed with a fresh timestamp (different signature) → 200", async () => {
+    const header1 = buildStellarAuthHeader(kp, Date.now());
+    const first = await request(app).post("/write").set("Authorization", header1).send({});
+    expect(first.status).toBe(200);
+
+    // A new signature with a slightly older (but still in-window) timestamp must pass.
+    // Using a past offset (not future) so the middleware's age check passes.
+    const header2 = buildStellarAuthHeader(kp, Date.now() - 100);
+    const second = await request(app).post("/write").set("Authorization", header2).send({});
+    expect(second.status).toBe(200);
+  });
+
+  it("allows the same request from two different keypairs (distinct signatures) → both 200", async () => {
+    const kp2 = generateTestKeypair();
+    const header1 = buildStellarAuthHeader(kp, Date.now());
+    const header2 = buildStellarAuthHeader(kp2, Date.now());
+
+    const res1 = await request(app).post("/write").set("Authorization", header1).send({});
+    const res2 = await request(app).post("/write").set("Authorization", header2).send({});
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+  });
+});
+
+// ── Auth rate-limit ordering tests (issue #1325) ──────────────────────────────
+//
+// `optionalStellarAuth` must run before the read rate limiter so authenticated
+// requests are counted against the per-address bucket (300 RPM) instead of the
+// anon IP bucket (100 RPM).
+
+describe("optionalStellarAuth + rateLimitRead ordering (#1325)", () => {
+  let app: express.Express;
+  let kp: TestKeypair;
+
+  beforeEach(() => {
+    resetRateLimiter();
+    clearReplayCache();
+    kp = generateTestKeypair();
+
+    app = express();
+    app.set("trust proxy", 1);
+    app.use(requestLoggingMiddleware);
+    app.use(jsonWithRawBody());
+
+    // Mirror the fixed production ordering: optional auth → rate limit → handler.
+    app.get(
+      "/api/profiles",
+      optionalStellarAuth,
+      rateLimitRead,
+      (_req: Request, res: Response) => {
+        res.json({ ok: true });
+      }
+    );
+  });
+
+  it("anonymous request (no auth header) is keyed by IP and hits anon bucket (100 RPM)", async () => {
+    const ip = "10.2.0.1";
+    const headers = { "x-forwarded-for": ip };
+
+    for (let i = 0; i < 100; i++) {
+      const res = await request(app).get("/api/profiles").set(headers);
+      expect(res.status).toBe(200);
+    }
+
+    const over = await request(app).get("/api/profiles").set(headers);
+    expect(over.status).toBe(429);
+    expect(over.body.error.code).toBe("RATE_LIMITED");
+  }, 30_000);
+
+  it("authenticated read is keyed by address and uses the higher auth bucket (300 RPM)", async () => {
+    const ip = "10.2.0.2";
+
+    // Build auth headers for a GET request to /api/profiles.
+    // Each request needs a fresh timestamp so each header has a unique signature.
+    // We issue 101 requests — if the limiter were using the anon IP bucket (100 RPM)
+    // the 101st would fail; with the auth bucket (300 RPM) it must still pass.
+    for (let i = 0; i < 101; i++) {
+      const authHeader = buildStellarAuthHeader(kp, Date.now() - i, {
+        method: "GET",
+        path: "/api/profiles",
+        body: null,
+      });
+      const res = await request(app)
+        .get("/api/profiles")
+        .set("Authorization", authHeader)
+        .set("x-forwarded-for", ip);
+      expect(res.status).toBe(200);
+    }
+  }, 30_000);
+
+  it("anon and auth counters are independent — exhausting one does not affect the other", async () => {
+    const anonIp = "10.2.0.3";
+
+    // Exhaust the anon bucket for anonIp.
+    for (let i = 0; i < 100; i++) {
+      await request(app).get("/api/profiles").set("x-forwarded-for", anonIp);
+    }
+    const anonOver = await request(app).get("/api/profiles").set("x-forwarded-for", anonIp);
+    expect(anonOver.status).toBe(429);
+
+    // Authenticated request from the same IP should still pass (different key).
+    const authHeader = buildStellarAuthHeader(kp, Date.now(), {
+      method: "GET",
+      path: "/api/profiles",
+      body: null,
+    });
+    const authRes = await request(app)
+      .get("/api/profiles")
+      .set("Authorization", authHeader)
+      .set("x-forwarded-for", anonIp);
+    expect(authRes.status).toBe(200);
+  }, 30_000);
 });

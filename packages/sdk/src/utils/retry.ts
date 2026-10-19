@@ -300,3 +300,129 @@ export async function withRetry<T>(
   // Unreachable in practice (loop either returns or throws), but satisfies the type checker.
   throw lastError instanceof Error ? lastError : new Error("withRetry exhausted all attempts");
 }
+
+// ── Media/Attestation Size Estimates (Issue #1353) ───────────────────────────
+
+export const DEFAULT_MAX_MEDIA_BYTES = 64 * 1024; // 64 KB
+export const DEFAULT_MAX_ATTESTATION_BYTES = 32 * 1024; // 32 KB
+
+/**
+ * Estimate the ScVal/XDR byte overhead of passing raw binary or string data to a Soroban contract call.
+ * Soroban ScVal Bytes encoding includes a 4-byte discriminant + 4-byte length prefix + byte payload + padding to 4-byte alignment.
+ */
+export function estimateXdrSize(
+  data: Uint8Array | string,
+  options: { isBase64?: boolean } = {}
+): number {
+  let len: number;
+  if (typeof data === "string") {
+    if (options.isBase64) {
+      // Calculate length from base64 representation
+      const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
+      len = Math.max(0, Math.floor((data.length * 3) / 4) - padding);
+    } else {
+      len = new TextEncoder().encode(data).length;
+    }
+  } else {
+    len = data.length;
+  }
+
+  const padding = (4 - (len % 4)) % 4;
+  // 4 bytes discriminant + 4 bytes vector len + data + alignment padding
+  return 8 + len + padding;
+}
+
+/**
+ * Estimate argument size for media/attestation payload objects or byte arrays.
+ */
+export function estimateArgsSize(data: Uint8Array | string | Record<string, unknown>): number {
+  if (typeof data === "string" || data instanceof Uint8Array) {
+    return estimateXdrSize(data);
+  }
+  const jsonStr = JSON.stringify(data);
+  return estimateXdrSize(jsonStr);
+}
+
+/**
+ * Validates payload size against maximum allowed byte caps up front.
+ */
+export function validateMediaSize(
+  data: Uint8Array | string,
+  maxBytes: number = DEFAULT_MAX_MEDIA_BYTES
+): { valid: boolean; estimatedSize: number; maxBytes: number; excessBytes: number } {
+  const estimatedSize = estimateXdrSize(data);
+  const excessBytes = Math.max(0, estimatedSize - maxBytes);
+  return {
+    valid: estimatedSize <= maxBytes,
+    estimatedSize,
+    maxBytes,
+    excessBytes,
+  };
+}
+
+// ── Soroban Footprint & Budget Limits Check (Issue #1347) ──────────────────────
+
+export const SOROBAN_LIMITS = {
+  MAX_XDR_SIZE_BYTES: 130_000,
+  MAX_INSTRUCTIONS: 100_000_000,
+  MAX_FOOTPRINT_ENTRIES: 40,
+  MAX_OPERATIONS: 100,
+};
+
+export interface SorobanLimitReport {
+  withinLimits: boolean;
+  metrics: {
+    xdrSizeBytes: number;
+    instructions?: number;
+    footprintEntries?: number;
+    opCount: number;
+  };
+  limits: typeof SOROBAN_LIMITS;
+  warnings: string[];
+}
+
+/**
+ * Advisory check to report transaction footprint and budget metrics against Soroban network limits.
+ */
+export function checkSorobanLimits(
+  xdrOrLength: string | number,
+  opCount: number = 1,
+  simulationData?: { instructions?: number; footprintEntries?: number }
+): SorobanLimitReport {
+  const xdrSizeBytes = typeof xdrOrLength === "number" ? xdrOrLength : estimateXdrSize(xdrOrLength, { isBase64: true });
+  const warnings: string[] = [];
+
+  let withinLimits = true;
+
+  if (xdrSizeBytes > SOROBAN_LIMITS.MAX_XDR_SIZE_BYTES) {
+    withinLimits = false;
+    warnings.push(`XDR size (${xdrSizeBytes} bytes) exceeds maximum network limit of ${SOROBAN_LIMITS.MAX_XDR_SIZE_BYTES} bytes. Split the multi-operation batch.`);
+  }
+
+  if (opCount > SOROBAN_LIMITS.MAX_OPERATIONS) {
+    withinLimits = false;
+    warnings.push(`Operation count (${opCount}) exceeds max transaction limit of ${SOROBAN_LIMITS.MAX_OPERATIONS}.`);
+  }
+
+  if (simulationData?.instructions !== undefined && simulationData.instructions > SOROBAN_LIMITS.MAX_INSTRUCTIONS) {
+    withinLimits = false;
+    warnings.push(`CPU instruction budget (${simulationData.instructions}) exceeds limit of ${SOROBAN_LIMITS.MAX_INSTRUCTIONS}.`);
+  }
+
+  if (simulationData?.footprintEntries !== undefined && simulationData.footprintEntries > SOROBAN_LIMITS.MAX_FOOTPRINT_ENTRIES) {
+    withinLimits = false;
+    warnings.push(`Ledger footprint count (${simulationData.footprintEntries}) exceeds limit of ${SOROBAN_LIMITS.MAX_FOOTPRINT_ENTRIES} entries.`);
+  }
+
+  return {
+    withinLimits,
+    metrics: {
+      xdrSizeBytes,
+      instructions: simulationData?.instructions,
+      footprintEntries: simulationData?.footprintEntries,
+      opCount,
+    },
+    limits: SOROBAN_LIMITS,
+    warnings,
+  };
+}

@@ -29,25 +29,179 @@ function rowToPost(row: CachedPostRow): Post {
   };
 }
 
+export type DmSyncStatus = "synced" | "pending" | "failed";
+
+export interface DmMessage {
+  id: string;
+  conversationId: string;
+  sender: string;
+  recipient: string;
+  content: string;
+  ciphertextHash: string;
+  timestamp: number;
+  syncStatus: DmSyncStatus;
+  errorMessage: string | null;
+}
+
+export interface IncomingDmMessage {
+  id: string;
+  sender: string;
+  recipient: string;
+  content: string;
+  ciphertextHash: string;
+  timestamp: number;
+}
+
+export interface DmMergeResult {
+  mergedCount: number;
+  newestTimestamp: number | null;
+}
+
+interface DmMessageRow {
+  id: string;
+  conversation_id: string;
+  sender: string;
+  recipient: string;
+  content: string;
+  ciphertext_hash: string;
+  timestamp: number;
+  sync_status: string;
+  error_message: string | null;
+}
+
+function rowToDmMessage(row: DmMessageRow): DmMessage {
+  return {
+    id: row.id,
+    conversationId: row.conversation_id,
+    sender: row.sender,
+    recipient: row.recipient,
+    content: row.content,
+    ciphertextHash: row.ciphertext_hash,
+    timestamp: Number(row.timestamp),
+    syncStatus: row.sync_status as DmSyncStatus,
+    errorMessage: row.error_message,
+  };
+}
+
+/** The slice of expo-sqlite's async API migrations actually need — kept
+ * narrow (rather than the full `SQLite.SQLiteDatabase`) so tests can run
+ * migrations against a lightweight fake without implementing the whole
+ * class. */
+export interface MigratableDb {
+  execAsync(sql: string): Promise<unknown>;
+  getFirstAsync(sql: string): Promise<unknown>;
+  runAsync(sql: string, params: SQLite.SQLiteBindParams): Promise<unknown>;
+  withTransactionAsync(fn: () => Promise<void>): Promise<void>;
+}
+
+export type Migration = (db: MigratableDb) => Promise<void>;
+
 /**
- * Initializes the database schema and indices.
+ * Earliest plausible seconds-since-epoch for a post (2001-09-09). A Stellar
+ * ledger sequence is around 5x10^7 — two orders of magnitude below this — so any
+ * `timestamp` under it is a unit mix-up rather than a real time (#1543).
+ */
+export const MIN_PLAUSIBLE_TIMESTAMP = 1_000_000_000;
+
+/**
+ * Ordered schema migrations, applied in sequence and tracked via
+ * `PRAGMA user_version` (#1560). Migration index `i` takes the database from
+ * version `i` to `i + 1` — never edit a shipped migration in place, since a
+ * device that already ran it has recorded the new version and won't re-run
+ * it; add a new migration to the end of this array instead.
+ *
+ * `CREATE TABLE IF NOT EXISTS` stays scoped to this first migration only:
+ * every later schema change (an added column, a new table, ...) is an
+ * explicit migration here, not a rewrite of the initial bootstrap — that's
+ * what made the previous single-bootstrap approach a silent no-op for
+ * existing installs.
+ */
+export const MIGRATIONS: Migration[] = [
+  // v0 -> v1: initial bootstrap.
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS cached_posts (
+        id TEXT PRIMARY KEY,
+        author TEXT NOT NULL,
+        username TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tip_total INTEGER NOT NULL,
+        timestamp INTEGER NOT NULL,
+        like_count INTEGER NOT NULL,
+        has_liked INTEGER DEFAULT 0,
+        sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON cached_posts (timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS dm_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        sender TEXT NOT NULL,
+        recipient TEXT NOT NULL,
+        content TEXT NOT NULL,
+        ciphertext_hash TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
+        error_message TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation_ts
+        ON dm_messages (conversation_id, timestamp ASC);
+      CREATE INDEX IF NOT EXISTS idx_dm_messages_conversation_hash
+        ON dm_messages (conversation_id, ciphertext_hash);
+
+      CREATE TABLE IF NOT EXISTS dm_sync_state (
+        conversation_id TEXT PRIMARY KEY,
+        sync_cursor INTEGER NOT NULL DEFAULT 0,
+        last_read INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  },
+  // v1 -> v2: repair rows poisoned by the ledger/timestamp unit mix-up (#1543).
+  // `created_ledger` (a sequence number, ~5e7) was written into `timestamp`
+  // (seconds since epoch, ~1.8e9), which made every post render as ~20000 days
+  // old and made evictStaleCache delete the whole cache on the first refresh.
+  // `created_at` is the real wall-clock second the row was synced, so it is the
+  // only correct recovery available for a row that is already in the wild.
+  async (db) => {
+    await db.runAsync(
+      `UPDATE cached_posts SET timestamp = created_at WHERE timestamp < ?`,
+      [MIN_PLAUSIBLE_TIMESTAMP]
+    );
+  },
+];
+
+/**
+ * Runs every migration the database hasn't seen yet, each in its own
+ * transaction, advancing `PRAGMA user_version` as it goes. Exported (with
+ * `migrations` overridable) so tests can exercise the upgrade path against a
+ * fixture pinned at an older version without waiting for a real schema
+ * change to be added to {@link MIGRATIONS}.
+ */
+export async function runMigrations(
+  targetDb: MigratableDb = db,
+  migrations: Migration[] = MIGRATIONS
+): Promise<void> {
+  const row = (await targetDb.getFirstAsync("PRAGMA user_version")) as {
+    user_version: number;
+  } | null;
+  const currentVersion = row?.user_version ?? 0;
+
+  for (let version = currentVersion; version < migrations.length; version++) {
+    await targetDb.withTransactionAsync(async () => {
+      await migrations[version](targetDb);
+      await targetDb.execAsync(`PRAGMA user_version = ${version + 1}`);
+    });
+  }
+}
+
+/**
+ * Initializes the database schema and indices, upgrading an existing install
+ * through any migrations it hasn't run yet.
  */
 export async function initDatabase(): Promise<void> {
-  await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS cached_posts (
-      id TEXT PRIMARY KEY,
-      author TEXT NOT NULL,
-      username TEXT NOT NULL,
-      content TEXT NOT NULL,
-      tip_total INTEGER NOT NULL,
-      timestamp INTEGER NOT NULL,
-      like_count INTEGER NOT NULL,
-      has_liked INTEGER DEFAULT 0,
-      sync_status TEXT NOT NULL, -- 'synced' | 'pending' | 'failed'
-      created_at INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_posts_timestamp ON cached_posts (timestamp DESC);
-  `);
+  await runMigrations(db);
 }
 
 /**
@@ -72,6 +226,25 @@ export async function getCachedPostById(id: string): Promise<Post | null> {
 }
 
 /**
+ * Retrieves multiple cached posts by ID in a single query, keyed by ID.
+ * IDs with no cached row are simply absent from the returned map.
+ */
+export async function getCachedPostsByIds(ids: string[]): Promise<Map<string, Post>> {
+  const map = new Map<string, Post>();
+  if (ids.length === 0) return map;
+
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = await db.getAllAsync<CachedPostRow>(
+    `SELECT * FROM cached_posts WHERE id IN (${placeholders})`,
+    ids
+  );
+  for (const row of rows) {
+    map.set(row.id, rowToPost(row));
+  }
+  return map;
+}
+
+/**
  * Reconciles remote (chain-confirmed) posts with the local cache.
  *
  * Chain-wins policy:
@@ -79,55 +252,72 @@ export async function getCachedPostById(id: string): Promise<Post | null> {
  *  - If a 'pending' or 'failed' optimistic row exists with the SAME author+content
  *    as a confirmed chain post, delete the optimistic row (chain state supersedes it).
  *  - Stale 'synced' rows not present in the remote set are deleted.
+ *
+ * Runs a fixed number of SQLite statements regardless of feed size: one
+ * multi-row upsert, one multi-condition delete for superseded optimistic
+ * rows, and one stale-eviction delete — instead of two `runAsync` calls per
+ * post inside the transaction.
  */
-export async function reconcilePosts(remotePosts: Post[]): Promise<void> {
-  await db.withTransactionAsync(async () => {
-    for (const post of remotePosts) {
-      // Upsert the confirmed chain post — chain state always wins on conflict.
-      await db.runAsync(
-        `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
-         ON CONFLICT(id) DO UPDATE SET
-           author      = excluded.author,
-           username    = excluded.username,
-           content     = excluded.content,
-           tip_total   = excluded.tip_total,
-           timestamp   = excluded.timestamp,
-           like_count  = excluded.like_count,
-           has_liked   = excluded.has_liked,
-           sync_status = 'synced';`,
-        [
-          String(post.id),
-          post.author,
-          post.username || "stellar_user",
-          post.content,
-          post.tip_total,
-          post.timestamp,
-          post.like_count,
-          post.has_liked ? 1 : 0,
-          Math.floor(Date.now() / 1000),
-        ]
-      );
+export async function reconcilePosts(remotePosts: Post[], evictStale: boolean = true): Promise<void> {
+  if (remotePosts.length === 0) return;
 
-      // Chain-wins conflict resolution:
-      // If an optimistic (pending/failed) row exists for the same author+content
-      // but with a different local ID, the chain version is the truth — remove the local stub.
-      await db.runAsync(
-        `DELETE FROM cached_posts
-         WHERE sync_status IN ('pending', 'failed')
-           AND author  = ?
-           AND content = ?
-           AND id     != ?`,
-        [post.author, post.content, String(post.id)]
-      );
-    }
+  await db.withTransactionAsync(async () => {
+    const createdAt = Math.floor(Date.now() / 1000);
+
+    // Upsert every confirmed chain post in one multi-row statement — chain
+    // state always wins on conflict.
+    const insertPlaceholders = remotePosts
+      .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)")
+      .join(", ");
+    const insertParams = remotePosts.flatMap((post) => [
+      String(post.id),
+      post.author,
+      post.username || "stellar_user",
+      post.content,
+      post.tip_total,
+      post.timestamp,
+      post.like_count,
+      post.has_liked ? 1 : 0,
+      createdAt,
+    ]);
+    await db.runAsync(
+      `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
+       VALUES ${insertPlaceholders}
+       ON CONFLICT(id) DO UPDATE SET
+         author      = excluded.author,
+         username    = excluded.username,
+         content     = excluded.content,
+         tip_total   = excluded.tip_total,
+         timestamp   = excluded.timestamp,
+         like_count  = excluded.like_count,
+         has_liked   = excluded.has_liked,
+         sync_status = 'synced';`,
+      insertParams
+    );
+
+    // Chain-wins conflict resolution, batched across every post: delete any
+    // optimistic (pending/failed) row that matches a confirmed post's
+    // author+content but has a different local ID.
+    const deleteConditions = remotePosts
+      .map(() => "(author = ? AND content = ? AND id != ?)")
+      .join(" OR ");
+    const deleteParams = remotePosts.flatMap((post) => [
+      post.author,
+      post.content,
+      String(post.id),
+    ]);
+    await db.runAsync(
+      `DELETE FROM cached_posts WHERE sync_status IN ('pending', 'failed') AND (${deleteConditions})`,
+      deleteParams
+    );
 
     // Evict stale synced rows that are no longer in the remote set.
-    if (remotePosts.length > 0) {
-      const remoteIds = remotePosts.map((p) => `'${String(p.id)}'`).join(",");
+    // Only do this on full refresh (evictStale=true), not during pagination.
+    if (evictStale && remotePosts.length > 0) {
+      const remoteIds = remotePosts.map(() => "?").join(",");
       await db.runAsync(
         `DELETE FROM cached_posts WHERE sync_status = 'synced' AND id NOT IN (${remoteIds})`,
-        []
+        remotePosts.map((post) => String(post.id))
       );
     }
   });
@@ -188,15 +378,41 @@ export async function getPendingPosts(): Promise<Post[]> {
 
 /**
  * Evicts old posts to keep the cache lightweight.
+ *
+ * Age-based eviction is skipped when the *newest* synced row is itself older
+ * than the cutoff. That state means every cached row looks ancient, which is
+ * either a unit bug (a Stellar ledger sequence written into the timestamp
+ * column, whose cutoff is `now - 7d` while the values are ~5x10^7) or a device
+ * that has genuinely not synced for over a week. Deleting on that signal wipes
+ * the entire offline cache on the first refresh, and the user has no way to
+ * re-fetch it while offline — so only the row-count cap is applied and the
+ * anomaly is reported instead (#1543).
  */
 export async function evictStaleCache(
   maxAgeSeconds: number = 86400 * 7,
   maxRows: number = 100
 ): Promise<void> {
   const cutoff = Math.floor(Date.now() / 1000) - maxAgeSeconds;
-  await db.runAsync(`DELETE FROM cached_posts WHERE sync_status = 'synced' AND timestamp < ?`, [
-    cutoff,
-  ]);
+  const newestRow = await db.getFirstAsync<{ max_ts: number | string | null }>(
+    `SELECT MAX(timestamp) AS max_ts FROM cached_posts WHERE sync_status = 'synced'`
+  );
+  const maxTimestamp = newestRow?.max_ts ?? null;
+  const newestTimestamp = maxTimestamp === null ? null : Number(maxTimestamp);
+  const everyRowIsStale =
+    newestTimestamp !== null && Number.isFinite(newestTimestamp) && newestTimestamp < cutoff;
+
+  if (everyRowIsStale) {
+    console.warn(
+      `Cache eviction: newest synced post is older than the cutoff (newest=${newestTimestamp}, cutoff=${cutoff}). ` +
+        "Skipping age-based eviction to avoid wiping the offline cache."
+    );
+  } else {
+    await db.runAsync(
+      `DELETE FROM cached_posts WHERE sync_status = 'synced' AND timestamp < ?`,
+      [cutoff]
+    );
+  }
+
   await db.runAsync(
     `DELETE FROM cached_posts
      WHERE sync_status = 'synced'
@@ -215,4 +431,170 @@ export async function evictStaleCache(
  */
 export async function deleteCachedPost(id: string): Promise<void> {
   await db.runAsync(`DELETE FROM cached_posts WHERE id = ?`, [id]);
+}
+
+/**
+ * Returns all locally known messages for a conversation, oldest first.
+ * Includes outbox entries still 'pending' or 'failed' alongside 'synced' ones
+ * so the thread renders optimistic sends immediately.
+ */
+export async function getDmMessages(conversationId: string): Promise<DmMessage[]> {
+  const rows = await db.getAllAsync<DmMessageRow>(
+    `SELECT * FROM dm_messages WHERE conversation_id = ? ORDER BY timestamp ASC`,
+    [conversationId]
+  );
+  return rows.map(rowToDmMessage);
+}
+
+/**
+ * Reconciles relay-confirmed messages into the local thread.
+ *
+ * Relay-wins policy:
+ *  - Every incoming message is upserted as 'synced', keyed by its relay-assigned id.
+ *  - A local 'pending'/'failed' outbox row with the SAME ciphertext hash (the same
+ *    logical message, composed on this or another device before the relay assigned
+ *    it an id) is deleted once its confirmed counterpart lands — this is what
+ *    prevents an optimistic send from showing up twice after reconciliation.
+ */
+export async function mergeDmDeltas(
+  conversationId: string,
+  incoming: IncomingDmMessage[]
+): Promise<DmMergeResult> {
+  let newestTimestamp: number | null = null;
+
+  await db.withTransactionAsync(async () => {
+    for (const msg of incoming) {
+      await db.runAsync(
+        `INSERT INTO dm_messages (id, conversation_id, sender, recipient, content, ciphertext_hash, timestamp, sync_status, error_message, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'synced', NULL, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           content         = excluded.content,
+           ciphertext_hash = excluded.ciphertext_hash,
+           timestamp       = excluded.timestamp,
+           sync_status     = 'synced',
+           error_message   = NULL;`,
+        [
+          msg.id,
+          conversationId,
+          msg.sender,
+          msg.recipient,
+          msg.content,
+          msg.ciphertextHash,
+          msg.timestamp,
+          Math.floor(Date.now() / 1000),
+        ]
+      );
+
+      await db.runAsync(
+        `DELETE FROM dm_messages
+         WHERE conversation_id = ?
+           AND sync_status IN ('pending', 'failed')
+           AND ciphertext_hash = ?
+           AND id != ?`,
+        [conversationId, msg.ciphertextHash, msg.id]
+      );
+
+      if (newestTimestamp === null || msg.timestamp > newestTimestamp) {
+        newestTimestamp = msg.timestamp;
+      }
+    }
+  });
+
+  return { mergedCount: incoming.length, newestTimestamp };
+}
+
+/**
+ * Inserts a locally composed message awaiting relay confirmation.
+ */
+export async function addOutboxDmMessage(
+  conversationId: string,
+  sender: string,
+  recipient: string,
+  content: string,
+  ciphertextHash: string
+): Promise<DmMessage> {
+  const localId = `dm_local_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  const timestamp = Math.floor(Date.now() / 1000);
+  await db.runAsync(
+    `INSERT INTO dm_messages (id, conversation_id, sender, recipient, content, ciphertext_hash, timestamp, sync_status, error_message, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?)`,
+    [localId, conversationId, sender, recipient, content, ciphertextHash, timestamp, timestamp]
+  );
+  return {
+    id: localId,
+    conversationId,
+    sender,
+    recipient,
+    content,
+    ciphertextHash,
+    timestamp,
+    syncStatus: "pending",
+    errorMessage: null,
+  };
+}
+
+/**
+ * Marks an outbox message as rejected by the relay, preserving the reason so
+ * the thread UI can surface it instead of leaving it silently pending.
+ */
+export async function markDmMessageFailed(localId: string, errorMessage: string): Promise<void> {
+  await db.runAsync(
+    `UPDATE dm_messages SET sync_status = 'failed', error_message = ? WHERE id = ?`,
+    [errorMessage, localId]
+  );
+}
+
+/**
+ * Returns the timestamp this device last reconciled up to for a conversation.
+ * 0 means the conversation has never been synced.
+ */
+export async function getDmSyncCursor(conversationId: string): Promise<number> {
+  const row = await db.getFirstAsync<{ sync_cursor: number }>(
+    `SELECT sync_cursor FROM dm_sync_state WHERE conversation_id = ?`,
+    [conversationId]
+  );
+  return row ? Number(row.sync_cursor) : 0;
+}
+
+/**
+ * Advances the per-conversation sync cursor. Monotonic: never moves backward,
+ * even if called with an older timestamp than what's already stored.
+ */
+export async function setDmSyncCursor(conversationId: string, cursor: number): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO dm_sync_state (conversation_id, sync_cursor, last_read)
+     VALUES (?, ?, 0)
+     ON CONFLICT(conversation_id) DO UPDATE SET
+       sync_cursor = MAX(sync_cursor, excluded.sync_cursor);`,
+    [conversationId, cursor]
+  );
+}
+
+/**
+ * Returns the timestamp up to which the user has read this conversation.
+ */
+export async function getDmLastRead(conversationId: string): Promise<number> {
+  const row = await db.getFirstAsync<{ last_read: number }>(
+    `SELECT last_read FROM dm_sync_state WHERE conversation_id = ?`,
+    [conversationId]
+  );
+  return row ? Number(row.last_read) : 0;
+}
+
+/**
+ * Advances the read watermark. Monotonic, like the sync cursor.
+ *
+ * Callers must only pass the timestamp of a message that has actually been
+ * reconciled (sync_status = 'synced') from the merged state — advancing it
+ * from a pre-reconciliation local snapshot can mark messages that arrived on
+ * another device while this one was offline as already read.
+ */
+export async function setDmLastRead(conversationId: string, timestamp: number): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO dm_sync_state (conversation_id, sync_cursor, last_read)
+     VALUES (?, 0, ?)
+     ON CONFLICT(conversation_id) DO UPDATE SET
+       last_read = MAX(last_read, excluded.last_read);`,
+    [conversationId, timestamp]
+  );
 }

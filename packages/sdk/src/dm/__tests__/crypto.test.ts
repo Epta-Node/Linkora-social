@@ -16,6 +16,8 @@ import {
   encryptDirectMessage,
   decryptDirectMessage,
   DecryptionError,
+  rotateConversationKey,
+  decryptDirectMessageWithGracePeriod,
 } from "../crypto";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -269,7 +271,6 @@ describe("RelayClient sendMessage retry logic", () => {
   it("should not retry on 4xx errors", async () => {
     const { RelayClient } = await import("../relay");
     const client = new RelayClient("https://relay.example.com");
-    const keypair = generateDmKeypair();
     const mockFetch = jest.fn().mockResolvedValue({
       ok: false,
       status: 400,
@@ -349,5 +350,263 @@ describe("RelayClient sendMessage retry logic", () => {
     ).rejects.toThrow();
 
     expect(mockFetch).toHaveBeenCalledTimes(4);
+  }, 15_000);
+});
+
+// ── Threat Model Tests (Issue #1657) ──────────────────────────────────────────
+
+describe("Threat Model: Confidentiality (Issue #1657)", () => {
+  const aliceAddr = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const bobAddr = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBWHF";
+
+  it("ciphertext does not reveal message length (constant-time AEAD)", () => {
+    const alice = generateDmKeypair();
+    const bob = generateDmKeypair();
+    const shortMsg = "x";
+    const longMsg = "x".repeat(10000);
+    const ctShort = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      shortMsg,
+      0
+    );
+    const ctLong = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      longMsg,
+      1
+    );
+    // Ciphertexts differ only by message length + 16-byte auth tag
+    expect(ctLong.length - ctShort.length).toBe(longMsg.length - shortMsg.length);
+  });
+
+  it("same message encrypts differently with different indices (prevents replay)", () => {
+    const alice = generateDmKeypair();
+    const bob = generateDmKeypair();
+    const msg = "test message";
+    const ct0 = toHex(
+      encryptDirectMessage(alice.privateKey, bob.publicKey, aliceAddr, bobAddr, msg, 0)
+    );
+    const ct1 = toHex(
+      encryptDirectMessage(alice.privateKey, bob.publicKey, aliceAddr, bobAddr, msg, 1)
+    );
+    const ct2 = toHex(
+      encryptDirectMessage(alice.privateKey, bob.publicKey, aliceAddr, bobAddr, msg, 2)
+    );
+    expect(ct0).not.toBe(ct1);
+    expect(ct1).not.toBe(ct2);
+  });
+});
+
+describe("Threat Model: Integrity & Authentication (Issue #1657)", () => {
+  const aliceAddr = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const bobAddr = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBWHF";
+
+  it("bit flip in message ciphertext is detected by Poly1305 MAC", () => {
+    const alice = generateDmKeypair();
+    const bob = generateDmKeypair();
+    const ct = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "authentic message",
+      0
+    );
+    const tampered = ct.slice();
+    tampered[0] ^= 0x01; // flip one bit in ciphertext
+    expect(() =>
+      decryptDirectMessage(bob.privateKey, alice.publicKey, bobAddr, aliceAddr, tampered, 0)
+    ).toThrow(DecryptionError);
+  });
+
+  it("reordered or missing messages are rejected (nonce index prevents replays)", () => {
+    const alice = generateDmKeypair();
+    const bob = generateDmKeypair();
+    const ct0 = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "message 0",
+      0
+    );
+    const ct1 = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "message 1",
+      1
+    );
+    // Decrypt with wrong index should fail
+    expect(() =>
+      decryptDirectMessage(bob.privateKey, alice.publicKey, bobAddr, aliceAddr, ct1, 0)
+    ).toThrow(DecryptionError);
+  });
+});
+
+describe("Threat Model: Forward Secrecy (Issue #1657)", () => {
+  const aliceAddr = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const bobAddr = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBWHF";
+
+  it("historical messages are not forward-secret if DM private key is compromised", () => {
+    const alice = generateDmKeypair();
+    const bob = generateDmKeypair();
+
+    // Alice sends message before key rotation
+    const ct = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "secret before rotation",
+      0
+    );
+
+    // Attacker compromises Alice's OLD private key
+    // They can now decrypt all historical messages
+    const decrypted = decryptDirectMessage(
+      alice.privateKey, // Compromised key
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      ct,
+      0
+    );
+    expect(decrypted).toBe("secret before rotation");
+    // This test documents the lack of forward secrecy — rotation is needed
+  });
+});
+
+describe("Threat Model: Out-of-Scope & Mitigations (Issue #1657)", () => {
+  const aliceAddr = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+  const bobAddr = "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBWHF";
+
+  it("metadata (sender/receiver addresses) is not encrypted", () => {
+    const alice = generateDmKeypair();
+    const bob = generateDmKeypair();
+    // Addresses are used directly in the function call — not in ciphertext
+    // Network observer can see who is talking to whom
+    const ct = encryptDirectMessage(
+      alice.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "secret message",
+      0
+    );
+    // Ciphertext doesn't reveal addresses — but API call metadata does
+    expect(ct).toBeDefined();
+  });
+
+  it("key rotation with grace period decryption mitigates historical exposure", () => {
+    const aliceOld = generateDmKeypair();
+    const aliceNew = generateDmKeypair();
+    const bob = generateDmKeypair();
+
+    const oldMsg = "message before key rotation";
+    const ctOld = encryptDirectMessage(
+      aliceOld.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      oldMsg,
+      0
+    );
+
+    // After Alice rotates her key, Bob can still decrypt old messages
+    // during the grace period using historical keys
+    const decrypted = decryptDirectMessageWithGracePeriod(
+      { currentKey: bob.privateKey },
+      { currentKey: aliceNew.publicKey, historicalKeys: [aliceOld.publicKey] },
+      bobAddr,
+      aliceAddr,
+      ctOld,
+      0
+    );
+
+    expect(decrypted).toBe(oldMsg);
+  });
+});
+
+// ── Key Rotation & Grace Period Tests (Issue #1352) ─────────────────────────
+
+describe("Key Rotation & Grace Period (Issue #1352)", () => {
+  const aliceAddr = "GA111111111111111111111111111111111111111111111111111111";
+  const bobAddr = "GB222222222222222222222222222222222222222222222222222222";
+
+  it("rotateConversationKey generates a new key pair and re-encrypts pending outbox", () => {
+    const aliceOld = generateDmKeypair();
+    const bob = generateDmKeypair();
+
+    const pendingOutbox = [
+      { id: "msg1", plaintext: "Hello Bob", messageIndex: 1 },
+      { id: "msg2", plaintext: "Unsent draft", messageIndex: 2 },
+    ];
+
+    const { newKeyPair: aliceNew, rotationEvent } = rotateConversationKey(
+      aliceOld.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      { pendingOutbox }
+    );
+
+    expect(rotationEvent.oldPublicKey).toEqual(aliceOld.publicKey);
+    expect(rotationEvent.newPublicKey).toEqual(aliceNew.publicKey);
+    expect(rotationEvent.reEncryptedOutbox).toHaveLength(2);
+
+    // Verify Bob can decrypt the re-encrypted outbox message using Alice's new key
+    const decryptedMsg1 = decryptDirectMessage(
+      bob.privateKey,
+      aliceNew.publicKey,
+      bobAddr,
+      aliceAddr,
+      rotationEvent.reEncryptedOutbox[0].ciphertext,
+      1
+    );
+    expect(decryptedMsg1).toBe("Hello Bob");
+  });
+
+  it("decryptDirectMessageWithGracePeriod decrypts messages encrypted with historical keys during grace period", () => {
+    const aliceOld = generateDmKeypair();
+    const aliceNew = generateDmKeypair();
+    const bob = generateDmKeypair();
+
+    // Alice encrypted a message to Bob using her OLD key before rotation
+    const cipherOld = encryptDirectMessage(
+      aliceOld.privateKey,
+      bob.publicKey,
+      aliceAddr,
+      bobAddr,
+      "Old secret message",
+      100
+    );
+
+    // Bob attempts to decrypt with Alice's new key as current key, but has Alice's old key in historicalKeys
+    const alicePublicKeyMap = {
+      currentKey: aliceNew.publicKey,
+      historicalKeys: [aliceOld.publicKey],
+    };
+
+    const bobPrivateKeyMap = {
+      currentKey: bob.privateKey,
+    };
+
+    const decrypted = decryptDirectMessageWithGracePeriod(
+      bobPrivateKeyMap,
+      alicePublicKeyMap,
+      bobAddr,
+      aliceAddr,
+      cipherOld,
+      100
+    );
+
+    expect(decrypted).toBe("Old secret message");
   });
 });

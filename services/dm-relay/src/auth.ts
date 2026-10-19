@@ -8,12 +8,59 @@ import { randomUUID } from "crypto";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { sha256 } from "@noble/hashes/sha256";
 
+/**
+ * Version prefix for the DM message signature. Bump this whenever the signed
+ * layout changes so a captured pre-upgrade signature can never be reinterpreted
+ * under the new rules — old clients fail cleanly with 401 instead of being
+ * accepted with weaker coverage.
+ */
+export const DM_AUTH_MESSAGE_VERSION = "v2";
+
 export interface AuthData {
   sender: string;
   to: string;
   nonce: number;
   timestamp: number;
+  /** Base64 ciphertext the signature must commit to. */
+  ciphertext: string;
   signature: string;
+}
+
+/**
+ * Lowercase hex SHA-256 over the raw bytes of the base64 ciphertext string.
+ *
+ * Hashing the encoded form (rather than the decoded bytes) keeps every
+ * implementation — relay, SDK, web client — in agreement as long as they all
+ * hash `ciphertext_b64` as it appears on the wire.
+ */
+export function hashCiphertext(ciphertext: string): string {
+  return Buffer.from(sha256(new TextEncoder().encode(ciphertext))).toString("hex");
+}
+
+/**
+ * Builds the exact string that gets SHA-256 hashed and Ed25519 signed for a
+ * message submission.
+ *
+ * Layout: `v2:{to}:{nonce}:{timestamp}:{ciphertextHash}`
+ *
+ * The ciphertext digest binds the signature to the encrypted payload, so a
+ * relay operator or an on-path middlebox cannot swap `ciphertext_b64` on a
+ * captured request and have the substituted bytes stored under the original
+ * sender's identity.
+ */
+export function buildDmAuthMessage(
+  to: string,
+  nonce: number,
+  timestamp: number,
+  ciphertext: string
+): string {
+  return [
+    DM_AUTH_MESSAGE_VERSION,
+    to,
+    nonce,
+    timestamp,
+    hashCiphertext(ciphertext),
+  ].join(":");
 }
 
 export class AuthError extends Error {
@@ -21,6 +68,41 @@ export class AuthError extends Error {
     super(message);
     this.name = "AuthError";
   }
+}
+
+// ── Nonce / replay cache ──────────────────────────────────────────────────────
+//
+// Each valid signature is stored for `maxTimestampSkew` seconds. A captured
+// signed request re-presented within the skew window is rejected as a replay.
+// Entries are swept lazily on each auth call to keep the Map bounded.
+
+interface ReplayCacheEntry {
+  /** Unix timestamp (seconds) after which this entry may be evicted. */
+  expiresAt: number;
+}
+
+const dmRelaySeenSignatures = new Map<string, ReplayCacheEntry>();
+
+function sweepDmRelayNonces(nowSecs: number): void {
+  for (const [sig, entry] of dmRelaySeenSignatures) {
+    if (entry.expiresAt <= nowSecs) {
+      dmRelaySeenSignatures.delete(sig);
+    }
+  }
+}
+
+function isDmRelayReplay(signature: string, nowSecs: number, maxSkewSecs: number): boolean {
+  sweepDmRelayNonces(nowSecs);
+  if (dmRelaySeenSignatures.has(signature)) {
+    return true;
+  }
+  dmRelaySeenSignatures.set(signature, { expiresAt: nowSecs + maxSkewSecs });
+  return false;
+}
+
+/** Exposed for unit tests — clears the dm-relay replay cache. */
+export function clearDmRelayReplayCache(): void {
+  dmRelaySeenSignatures.clear();
 }
 
 export class AuthService {
@@ -40,7 +122,11 @@ export class AuthService {
    * @throws AuthError if authentication fails
    */
   verifyMessageAuth(authData: AuthData): boolean {
-    const { sender, to, nonce, timestamp, signature } = authData;
+    const { sender, to, nonce, timestamp, ciphertext, signature } = authData;
+
+    if (typeof ciphertext !== "string" || ciphertext.length === 0) {
+      throw new AuthError("Missing ciphertext: the signature must cover the message payload");
+    }
 
     // Validate Stellar address formats
     if (!StrKey.isValidEd25519PublicKey(sender)) {
@@ -60,12 +146,19 @@ export class AuthService {
       );
     }
 
-    // Verify signature over {to, nonce, timestamp}
+    // Verify signature over {version, to, nonce, timestamp, ciphertextHash}
     try {
-      const isValid = this.verifySignature(sender, to, nonce, timestamp, signature);
+      const isValid = this.verifySignature(sender, to, nonce, timestamp, ciphertext, signature);
       if (!isValid) {
         throw new AuthError("Invalid signature");
       }
+
+      // Replay guard: reject signatures that have already been honoured within
+      // the skew window, even though the timestamp is still technically fresh.
+      if (isDmRelayReplay(signature, now, this.maxTimestampSkew)) {
+        throw new AuthError("Replayed signature: this signed request has already been used");
+      }
+
       return true;
     } catch (error) {
       if (error instanceof AuthError) {
@@ -108,6 +201,13 @@ export class AuthService {
       if (!isValid) {
         throw new AuthError("Invalid signature");
       }
+
+      // Replay guard: reject re-use of the same address ownership proof within
+      // the skew window.
+      if (isDmRelayReplay(signatureHex, now, this.maxTimestampSkew)) {
+        throw new AuthError("Replayed signature: this address ownership proof has already been used");
+      }
+
       return true;
     } catch (error) {
       if (error instanceof AuthError) throw error;
@@ -173,16 +273,18 @@ export class AuthService {
   }
 
   /**
-   * Create the Stellar signature. Message is sha256(to + ":" + nonce + ":" + timestamp).
+   * Create the Stellar signature. Message is
+   * sha256(buildDmAuthMessage(to, nonce, timestamp, ciphertext)).
    */
   private verifySignature(
     sender: string,
     to: string,
     nonce: number,
     timestamp: number,
+    ciphertext: string,
     signatureHex: string
   ): boolean {
-    const authMessage = `${to}:${nonce}:${timestamp}`;
+    const authMessage = buildDmAuthMessage(to, nonce, timestamp, ciphertext);
     const hash = sha256(new TextEncoder().encode(authMessage));
 
     const signature = Buffer.from(signatureHex, "hex");
@@ -195,15 +297,17 @@ export class AuthService {
   }
 
   /**
-   * Create an auth signature for testing: signs sha256(to + ":" + nonce + ":" + timestamp).
+   * Create an auth signature for testing: signs
+   * sha256(buildDmAuthMessage(to, nonce, timestamp, ciphertext)).
    */
   static createAuthSignature(
     keypair: Keypair,
     to: string,
     nonce: number,
-    timestamp: number
+    timestamp: number,
+    ciphertext: string
   ): string {
-    const authMessage = `${to}:${nonce}:${timestamp}`;
+    const authMessage = buildDmAuthMessage(to, nonce, timestamp, ciphertext);
     const hash = sha256(new TextEncoder().encode(authMessage));
     const signature = keypair.sign(Buffer.from(hash));
     return Buffer.from(signature).toString("hex");

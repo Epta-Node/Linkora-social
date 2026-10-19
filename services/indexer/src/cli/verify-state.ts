@@ -15,6 +15,7 @@
 
 import { Pool as PgPool } from "pg";
 import { computeStateRoot } from "../stateRoot";
+import { DOMAIN_EVENT_TOPICS } from "../domain-processor";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -40,6 +41,59 @@ async function fetchPeerRoot(peerUrl: string, ledger: number): Promise<string> {
   return body.root;
 }
 
+type DomainName = keyof typeof DOMAIN_EVENT_TOPICS;
+
+interface DomainTotal {
+  domain: DomainName;
+  expected: number;
+  actual: number;
+}
+
+export async function getDomainTotals(
+  pg: Pick<PgPool, "query">,
+  ledger: number
+): Promise<DomainTotal[]> {
+  const totals: DomainTotal[] = [];
+
+  for (const [domain, topicConfig] of Object.entries(DOMAIN_EVENT_TOPICS) as [
+    DomainName,
+    (typeof DOMAIN_EVENT_TOPICS)[DomainName],
+  ][]) {
+    const expectedSql = `
+      SELECT (
+        COUNT(*) FILTER (WHERE topic[1] = ANY($2::text[]))
+        - COUNT(*) FILTER (WHERE topic[1] = ANY($3::text[]))
+      )::int AS count
+      FROM raw_events
+      WHERE ledger_sequence <= $1
+    `;
+    const expectedRes = await pg.query(expectedSql, [
+      ledger,
+      topicConfig.creates,
+      topicConfig.deletes,
+    ]);
+    const actualRes = await pg.query(`SELECT COUNT(*)::int AS count FROM ${domain}`);
+    const expectedRow = expectedRes.rows[0] as { count?: number | string } | undefined;
+    const actualRow = actualRes.rows[0] as { count?: number | string } | undefined;
+
+    totals.push({
+      domain,
+      expected: Number(expectedRow?.count ?? 0),
+      actual: Number(actualRow?.count ?? 0),
+    });
+  }
+
+  return totals;
+}
+
+export async function verifyDomainTotals(
+  pg: Pick<PgPool, "query">,
+  ledger: number
+): Promise<DomainTotal[]> {
+  const totals = await getDomainTotals(pg, ledger);
+  return totals.filter((total) => total.expected !== total.actual);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
 
@@ -52,6 +106,17 @@ async function main(): Promise<void> {
   const pg = new PgPool({ connectionString: requireEnv("DATABASE_URL") });
 
   try {
+    const domainMismatches = await verifyDomainTotals(pg, ledger);
+    if (domainMismatches.length > 0) {
+      console.error("Domain table totals do not match raw events:");
+      for (const mismatch of domainMismatches) {
+        console.error(
+          `  ${mismatch.domain}: expected ${mismatch.expected}, found ${mismatch.actual}`
+        );
+      }
+      process.exit(1);
+    }
+
     const localRoot = await computeStateRoot(pg);
     console.log(`Local state root (ledger ${ledger}): ${localRoot}`);
 
@@ -80,7 +145,9 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  console.error("verify-state error:", err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("verify-state error:", err);
+    process.exit(1);
+  });
+}

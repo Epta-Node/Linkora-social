@@ -7,10 +7,10 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const nextConfig = {
   transpilePackages: ['linkora-sdk', '@linkora/types'],
   eslint: {
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
   },
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   webpack: (config) => {
     // Resolve linkora-sdk to its TypeScript source so Next.js can transpile it

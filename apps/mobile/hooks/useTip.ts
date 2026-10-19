@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
+import { useSubmitTx } from "./useSubmitTx";
 
 export type TipStatus = "idle" | "pending" | "success" | "error";
 
@@ -37,20 +38,10 @@ export interface UseTipResult {
 
 const PROTOCOL_FEE_BPS = 100;
 
-async function submitTipTransaction({
-  sender,
-  postId,
-  amount,
-  token,
-}: SubmitTipOptions & { sender: string }): Promise<string> {
-  // Replace with SDK-backed `tip(sender, postId, token, amount)` submission once signing is wired.
-  await new Promise<void>((resolve) => setTimeout(resolve, 800));
-  return `tip:${sender}:${postId}:${token.symbol}:${amount}:${Date.now()}`;
-}
-
 export function useTip(): UseTipResult {
   const { address, connected } = useWallet();
   const { showPending, showSuccess, showError } = useToast();
+  const submitTx = useSubmitTx();
   const [status, setStatus] = useState<TipStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TipResult | null>(null);
@@ -97,7 +88,10 @@ export function useTip(): UseTipResult {
       showPending();
 
       try {
-        const hash = await submitTipTransaction({ sender: address, postId, amount, token });
+        // #1591 — the descriptor is turned into real, simulated XDR and signed
+        // by the connected wallet. The returned hash is the only source of truth
+        // for success, so a tip can never report a hash the chain never saw.
+        const hash = await submitTx(`tip:${address}:${postId}:${token.address}:${amount}`);
         const protocolFee = estimateProtocolFee(amount);
         setResult({ hash, amount, token, protocolFee });
         setStatus("success");
@@ -111,7 +105,7 @@ export function useTip(): UseTipResult {
         return false;
       }
     },
-    [address, connected, estimateProtocolFee, showError, showPending, showSuccess, status]
+    [address, connected, estimateProtocolFee, showError, showPending, showSuccess, status, submitTx]
   );
 
   const pending = status === "pending";
@@ -130,4 +124,4 @@ export function useTip(): UseTipResult {
   );
 }
 
-export { PROTOCOL_FEE_BPS, submitTipTransaction };
+export { PROTOCOL_FEE_BPS };

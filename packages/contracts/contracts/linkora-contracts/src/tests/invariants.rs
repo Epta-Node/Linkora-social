@@ -1,4 +1,5 @@
 #![cfg(test)]
+extern crate std;
 
 use crate::test::{
     credential_authority_pubkey, credential_authority_signing_key, sign_credential_root,
@@ -358,6 +359,128 @@ fn invariant_no_orphaned_authored_posts_after_profile_deletion() {
     // Invariant: Authored posts are tombstoned and no longer retrievable
     assert!(client.get_post(&post_id1).is_none());
     assert!(client.get_post(&post_id2).is_none());
+}
+
+// ── Issue #1249: pool existence invariant ───────────────────────────────────
+//
+// These invariants verify that get_pool and get_pool_admins always
+// distinguish between a pool that was never created and one that exists
+// with zero admins.
+
+#[test]
+fn invariant_get_pool_admins_none_for_missing_pool() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_test_env(&env);
+
+    // Invariant: get_pool_admins must return None for a pool_id
+    // that was never created — not an empty Vec.
+    let missing_id = soroban_sdk::symbol_short!("never");
+    assert_eq!(
+        client.get_pool_admins(&missing_id),
+        None,
+        "get_pool_admins must return None for a non-existent pool"
+    );
+    // Also verify get_pool returns None for the same missing id.
+    assert!(
+        client.get_pool(&missing_id).is_none(),
+        "get_pool must return None for a non-existent pool"
+    );
+}
+
+#[test]
+fn invariant_existing_pool_admins_are_some() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_test_env(&env);
+
+    let pool_admin = Address::generate(&env);
+    let token = setup_token_in_env(&env, &pool_admin);
+
+    let pool_id = soroban_sdk::symbol_short!("inv12");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin.clone()],
+        &1,
+    );
+
+    // Invariant: After creation, get_pool returns Some and
+    // get_pool_admins returns Some with the correct admin list.
+    assert!(client.get_pool(&pool_id).is_some());
+    let admins = client.get_pool_admins(&pool_id).unwrap();
+    assert_eq!(admins.len(), 1);
+    assert!(admins.iter().any(|a| a == pool_admin));
+}
+
+#[test]
+fn invariant_pool_threshold_cannot_exceed_admin_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_test_env(&env);
+
+    let pool_admin1 = Address::generate(&env);
+    let pool_admin2 = Address::generate(&env);
+    let token = setup_token_in_env(&env, &pool_admin1);
+
+    let pool_id = soroban_sdk::symbol_short!("inv_th");
+
+    // Invariant: Pool creation fails if threshold > initial admins count
+    let bad_create = client.try_create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &3,
+    );
+    assert!(
+        bad_create.is_err(),
+        "create_pool with threshold > admins must fail"
+    );
+
+    // Create a valid 2-of-2 pool
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &token,
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &2,
+    );
+
+    // Invariant: Pool threshold <= admin count after valid creation
+    let pool = client.get_pool(&pool_id).unwrap();
+    assert!(pool.threshold <= pool.admins.len());
+
+    // Invariant: update_pool_threshold fails if new threshold > admins count
+    let bad_update = client.try_update_pool_threshold(
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &pool_id,
+        &3,
+    );
+    assert!(
+        bad_update.is_err(),
+        "update_pool_threshold with threshold > admins must fail"
+    );
+
+    // Invariant: threshold remains <= admin count after rejected update
+    let pool_after = client.get_pool(&pool_id).unwrap();
+    assert!(pool_after.threshold <= pool_after.admins.len());
+
+    // Invariant: remove_pool_admin fails if removal would cause admins count < threshold
+    let bad_remove = client.try_remove_pool_admin(
+        &vec![&env, pool_admin1.clone(), pool_admin2.clone()],
+        &pool_id,
+        &pool_admin2,
+    );
+    assert!(
+        bad_remove.is_err(),
+        "remove_pool_admin causing admins < threshold must fail"
+    );
+
+    // Invariant: threshold remains <= admin count after rejected admin removal
+    let pool_final = client.get_pool(&pool_id).unwrap();
+    assert!(pool_final.threshold <= pool_final.admins.len());
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

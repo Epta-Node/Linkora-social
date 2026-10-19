@@ -46,8 +46,20 @@ interface LegacyPostCardProps {
 
 type PostCardProps = FeedPostCardProps | LegacyPostCardProps;
 
+/**
+ * Earliest plausible seconds-since-epoch (2001-09-09). A Stellar ledger sequence
+ * is around 5x10^7, so any value below this is a unit mix-up, not a time.
+ */
+const MIN_PLAUSIBLE_TIMESTAMP = 1_000_000_000;
+
 function formatTimestamp(ts: number): string {
+  // Rows poisoned by the ledger/timestamp mix-up are still in the cache on
+  // installs that synced before the fix. Rendering one as "20115d ago" is worse
+  // than showing nothing, and a negative diff (clock skew, or a post from the
+  // future) would otherwise render as "-3s ago" (#1543).
+  if (!Number.isFinite(ts) || ts <= 0 || ts < MIN_PLAUSIBLE_TIMESTAMP) return "";
   const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 0) return "just now";
   if (diff < 60) return `${diff}s ago`;
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;

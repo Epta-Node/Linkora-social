@@ -2,15 +2,22 @@ import { Router, Request, Response } from "express";
 import { WebSocket } from "ws";
 import { Database, DbMessage } from "./database";
 import { AuthService } from "./auth";
-import { messageAuthMiddleware, addressOwnershipMiddleware } from "./middleware/auth";
+import {
+  messageAuthMiddleware,
+  addressOwnershipMiddleware,
+  conversationParticipantMiddleware,
+} from "./middleware/auth";
+import { rateLimitMiddleware } from "./middleware/rateLimit";
 import { validateBody, validateQuery, validateParams } from "./middleware/validate";
 import {
-  SendMessageSchema,
+  getSendMessageSchema,
   GetMessagesQuerySchema,
   AddressParamSchema,
   ConversationIdParamSchema,
   parseCursor,
   createCursor,
+  getMaxMessageBytes,
+  type SendMessageRequest,
 } from "./validation";
 import { stellarAddressSchema } from "@linkora/types/src/schemas";
 import { createConversationId, sanitizeError } from "./utils";
@@ -24,9 +31,25 @@ import {
   internalError,
 } from "@linkora/types/src/errors";
 import type { InflightCounter } from "./inflight-counter";
+import { TypingRateLimitMap } from "./typing-rate-limit";
+
+const CLOSE_MESSAGE_TOO_LARGE = 1009;
+
+/** Typing-notification throttle window; entries older than this are pruned (#1330). */
+const TYPING_RATE_LIMIT_WINDOW_MS = 3000;
+/** Hard cap on distinct (sender, recipient) pairs tracked at once (#1330). */
+const TYPING_RATE_LIMIT_MAX_PAIRS = 50_000;
 
 const wsClients = new Map<string, Set<WebSocket>>();
-const typingRateLimitMap = new Map<string, number>();
+const typingRateLimitMap = new TypingRateLimitMap(
+  TYPING_RATE_LIMIT_WINDOW_MS,
+  TYPING_RATE_LIMIT_MAX_PAIRS
+);
+
+/** Test-only accessor for the typing rate-limit map's current size (#1330). */
+export function getTypingRateLimitMapSizeForTests(): number {
+  return typingRateLimitMap.size;
+}
 
 /**
  * Register a WebSocket client for a given Stellar address.
@@ -40,12 +63,30 @@ const typingRateLimitMap = new Map<string, number>();
 export function registerWsClient(
   address: string,
   ws: WebSocket,
-  inflightCounter?: InflightCounter
+  inflightCounter?: InflightCounter,
+  maxMessageBytes: number = getMaxMessageBytes()
 ): void {
   if (!wsClients.has(address)) wsClients.set(address, new Set());
   wsClients.get(address)!.add(ws);
 
-  ws.on("message", (data) => {
+  ws.on("message", async (data) => {
+    const rawLength = Buffer.isBuffer(data)
+      ? data.length
+      : Array.isArray(data)
+        ? data.reduce((acc, b) => acc + b.length, 0)
+        : typeof data === "string"
+          ? Buffer.byteLength(data)
+          : (data as ArrayBuffer).byteLength;
+
+    if (rawLength > maxMessageBytes) {
+      logger.warn(
+        { authenticatedAddress: address, rawLength, maxMessageBytes },
+        "WebSocket frame exceeded max message size limit"
+      );
+      ws.close(CLOSE_MESSAGE_TOO_LARGE, "Message too large");
+      return;
+    }
+
     try {
       const payload = JSON.parse(data.toString());
       if (payload.type === "typing_status") {
@@ -67,16 +108,16 @@ export function registerWsClient(
         }
 
         const rateLimitKey = `${address}:${recipient}`;
-        const lastSent = typingRateLimitMap.get(rateLimitKey) || 0;
         const now = Date.now();
-        if (now - lastSent < 3000) {
+        const lastSent = typingRateLimitMap.get(rateLimitKey, now);
+        if (lastSent !== undefined && now - lastSent < TYPING_RATE_LIMIT_WINDOW_MS) {
           logger.warn(
             { authenticatedAddress: address, recipient },
             "Typing notification rate limit exceeded"
           );
           return;
         }
-        typingRateLimitMap.set(rateLimitKey, now);
+        typingRateLimitMap.touch(rateLimitKey, now);
 
         // Track this DB write so the shutdown handler can wait for it.
         inflightCounter?.increment();
@@ -84,10 +125,12 @@ export function registerWsClient(
         // so decrement immediately after dispatching.
         try {
           logger.info({ sender: address, recipient }, "Typing status notification dispatched");
-          pushToRecipient(recipient, {
+          await pushToRecipient(recipient, {
             type: "typing_status",
             sender: address,
           });
+        } catch (err) {
+          logger.error({ err, sender: address, recipient }, "Failed to push typing status");
         } finally {
           inflightCounter?.decrement();
         }
@@ -103,13 +146,30 @@ export function registerWsClient(
   });
 }
 
-function pushToRecipient(recipient: string, payload: object): void {
+function pushToRecipient(recipient: string, payload: object): Promise<void> {
   const sockets = wsClients.get(recipient);
-  if (!sockets) return;
+  if (!sockets) return Promise.resolve();
+  const openSockets = [...sockets].filter((ws) => ws.readyState === WebSocket.OPEN);
+  if (openSockets.length === 0) return Promise.resolve();
+
   const data = JSON.stringify(payload);
-  for (const ws of sockets) {
-    if (ws.readyState === WebSocket.OPEN) ws.send(data);
-  }
+  const promises = openSockets.map(
+    (ws) =>
+      new Promise<void>((resolve) => {
+        try {
+          ws.send(data, (err) => {
+            if (err) {
+              logger.warn({ err, recipient }, "WebSocket send error");
+            }
+            resolve();
+          });
+        } catch (err) {
+          logger.warn({ err, recipient }, "Synchronous WebSocket send error");
+          resolve();
+        }
+      })
+  );
+  return Promise.all(promises).then(() => undefined);
 }
 
 interface ConversationMessage {
@@ -169,6 +229,7 @@ export function createRouter(database: Database, authService: AuthService): Rout
   const router = Router();
   const messageAuth = messageAuthMiddleware(authService);
   const addressAuth = addressOwnershipMiddleware(authService);
+  const conversationAuth = conversationParticipantMiddleware(authService, database);
 
   /**
    * POST /messages - Submit an encrypted message
@@ -180,11 +241,12 @@ export function createRouter(database: Database, authService: AuthService): Rout
   router.post(
     "/messages",
     messageAuth,
+    rateLimitMiddleware, // runs after auth so req.stellarAddress is set → uses authLimiter
+    validateBody(getSendMessageSchema()),
     idempotencyMiddleware(database),
-    validateBody(SendMessageSchema),
     async (req: Request, res: Response) => {
       try {
-        const messageData = req.body as z.infer<typeof SendMessageSchema>;
+        const messageData = req.body as SendMessageRequest;
 
         const conversationId = createConversationId(messageData.sender, messageData.recipient);
 
@@ -231,22 +293,19 @@ export function createRouter(database: Database, authService: AuthService): Rout
   router.get(
     "/messages/:address",
     addressAuth,
+    rateLimitMiddleware,
     validateParams(AddressParamSchema),
     validateQuery(GetMessagesQuerySchema),
     async (req: Request, res: Response) => {
       try {
         const address = req.params.address;
         const query = req.query as unknown as z.infer<typeof GetMessagesQuerySchema>;
-        let beforeDate: Date | undefined;
+        let cursor: { createdAt: Date; id: string } | undefined;
         if (query.cursor) {
-          beforeDate = parseCursor(query.cursor);
+          cursor = parseCursor(query.cursor);
         }
 
-        const messages = await database.getMessagesByRecipient(
-          address,
-          query.limit + 1,
-          beforeDate
-        );
+        const messages = await database.getMessagesByRecipient(address, query.limit + 1, cursor);
 
         const hasMore = messages.length > query.limit;
         const returnMessages = hasMore ? messages.slice(0, query.limit) : messages;
@@ -254,7 +313,7 @@ export function createRouter(database: Database, authService: AuthService): Rout
         let nextCursor: string | undefined;
         if (hasMore && returnMessages.length > 0) {
           const last = returnMessages[returnMessages.length - 1];
-          nextCursor = createCursor(last.created_at);
+          nextCursor = createCursor(last.created_at, last.id);
         }
 
         const responseMessages: ConversationMessage[] = returnMessages.map((msg: DbMessage) => ({
@@ -281,8 +340,17 @@ export function createRouter(database: Database, authService: AuthService): Rout
     }
   );
 
+  /**
+   * GET /messages/conversation/:conversationId - Fetch messages by conversation id.
+   *
+   * Requires the caller to authenticate as one of the conversation's
+   * participants (issue #1331) — a conversation id alone is derivable from
+   * any two addresses and must not be treated as a capability.
+   */
   router.get(
     "/messages/conversation/:conversationId",
+    conversationAuth,
+    rateLimitMiddleware,
     validateParams(ConversationIdParamSchema),
     validateQuery(GetMessagesQuerySchema),
     async (req: Request, res: Response) => {
@@ -290,12 +358,12 @@ export function createRouter(database: Database, authService: AuthService): Rout
         const conversationId = req.params.conversationId;
         const query = req.query as unknown as z.infer<typeof GetMessagesQuerySchema>;
 
-        let beforeDate: Date | undefined;
+        let cursor: { createdAt: Date; id: string } | undefined;
         if (query.cursor) {
-          beforeDate = parseCursor(query.cursor);
+          cursor = parseCursor(query.cursor);
         }
 
-        const messages = await database.getMessages(conversationId, query.limit + 1, beforeDate);
+        const messages = await database.getMessages(conversationId, query.limit + 1, cursor);
 
         const hasMore = messages.length > query.limit;
         const returnMessages = hasMore ? messages.slice(0, query.limit) : messages;
@@ -303,7 +371,7 @@ export function createRouter(database: Database, authService: AuthService): Rout
         let nextCursor: string | undefined;
         if (hasMore && returnMessages.length > 0) {
           const lastMessage = returnMessages[returnMessages.length - 1];
-          nextCursor = createCursor(lastMessage.created_at);
+          nextCursor = createCursor(lastMessage.created_at, lastMessage.id);
         }
 
         const responseMessages: ConversationMessage[] = returnMessages.map((msg: DbMessage) => ({

@@ -300,6 +300,8 @@ export async function createRateLimitStoreWithStatus(
   redisUrl?: string
 ): Promise<{ store: RateLimitStore; status: RateLimitStoreStatus }> {
   if (redisUrl) {
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const Redis = (await import("ioredis")) as any;
     const RedisClass = Redis.default ?? Redis;
@@ -404,35 +406,29 @@ export function getRateLimitStoreStatus(): RateLimitStoreStatus {
   return { ...storeStatus };
 }
 
-function getClientIP(req: Request): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") {
-    return forwarded.split(",")[0].trim();
-  }
-  return req.ip || "unknown";
-}
+import { getClientIP } from "../ip.js";
 
 /** Per-IP rate limiting middleware. Bypasses IPs configured in ORACLE_RATE_LIMIT_BYPASS_IPS. */
 export function rateLimiter(req: Request, res: Response, next: NextFunction): void {
-  const ip = getClientIP(req);
+  const key = (req as { stellarAddress?: string }).stellarAddress || getClientIP(req);
 
-  if (oracleRateLimitConfig.bypassIps.includes(ip)) {
+  if (oracleRateLimitConfig.bypassIps.includes(key)) {
     next();
     return;
   }
 
   limiter
-    .isAllowedAsync(ip)
+    .isAllowedAsync(key)
     .then(async (allowed) => {
       if (allowed) {
         next();
         return;
       }
 
-      const retryAfterSeconds = await limiter.getRetryAfterSecondsAsync(ip);
+      const retryAfterSeconds = await limiter.getRetryAfterSecondsAsync(key);
 
       logger.warn(
-        { ipAddress: ip, endpoint: req.path, limit: oracleRateLimitConfig.maxRequests },
+        { identifier: key, endpoint: req.path, limit: oracleRateLimitConfig.maxRequests },
         "Rate limit exceeded for oracle endpoint"
       );
 

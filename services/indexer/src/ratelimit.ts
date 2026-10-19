@@ -99,3 +99,31 @@ export function rateLimiterFromEnv(env: NodeJS.ProcessEnv = process.env): TokenB
   const burst = env.RPC_RATE_LIMIT_BURST ? Number(env.RPC_RATE_LIMIT_BURST) : undefined;
   return new TokenBucket({ ratePerSec, burst });
 }
+
+/**
+ * Build a token bucket from env for limiting inbound frames on a single
+ * WebSocket connection, with the same semantics as {@link rateLimiterFromEnv}.
+ *   WS_RATE_LIMIT_PER_SEC  — sustained rate (default 5)
+ *   WS_RATE_LIMIT_BURST    — burst capacity (default = rate)
+ */
+export function wsRateLimiterFromEnv(env: NodeJS.ProcessEnv = process.env): TokenBucket {
+  const ratePerSec = env.WS_RATE_LIMIT_PER_SEC ? Number(env.WS_RATE_LIMIT_PER_SEC) : 5;
+  const burst = env.WS_RATE_LIMIT_BURST ? Number(env.WS_RATE_LIMIT_BURST) : undefined;
+  return new TokenBucket({ ratePerSec, burst });
+}
+
+/**
+ * Default maximum inbound WebSocket message frame size in bytes (64 KB).
+ */
+export const DEFAULT_WS_MAX_MESSAGE_BYTES = 64 * 1024;
+
+/**
+ * Get maximum allowed WebSocket frame/message size in bytes from env.
+ *   WS_MAX_MESSAGE_BYTES  — maximum frame size in bytes (default 65536)
+ */
+export function wsMaxMessageBytesFromEnv(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.WS_MAX_MESSAGE_BYTES || env.WS_MAX_PAYLOAD_BYTES;
+  if (!raw) return DEFAULT_WS_MAX_MESSAGE_BYTES;
+  const parsed = parseInt(raw, 10);
+  return isNaN(parsed) || parsed <= 0 ? DEFAULT_WS_MAX_MESSAGE_BYTES : parsed;
+}

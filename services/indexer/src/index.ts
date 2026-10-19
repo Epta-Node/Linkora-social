@@ -19,6 +19,7 @@
 
 import http from "http";
 import { InstrumentedPool } from "./instrumented-pool";
+import { attachPoolMonitoring } from "./db-pool-monitor";
 import { streamEvents, backfillStartupGap, RawEvent, BatchProcessor } from "./stream";
 import { IngestPipeline, IngestEvent } from "./pipeline";
 import { bus } from "./bus";
@@ -28,7 +29,7 @@ import { attachNotificationDispatcher } from "./notifications/events";
 import { NotificationService, PostgresDeviceTokenStore } from "./notifications/service";
 import { createApp } from "./api";
 import { createDomainProcessor } from "./domain-processor";
-import { saveStateRoot } from "./stateRoot";
+import { applyStateRootDelta } from "./stateRoot";
 import { PostgresDatabase } from "./postgres-db";
 import { ScoreRefreshService } from "./score-refresh";
 import { HealthMonitor } from "./services/health-monitor";
@@ -38,6 +39,9 @@ import { GracefulShutdown } from "./graceful-shutdown";
 import { logger } from "./logger";
 import { initRateLimiter } from "./middleware/rateLimit";
 import { RawEventsRetentionManager } from "./retention";
+import { assertSchemaVersion } from "./schema-version";
+import { streamHealth } from "./metrics";
+import { postgresDomainCursorStore } from "./state";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -66,6 +70,13 @@ const pgPool = new InstrumentedPool(SLOW_QUERY_THRESHOLD_MS, {
   connectionTimeoutMillis: cfg.dbPool.connectionTimeoutMs,
   min: cfg.pgPoolMin,
 });
+
+// pool.on('error') is required: pg.Pool emits it when an idle client dies
+// (e.g. Postgres restarts underneath it), and Node treats an 'error' event
+// with no listener as fatal — this is what turned "Connection terminated
+// unexpectedly" into a process crash rather than a logged, discarded client
+// (issue #888).
+attachPoolMonitoring(pgPool, { logger, serviceName: "indexer" });
 
 logger.info(
   {
@@ -96,169 +107,6 @@ const notificationService = new NotificationService({
 });
 const scoreRefreshService = new ScoreRefreshService(pgPool, SCORE_REFRESH_INTERVAL_MINUTES);
 const rawEventsRetentionManager = new RawEventsRetentionManager(pgPool, cfg.rawEventsRetention);
-
-/**
- * Idempotently ensure the staging table and cursor exist. Mirrors
- * migrations/006_raw_events.sql + 012_raw_events_partitioned.sql for dev/test
- * environments that boot without a separate migration step.
- *
- * When raw_events already exists as a plain (non-partitioned) heap table this
- * function leaves it untouched — run migration 012 to convert it.  Fresh
- * deployments get the partitioned layout from the start.
- */
-async function ensureSchema(): Promise<void> {
-  // ── raw_events ─────────────────────────────────────────────────────────────
-  // Only create the partitioned parent when raw_events does not yet exist at
-  // all.  If it already exists (partitioned or not) we leave it in place;
-  // migration 012 handles the conversion for existing deployments.
-  const rawEventsExists = await pgPool
-    .query<{ exists: boolean }>(`SELECT to_regclass('public.raw_events') IS NOT NULL AS exists`)
-    .then((r) => r.rows[0]?.exists ?? false);
-
-  if (!rawEventsExists) {
-    // Create the partitioned parent.
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS raw_events (
-        id              BIGSERIAL   NOT NULL,
-        ledger_sequence BIGINT      NOT NULL,
-        event_index     INT         NOT NULL,
-        contract_id     TEXT        NOT NULL,
-        topic           TEXT[]      NOT NULL,
-        data            JSONB       NOT NULL,
-        processed_at    TIMESTAMPTZ,
-        PRIMARY KEY (ledger_sequence, event_index)
-      ) PARTITION BY RANGE (ledger_sequence)
-    `);
-
-    // Indexes on the parent — propagated to every child partition (PG 11+).
-    // PG requires all partitioning columns in a unique index, so we include
-    // ledger_sequence alongside id. Names match migration 012.
-    await pgPool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_events_id1
-        ON raw_events (id, ledger_sequence)
-    `);
-    await pgPool.query(`
-      CREATE INDEX IF NOT EXISTS idx_raw_events_contract_id1
-        ON raw_events (contract_id)
-    `);
-    await pgPool.query(`
-      CREATE INDEX IF NOT EXISTS idx_raw_events_ledger1
-        ON raw_events (ledger_sequence)
-    `);
-    // Partial index for crash-recovery: only unprocessed rows are indexed.
-    await pgPool.query(`
-      CREATE INDEX IF NOT EXISTS idx_raw_events_unprocessed
-        ON raw_events (ledger_sequence, event_index)
-        WHERE processed_at IS NULL
-    `);
-
-    // Default catch-all partition (absorbs inserts not covered by a named bucket).
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS raw_events_default
-        PARTITION OF raw_events DEFAULT
-    `);
-
-    // Seed the first two 1M-ledger buckets so initial inserts never hit the
-    // default partition.  The retention manager creates further buckets
-    // proactively as the indexer cursor advances.
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS raw_events_p0_1000000
-        PARTITION OF raw_events FOR VALUES FROM (0) TO (1000000)
-    `);
-    await pgPool.query(`
-      CREATE TABLE IF NOT EXISTS raw_events_p1000000_2000000
-        PARTITION OF raw_events FOR VALUES FROM (1000000) TO (2000000)
-    `);
-  } else {
-    // Table exists — ensure at minimum the partial index is present.
-    // (It will be a no-op if the index already exists.)
-    await pgPool.query(`
-      CREATE INDEX IF NOT EXISTS idx_raw_events_unprocessed
-        ON raw_events (ledger_sequence, event_index)
-        WHERE processed_at IS NULL
-    `);
-  }
-
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS indexer_cursor (
-      id               TEXT        PRIMARY KEY,
-      processed_cursor BIGINT      NOT NULL DEFAULT 0,
-      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS indexer_state (
-      ledger_sequence BIGINT      PRIMARY KEY,
-      state_root      TEXT        NOT NULL,
-      computed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS device_tokens (
-      id         SERIAL      PRIMARY KEY,
-      address    TEXT        NOT NULL,
-      token      TEXT        NOT NULL,
-      platform   TEXT        NOT NULL CHECK (platform IN ('ios', 'android', 'web')),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (address, token)
-    )
-  `);
-  await pgPool.query(`
-    CREATE INDEX IF NOT EXISTS idx_device_tokens_address_updated
-      ON device_tokens (address, updated_at DESC)
-  `);
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS sent_notifications (
-      id              BIGSERIAL    PRIMARY KEY,
-      event_id        BIGINT       NOT NULL,
-      event_type      TEXT         NOT NULL,
-      recipient       TEXT         NOT NULL,
-      dispatch_key    TEXT         NOT NULL,
-      dispatched_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-      UNIQUE (dispatch_key)
-    )
-  `);
-  await pgPool.query(`
-    CREATE INDEX IF NOT EXISTS idx_sent_notifications_recipient
-      ON sent_notifications (recipient, dispatched_at DESC)
-  `);
-
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS blocks (
-      blocker TEXT NOT NULL,
-      blocked TEXT NOT NULL,
-      PRIMARY KEY (blocker, blocked)
-    )
-  `);
-  await pgPool.query(`
-    CREATE INDEX IF NOT EXISTS idx_blocks_blocker ON blocks (blocker)
-  `);
-  await pgPool.query(`
-    CREATE INDEX IF NOT EXISTS idx_blocks_blocked ON blocks (blocked)
-  `);
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS dm_keys (
-      address       TEXT PRIMARY KEY,
-      x25519_pubkey TEXT NOT NULL,
-      updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pgPool.query(`
-    CREATE TABLE IF NOT EXISTS notification_preferences (
-      address              TEXT PRIMARY KEY,
-      browser_push_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-      new_followers        BOOLEAN NOT NULL DEFAULT TRUE,
-      new_likes            BOOLEAN NOT NULL DEFAULT TRUE,
-      new_comments         BOOLEAN NOT NULL DEFAULT TRUE,
-      direct_messages      BOOLEAN NOT NULL DEFAULT TRUE,
-      pool_activity        BOOLEAN NOT NULL DEFAULT TRUE,
-      governance_updates   BOOLEAN NOT NULL DEFAULT TRUE,
-      updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-}
 
 // ── Event normalisation ─────────────────────────────────────────────────────
 
@@ -324,7 +172,12 @@ async function main(): Promise<void> {
   // Initialise HTTP rate limiter (upgrades to Redis store when REDIS_URL is set).
   await initRateLimiter();
 
-  await ensureSchema();
+  // #1523 — _ensureSchema has been removed.  The canonical schema definition
+  // lives exclusively in services/indexer/migrations/.  Booting without
+  // migrations applied now fails with an actionable error rather than
+  // silently creating tables from a hand-maintained inline copy that can
+  // drift from the migration files.
+  await assertSchemaVersion(pgPool);
 
   const pipeline = new IngestPipeline(pgPool, {
     streamId: CONTRACT_ID,
@@ -334,11 +187,12 @@ async function main(): Promise<void> {
       notificationService,
       new PostgresDatabase(pgPool)
     ),
-    // Publish the state root only after this batch's transaction has
-    // committed, so the stored root always reflects a fully-applied ledger
-    // rather than a partially-applied one.
-    onCommit: (cursor): Promise<void> =>
-      saveStateRoot(pgPool, cursor).then(
+    // Update the state root incrementally from the batch delta — O(batch_size)
+    // instead of the old O(table_size) full scan.  The root is written to
+    // indexer_state after the domain transaction has already committed, so it
+    // always reflects a fully-applied ledger.
+    onCommit: (cursor, events): Promise<void> =>
+      applyStateRootDelta(pgPool, cursor, events).then(
         () => {},
         (err) =>
           logger.warn({ err, ledgerSequence: cursor }, "Failed to publish state root after commit")
@@ -347,7 +201,10 @@ async function main(): Promise<void> {
 
   const processBatch: BatchProcessor = async (events) => {
     const result = await pipeline.processBatch(events.map(toIngestEvent));
-    if (events.length > 0) healthMonitor.recordEvent();
+    if (events.length > 0) {
+      healthMonitor.recordEvent();
+      streamHealth.lastIngestedLedger = result.cursor;
+    }
     return result.cursor;
   };
 
@@ -456,9 +313,15 @@ async function main(): Promise<void> {
       contractId: CONTRACT_ID,
       startLedger: START_LEDGER,
       initialCursor,
+      domain: ["profiles", "posts", "follows", "tips"].includes(process.env.INDEXER_DOMAIN ?? "")
+        ? (process.env.INDEXER_DOMAIN as "profiles" | "posts" | "follows" | "tips")
+        : undefined,
+      domainCursorStore: postgresDomainCursorStore(pgPool),
       ratePerSec: cfg.rpcRateLimitPerSec,
       minPollMs: cfg.minPollIntervalMs,
       maxPollMs: cfg.maxPollIntervalMs,
+      circuitBreakerThreshold: cfg.streamCircuitBreakerThreshold,
+      circuitBreakerProbeIntervalMs: cfg.streamCircuitBreakerProbeIntervalMs,
       backfillConfig: cfg.backfill,
       backfillCoordinator,
     },

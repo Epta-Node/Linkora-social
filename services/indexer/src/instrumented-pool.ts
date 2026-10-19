@@ -1,15 +1,10 @@
-import { Pool, QueryConfig, QueryResult, QueryResultRow, PoolConfig } from "pg";
+import { Pool, PoolConfig } from "pg";
 import { logger } from "./logger";
 
 /**
  * A `pg.Pool` subclass that measures every query's wall-clock duration and
  * emits a structured warning through the shared logger when the duration
  * exceeds `slowQueryThresholdMs`.
- *
- * Replaces the previous monkey-patch of `pgPool.query` which:
- *   - cast the pool to `any`, removing TypeScript overload safety
- *   - silently dropped results when the 2-argument callback form was used
- *   - had no error-path instrumentation
  */
 export class InstrumentedPool extends Pool {
   private readonly slowQueryThresholdMs: number;
@@ -19,26 +14,37 @@ export class InstrumentedPool extends Pool {
     this.slowQueryThresholdMs = slowQueryThresholdMs;
   }
 
-  async query<R extends QueryResultRow = QueryResultRow>(
-    queryTextOrConfig: string | QueryConfig,
-    values?: unknown[]
-  ): Promise<QueryResult<R>> {
+  /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-constraint */
+  override query<R = any, I = any[]>(...args: any[]): any {
     const start = Date.now();
+    const queryTextOrConfig = args[0];
     const sqlSnippet =
       typeof queryTextOrConfig === "string"
         ? queryTextOrConfig.slice(0, 120)
         : "(prepared)";
     try {
-      const result = await super.query<R>(queryTextOrConfig as string, values);
-      const dur = Date.now() - start;
-      if (dur > this.slowQueryThresholdMs) {
-        logger.warn({ dur, sql: sqlSnippet }, "slow-query");
+      const res = (super.query as any)(...args);
+      if (res && typeof res.then === "function") {
+        return res
+          .then((result: any) => {
+            const dur = Date.now() - start;
+            if (dur > this.slowQueryThresholdMs) {
+              logger.warn({ dur, sql: sqlSnippet }, "slow-query");
+            }
+            return result;
+          })
+          .catch((err: any) => {
+            const dur = Date.now() - start;
+            logger.error({ dur, sql: sqlSnippet, err }, "query-error");
+            throw err;
+          });
       }
-      return result;
+      return res;
     } catch (err) {
       const dur = Date.now() - start;
       logger.error({ dur, sql: sqlSnippet, err }, "query-error");
       throw err;
     }
   }
+  /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unnecessary-type-constraint */
 }

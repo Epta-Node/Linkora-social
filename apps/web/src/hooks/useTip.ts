@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { parseTokenAmount } from "./usePools";
-import { classifyError } from "./usePoolContract";
+import { classifyTipError } from "@/lib/tipValidation";
 
 export type TipStatus =
   | "idle"
@@ -58,7 +58,7 @@ export function useTip() {
         });
         setStatus("success");
       } catch (err) {
-        setError(classifyError(err));
+        setError(classifyTipError(err));
         setStatus("error");
       }
     },

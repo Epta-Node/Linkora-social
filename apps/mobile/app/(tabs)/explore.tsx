@@ -1,5 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 
 import { PoolRow, PoolSearchResult } from "../../components/PoolRow";
@@ -10,6 +17,7 @@ import { ErrorState } from "../../components/states/ErrorState";
 import { PoolCardSkeleton } from "../../components/skeletons/PoolCardSkeleton";
 import { ProfileCardSkeleton } from "../../components/skeletons/ProfileCardSkeleton";
 import { useTheme } from "../../theme/useTheme";
+import { poolDetailRoute, searchPoolCatalog } from "../../utils/poolCatalog";
 
 const DEBOUNCE_MS = 300;
 
@@ -31,33 +39,6 @@ const PROFILES: ProfileSearchResult[] = [
     username: "nova",
     bio: "Music drops and fan rewards",
     creatorToken: "NOVA",
-  },
-];
-
-const POOLS: PoolSearchResult[] = [
-  {
-    id: "creator-fund",
-    name: "Creator Fund",
-    description: "Shared treasury for emerging creators",
-    token: "XLM",
-    balance: "18,240 XLM",
-    members: 128,
-  },
-  {
-    id: "music-drops",
-    name: "Music Drops",
-    description: "Funding pool for independent releases",
-    token: "NOVA",
-    balance: "7,900 NOVA",
-    members: 64,
-  },
-  {
-    id: "design-guild",
-    name: "Design Guild",
-    description: "Collective pool for visual artists",
-    token: "ATLAS",
-    balance: "3,450 ATLAS",
-    members: 42,
   },
 ];
 
@@ -83,11 +64,9 @@ async function searchCatalog(query: string): Promise<SearchResults> {
         matchesQuery(value, normalized)
       )
     ),
-    pools: POOLS.filter((pool) =>
-      [pool.id, pool.name, pool.description, pool.token].some((value) =>
-        matchesQuery(value, normalized)
-      )
-    ),
+    // #1592 — pool results come from the canonical catalog, so the ids offered
+    // here are exactly the ids `/pools/[id]` can resolve.
+    pools: searchPoolCatalog(normalized),
   };
 }
 
@@ -233,9 +212,9 @@ export default function ExploreScreen() {
                     key={pool.id}
                     pool={pool}
                     onPress={(item) =>
-                      router.push(
-                        `/pool/${encodeURIComponent(item.id)}` as Parameters<typeof router.push>[0]
-                      )
+                      // #1592/#1594 — one navigator, one route: the same
+                      // `/pools/[id]` the Pools tab uses.
+                      router.push(poolDetailRoute(item.id) as Parameters<typeof router.push>[0])
                     }
                   />
                 ))}

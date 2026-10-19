@@ -12,12 +12,17 @@ import type { AddressInfo } from "net";
 import express from "express";
 import {
   InMemoryWsRateLimitStore,
+  InMemoryWsAddressRateLimitStore,
   RedisWsRateLimitStore,
   WS_RATE_LIMIT_MAX,
   WS_RATE_LIMIT_WINDOW_MS,
+  WS_ADDRESS_BURST,
+  WS_ADDRESS_REFILL_MS,
   isWsIpRateLimited,
+  isWsAddressRateLimited,
   resetWsRateLimit,
   setWsRateLimitStore,
+  setWsAddressRateLimitStore,
   type WsRateLimitStore,
 } from "../middleware/rateLimit";
 import { createHealthRouter } from "../routes/health";
@@ -174,6 +179,47 @@ describe("WebSocket IP rate limiting", () => {
       errorSpy.mockRestore();
     });
   });
+
+  describe("isWsAddressRateLimited (token bucket per address)", () => {
+    const TEST_ADDR = "GABC1234567890STELLARADDRESSFORTESTING1234567890";
+
+    afterEach(async () => {
+      await resetWsRateLimit();
+      setWsAddressRateLimitStore(new InMemoryWsAddressRateLimitStore());
+    });
+
+    it("throttles rapid reconnects when bucket tokens are exhausted", async () => {
+      const now = 1_700_000_000_000;
+      setWsAddressRateLimitStore(
+        new InMemoryWsAddressRateLimitStore(WS_ADDRESS_BURST, WS_ADDRESS_REFILL_MS)
+      );
+
+      // Burst allowance (WS_ADDRESS_BURST attempts allowed)
+      for (let i = 0; i < WS_ADDRESS_BURST; i++) {
+        expect(await isWsAddressRateLimited(TEST_ADDR, now)).toBe(false);
+      }
+
+      // Next immediate attempt beyond burst is throttled
+      expect(await isWsAddressRateLimited(TEST_ADDR, now)).toBe(true);
+    });
+
+    it("refills tokens over time allowing subsequent reconnects", async () => {
+      const now = 1_700_000_000_000;
+      setWsAddressRateLimitStore(
+        new InMemoryWsAddressRateLimitStore(WS_ADDRESS_BURST, WS_ADDRESS_REFILL_MS)
+      );
+
+      // Exhaust burst
+      for (let i = 0; i < WS_ADDRESS_BURST; i++) {
+        await isWsAddressRateLimited(TEST_ADDR, now);
+      }
+      expect(await isWsAddressRateLimited(TEST_ADDR, now)).toBe(true);
+
+      // Advance time by refill period (WS_ADDRESS_REFILL_MS)
+      const futureTime = now + WS_ADDRESS_REFILL_MS;
+      expect(await isWsAddressRateLimited(TEST_ADDR, futureTime)).toBe(false);
+    });
+  });
 });
 
 describe("dm-relay loadConfig", () => {
@@ -207,7 +253,14 @@ describe("dm-relay loadConfig", () => {
 });
 
 describe("dm-relay health endpoints", () => {
-  const db = { ping: jest.fn().mockResolvedValue(undefined) } as unknown as Database;
+  const db = {
+    ping: jest.fn().mockResolvedValue(undefined),
+    getPoolHealth: jest.fn().mockResolvedValue({
+      status: "healthy",
+      latencyMs: 1,
+      metrics: { totalCount: 1, idleCount: 1, waitingCount: 0 },
+    }),
+  } as unknown as Database;
 
   interface HealthResponse {
     status: string;

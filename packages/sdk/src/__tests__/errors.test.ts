@@ -9,6 +9,7 @@ import {
   NetworkError,
   SigningError,
   ContractError,
+  SimulationError,
   mapError,
 } from "../errors";
 
@@ -181,6 +182,20 @@ describe("mapError", () => {
     it("matches 'host function'", () => {
       expect(mapError("host function invocation failed")).toBeInstanceOf(ContractError);
     });
+
+    it("preserves SimulationError instance directly", () => {
+      const simErr = new SimulationError(
+        "Simulation failed",
+        undefined,
+        undefined,
+        "Trap error",
+        "ARITH_COUNT"
+      );
+      const result = mapError(simErr);
+      expect(result).toBe(simErr);
+      expect(result).toBeInstanceOf(SimulationError);
+      expect((result as SimulationError).hostError).toBe("ARITH_COUNT");
+    });
   });
 
   describe("NetworkError", () => {
@@ -190,6 +205,51 @@ describe("mapError", () => {
 
     it("matches 'timeout'", () => {
       expect(mapError("request timeout")).toBeInstanceOf(NetworkError);
+    });
+  });
+
+  describe("NetworkError (unreachable RPC)", () => {
+    it("maps an axios ECONNREFUSED error (socket code) to NetworkError", () => {
+      const err = new Error("connect ECONNREFUSED 127.0.0.1:8000");
+      (err as { code?: string }).code = "ECONNREFUSED";
+      const result = mapError(err);
+      expect(result).toBeInstanceOf(NetworkError);
+      expect(result.code).toBe("NETWORK_ERROR");
+      expect(result.originalError).toBe(err);
+    });
+
+    it("maps a DNS lookup failure (getaddrinfo ENOTFOUND) to NetworkError", () => {
+      const err = new Error("getaddrinfo ENOTFOUND rpc.example.com");
+      (err as { code?: string }).code = "ENOTFOUND";
+      const result = mapError(err) as NetworkError;
+      expect(result).toBeInstanceOf(NetworkError);
+      expect(result.originalError).toBe(err);
+    });
+
+    it("maps a plain-networked DNS failure string to NetworkError", () => {
+      expect(mapError("getaddrinfo ENOTFOUND rpc.example.com")).toBeInstanceOf(NetworkError);
+    });
+
+    it("maps a timeout-of-Xms error to NetworkError", () => {
+      const err = new Error("timeout of 30000ms exceeded");
+      (err as { code?: string }).code = "ECONNABORTED";
+      expect(mapError(err)).toBeInstanceOf(NetworkError);
+    });
+
+    it("maps 'TypeError: fetch failed' by walking the cause chain", () => {
+      const cause = new Error("connect ETIMEDOUT 192.168.0.10:8000");
+      (cause as { code?: string }).code = "ETIMEDOUT";
+      const err = new TypeError("fetch failed");
+      (err as { cause?: unknown }).cause = cause;
+      const result = mapError(err) as NetworkError;
+      expect(result).toBeInstanceOf(NetworkError);
+      expect(result.originalError).toBe(err);
+    });
+
+    it("maps an ECONNRESET from an abrupt socket close to NetworkError", () => {
+      const err = new Error("read ECONNRESET");
+      (err as { code?: string }).code = "ECONNRESET";
+      expect(mapError(err)).toBeInstanceOf(NetworkError);
     });
   });
 
@@ -204,15 +264,47 @@ describe("mapError", () => {
   });
 
   describe("default fallback", () => {
-    it("returns LinkoraError for unknown errors", () => {
+    it("returns ContractError for unmapped errors preserving raw context", () => {
       const result = mapError("something unexpected happened");
-      expect(result).toBeInstanceOf(LinkoraError);
-      expect(result).not.toBeInstanceOf(NotFoundError);
+      expect(result).toBeInstanceOf(ContractError);
       expect(result.message).toBe("something unexpected happened");
+      expect(result.details).toEqual({ rawMessage: "something unexpected happened", unmapped: true });
     });
 
     it("handles Error objects", () => {
-      expect(mapError(new Error("custom runtime error"))).toBeInstanceOf(LinkoraError);
+      const err = new Error("custom runtime error");
+      const mapped = mapError(err);
+      expect(mapped).toBeInstanceOf(ContractError);
+      expect(mapped.details).toEqual({ rawMessage: "custom runtime error", unmapped: true });
+    });
+  });
+
+  describe("Contract Panics mapping (Issue #1354)", () => {
+    it("maps panic!('blocked') to UnauthorizedError", () => {
+      const result = mapError("HostError: Error(Contract, #6) panic!('blocked')");
+      expect(result).toBeInstanceOf(UnauthorizedError);
+      expect(result.message).toContain("blocked");
+    });
+
+    it("maps contract math panics (overflow/underflow/division by zero) to ValidationError", () => {
+      const resultOverflow = mapError("panic: arithmetic overflow in contract invocation");
+      expect(resultOverflow).toBeInstanceOf(ValidationError);
+      expect(resultOverflow.details).toHaveProperty("rawMessage");
+
+      const resultDivZero = mapError("panic: division by zero");
+      expect(resultDivZero).toBeInstanceOf(ValidationError);
+    });
+
+    it("maps assert! failures to ValidationError", () => {
+      const result = mapError("assertion failed: user_balance >= minimum_stake");
+      expect(result).toBeInstanceOf(ValidationError);
+      expect(result.message).toContain("Contract assertion failed");
+    });
+
+    it("maps explicit panic!(...) messages to ContractError with raw context", () => {
+      const result = mapError("panic!('custom_contract_state_invalid')");
+      expect(result).toBeInstanceOf(ContractError);
+      expect(result.details).toEqual({ rawMessage: "panic!('custom_contract_state_invalid')", unmapped: false });
     });
   });
 });

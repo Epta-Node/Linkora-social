@@ -1,5 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import { AuthService, AuthError } from "../auth";
+import { Database } from "../database";
 import { SendMessageSchema } from "../validation";
 import { ZodError } from "zod";
 import {
@@ -19,6 +20,7 @@ export function messageAuthMiddleware(authService: AuthService) {
         to: messageData.recipient,
         nonce: messageData.message_index,
         timestamp: messageData.timestamp,
+        ciphertext: messageData.ciphertext_b64,
         signature: messageData.signature,
       });
 
@@ -55,6 +57,51 @@ export function messageAuthMiddleware(authService: AuthService) {
  * limiters can use it. Returns 401 for missing/invalid auth and 403 when
  * the authenticated address does not match the requested :address param.
  */
+/**
+ * Middleware verifying the caller owns a Stellar address AND is a
+ * participant of the conversation named by `:conversationId` (issue #1331).
+ *
+ * Unlike {@link addressOwnershipMiddleware}, there is no `:address` route
+ * param to compare against — a conversation id is derivable from any two
+ * addresses, so it does not itself identify the caller. Membership is
+ * instead checked against the conversation's actual message rows via
+ * `Database.isConversationParticipant`. A non-participant (or a
+ * not-yet-existing conversation) gets 403, matching the ownership model the
+ * `/messages/:address` route already enforces.
+ */
+export function conversationParticipantMiddleware(authService: AuthService, database: Database) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const requestId = (req as any).requestId;
+    try {
+      const { address, signature, timestamp } = AuthService.parseAuthHeader(
+        req.headers.authorization
+      );
+
+      authService.verifyAddressOwnership(address, timestamp, signature);
+
+      const conversationId = req.params.conversationId;
+      const isParticipant = await database.isConversationParticipant(conversationId, address);
+      if (!isParticipant) {
+        const err = forbiddenError("You are not a participant in this conversation");
+        res.status(err.statusCode).json(err.toJSON(requestId));
+        return;
+      }
+
+      (req as any).stellarAddress = address;
+      next();
+    } catch (error) {
+      if (error instanceof AuthError) {
+        const err = unauthorizedError(error.message);
+        res.status(err.statusCode).json(err.toJSON(requestId));
+        return;
+      }
+
+      const err = internalError("Conversation authentication error");
+      res.status(err.statusCode).json(err.toJSON(requestId));
+    }
+  };
+}
+
 export function addressOwnershipMiddleware(authService: AuthService) {
   return (req: Request, res: Response, next: NextFunction): void => {
     try {

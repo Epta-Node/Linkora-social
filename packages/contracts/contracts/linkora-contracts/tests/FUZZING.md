@@ -21,6 +21,25 @@ would need a hand-rolled harness to get that.
   - `invariant_pool_balance_conservation` — `Pool.balance` always equals
     `sum(deposits) - sum(withdrawals)` for any interleaving of the two.
 - `fuzz_tip.rs` — fee-split arithmetic properties (overflow/rounding).
+- `fuzz_pools.rs` — pool deposit/withdraw/signer-gate invariants (issue #1691):
+  - `prop_pool_balance_equals_deposits_minus_withdrawals` — balance
+    conservation under arbitrary interleaving of deposits and partial
+    withdrawals.
+  - `prop_withdraw_rejected_below_threshold` — M-of-N signer enforcement:
+    withdrawals are rejected when the number of valid signers is below
+    the pool's threshold.
+- `fuzz_rent.rs` — rent payment state machine (issue #1691):
+  - `prop_pay_rent_increases_expiry_monotonically` — `get_rent_expiry`
+    never decreases without a payment; every accepted payment strictly
+    increases the expiry ledger.
+  - `prop_larger_payment_extends_longer` — ledger extension is monotonic
+    in payment amount (larger payment → longer extension).
+  - `prop_tiny_payment_rejected_leaves_expiry_unchanged` — payments too
+    small to produce any ledger extension are rejected without altering
+    the current expiry.
+- `fuzz_credential.rs` — Ed25519 signature gate and Merkle proof integrity.
+- `fuzz_oracle.rs` — oracle attestation signature verification properties.
+- `fuzz_governance.rs` — governance parameter snapshot invariants.
 - `invariants.rs` — narrative invariant checklist backed by the contract's
   unit test suite (`src/test.rs`).
 
@@ -30,6 +49,12 @@ would need a hand-rolled harness to get that.
 cd packages/contracts
 cargo test -p linkora-contracts --test invariant_social_graph
 cargo test -p linkora-contracts --test fuzz_social_graph
+cargo test -p linkora-contracts --test fuzz_pools
+cargo test -p linkora-contracts --test fuzz_rent
+cargo test -p linkora-contracts --test fuzz_tip
+cargo test -p linkora-contracts --test fuzz_credential
+cargo test -p linkora-contracts --test fuzz_oracle
+cargo test -p linkora-contracts --test fuzz_governance
 ```
 
 Every `proptest!` block runs its cases on each `cargo test` invocation (see

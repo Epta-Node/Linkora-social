@@ -73,7 +73,9 @@ export async function waitForWalletConnection(page: Page, timeout = 15000): Prom
  * If no wallet data exists yet, it falls back to clicking a Connect button.
  */
 export async function connectWallet(page: Page): Promise<void> {
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("domcontentloaded");
+
+  await page.waitForTimeout(500);
 
   const skipTourButton = page.locator('button:has-text("Skip tour")').first();
   if (await skipTourButton.isVisible().catch(() => false)) {

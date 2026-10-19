@@ -381,21 +381,102 @@ export function getRateLimitStoreStatus(): RateLimitStoreStatus {
 
 // ── Helper functions ──────────────────────────────────────────────────────────
 
-/**
- * Resolve the client IP used as the rate-limit key.
- *
- * `X-Forwarded-For` is client-controlled, so it must never be read directly —
- * a caller can set it to an arbitrary value and get a fresh limiter bucket on
- * every request. Instead we rely on `req.ip`, which Express derives using the
- * app's `trust proxy` setting (`app.set("trust proxy", 1)` in
- * `api/index.ts`): with exactly one trusted hop configured, Express walks
- * `X-Forwarded-For` from the right and returns the address our proxy actually
- * observed, ignoring any attacker-prepended entries. When the app has no
- * trusted proxy configured (e.g. in tests), `req.ip` falls back to the raw
- * socket address, which is not spoofable either.
- */
-function getClientIP(req: Request): string {
-  return req.ip || req.socket.remoteAddress || "unknown";
+export const DEFAULT_TRUSTED_PROXIES = [
+  "127.0.0.1/32",
+  "127.0.0.1",
+  "::1/128",
+  "::1",
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "192.168.0.0/16",
+];
+
+export function normalizeIp(ip: string): string {
+  if (!ip) return "unknown";
+  let cleaned = ip.trim();
+  if (cleaned.startsWith("::ffff:")) {
+    cleaned = cleaned.substring(7);
+  }
+  return cleaned;
+}
+
+function ipv4ToLong(ip: string): number | null {
+  const parts = ip.split(".").map((p) => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
+    return null;
+  }
+  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+export function isIpInCidr(ip: string, cidr: string): boolean {
+  const normalizedIp = normalizeIp(ip);
+  const normalizedCidr = normalizeIp(cidr);
+
+  if (!normalizedCidr.includes("/")) {
+    return normalizedIp === normalizedCidr;
+  }
+
+  const [range, bitsStr] = normalizedCidr.split("/");
+  const bits = parseInt(bitsStr, 10);
+
+  const ipLong = ipv4ToLong(normalizedIp);
+  const rangeLong = ipv4ToLong(range);
+  if (ipLong !== null && rangeLong !== null && !isNaN(bits) && bits >= 0 && bits <= 32) {
+    const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
+    return (ipLong & mask) === (rangeLong & mask);
+  }
+
+  if (normalizedIp === range) {
+    return true;
+  }
+
+  return false;
+}
+
+export function getClientIP(
+  req: { headers: Record<string, unknown>; socket?: { remoteAddress?: string }; ip?: string },
+  customTrustedProxies?: string[]
+): string {
+  const trustedList =
+    customTrustedProxies ??
+    (process.env.TRUSTED_PROXIES
+      ? process.env.TRUSTED_PROXIES.split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : DEFAULT_TRUSTED_PROXIES);
+
+  const socketIp = normalizeIp(req.socket?.remoteAddress || req.ip || "unknown");
+
+  const isDirectConnectionTrusted = trustedList.some((cidr) => isIpInCidr(socketIp, cidr));
+
+  if (!isDirectConnectionTrusted) {
+    return socketIp;
+  }
+
+  const rawXff = req.headers["x-forwarded-for"];
+  if (!rawXff) {
+    return socketIp;
+  }
+
+  const xffHeader = Array.isArray(rawXff) ? rawXff.join(",") : String(rawXff);
+  const ips = xffHeader
+    .split(",")
+    .map((ip) => normalizeIp(ip))
+    .filter(Boolean);
+
+  if (ips.length === 0) {
+    return socketIp;
+  }
+
+  for (let i = ips.length - 1; i >= 0; i--) {
+    const candidateIp = ips[i];
+    const isTrusted = trustedList.some((cidr) => isIpInCidr(candidateIp, cidr));
+    if (!isTrusted) {
+      return candidateIp;
+    }
+  }
+
+  return ips[0];
 }
 
 function isWriteEndpoint(path: string, method: string): boolean {
@@ -405,24 +486,24 @@ function isWriteEndpoint(path: string, method: string): boolean {
 // ── Middleware ────────────────────────────────────────────────────────────────
 
 export function rateLimitRead(req: Request, res: Response, next: NextFunction): void {
-  const ip = getClientIP(req);
+  const key = req.context?.stellarAddress || getClientIP(req);
   const limit = req.context?.stellarAddress ? RATE_LIMIT_AUTH_RPM : RATE_LIMIT_ANON_RPM;
 
   limiter
-    .isAllowedAsync(ip, limit)
+    .isAllowedAsync(key, limit)
     .then(async (allowed) => {
       if (allowed) {
         next();
         return;
       }
 
-      const retryAfterMs = await limiter.getRemainingTimeAsync(ip);
+      const retryAfterMs = await limiter.getRemainingTimeAsync(key);
       const retryAfterSeconds = Math.ceil(retryAfterMs / 1000);
 
       logger.warn(
         {
           requestId: req.context?.requestId,
-          ipAddress: ip,
+          identifier: key,
           endpoint: req.path,
           limit,
         },

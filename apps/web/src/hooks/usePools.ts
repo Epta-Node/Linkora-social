@@ -20,8 +20,11 @@ export interface TokenMeta {
 
 export type FetchState = "idle" | "loading" | "success" | "error";
 
-// ── Stellar public key regex (G + 55 base32 chars) ───────────────────────────
+// ── Stellar address regexes ─────────────────────────────────────────────────
+// Account public key (G + 55 base32 chars) — used for admin lists
 export const STELLAR_KEY_RE = /^G[A-Z2-7]{55}$/;
+// Soroban contract address (C + 55 base32 chars) — used for token fields
+export const STELLAR_CONTRACT_RE = /^C[A-Z2-7]{55}$/;
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -45,78 +48,84 @@ export function parseTokenAmount(value: string, decimals: number): bigint {
   return BigInt(whole || "0") * BigInt(10 ** decimals) + BigInt(fracPadded || "0");
 }
 
-// ── Mock contract client ──────────────────────────────────────────────────────
-// Replace the body of each function with real SDK calls once the generated
-// client is wired up (packages/sdk/src/index.ts → stellar contract bindings).
+// ── SDK contract client ────────────────────────────────────────────────────────
+
+let sdkClient: any = null;
+
+async function getSdkClient() {
+  if (!sdkClient) {
+    try {
+      // Import the SDK client dynamically when needed
+      const { LinkoraClient } = await import("linkora-sdk");
+      sdkClient = new LinkoraClient({
+        contractId:
+          typeof window !== "undefined"
+            ? (window as any).NEXT_PUBLIC_CONTRACT_ID ||
+              "CBQHLSNMBF4HS3UX2PV72T75V2SXE7M2EZZTQ6YC5DSXIGGY4NPSAFAF"
+            : process.env.NEXT_PUBLIC_CONTRACT_ID ||
+              "CBQHLSNMBF4HS3UX2PV72T75V2SXE7M2EZZTQ6YC5DSXIGGY4NPSAFAF",
+        rpcUrl:
+          typeof window !== "undefined"
+            ? (window as any).NEXT_PUBLIC_SOROBAN_RPC_URL ||
+              "https://soroban-testnet.stellar.org"
+            : process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ||
+              "https://soroban-testnet.stellar.org",
+      });
+    } catch (err) {
+      console.error("Failed to initialize SDK client:", err);
+      return null;
+    }
+  }
+  return sdkClient;
+}
 
 async function contractGetPool(poolId: string): Promise<PoolData | null> {
-  // TODO: replace with: await client.get_pool({ pool_id: poolId })
-  await new Promise((r) => setTimeout(r, 600));
+  const client = await getSdkClient();
+  if (!client) {
+    throw new Error("SDK client not available");
+  }
 
-  const mockPools: Record<string, PoolData> = {
-    community: {
-      pool_id: "community",
-      token: "GDQOE23CFSUMSVQK4Y5JHPPYK73VYCNHZHA7ENKCV37P6SUEO6XQBKPP",
-      balance: BigInt("5000000000"),
-      admins: [
-        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-        "GBVVJJWAKJHTEQHZGM5AOKXJLNBGKDSMXZXJZXJZXJZXJZXJZXJZXJ",
-        "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5",
-        "GDFOHLMYCXVZD2CDXZLMIRQZPEAXE7B5MURMIZ4IYQUENHZSJPINMQB",
-        "GAHK7EEG2WWHVKDNT4CEQFZGKF2LGDSW2IVM4S5DP42RBW3K6BTODB4",
-      ],
-      threshold: 3,
-    },
-    grants: {
-      pool_id: "grants",
-      token: "GDQOE23CFSUMSVQK4Y5JHPPYK73VYCNHZHA7ENKCV37P6SUEO6XQBKPP",
-      balance: BigInt("0"),
-      admins: [
-        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-        "GBVVJJWAKJHTEQHZGM5AOKXJLNBGKDSMXZXJZXJZXJZXJZXJZXJZXJ",
-      ],
-      threshold: 2,
-    },
-    devfund: {
-      pool_id: "devfund",
-      token: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5",
-      balance: BigInt("12500000000"),
-      admins: [
-        "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN",
-        "GBVVJJWAKJHTEQHZGM5AOKXJLNBGKDSMXZXJZXJZXJZXJZXJZXJZXJ",
-        "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5",
-      ],
-      threshold: 2,
-    },
-  };
-
-  return mockPools[poolId] ?? null;
+  try {
+    const pool = await client.getPool(poolId);
+    return pool || null;
+  } catch (err) {
+    console.error(`Failed to fetch pool ${poolId}:`, err);
+    throw new Error(`Failed to fetch pool ${poolId}`);
+  }
 }
 
 async function contractGetAllPools(): Promise<PoolData[]> {
-  // TODO: replace with indexed query or event scan
-  await new Promise((r) => setTimeout(r, 800));
-  const ids = ["community", "grants", "devfund"];
-  const results = await Promise.all(ids.map(contractGetPool));
-  return results.filter(Boolean) as PoolData[];
+  const client = await getSdkClient();
+  if (!client) {
+    throw new Error("SDK client not available");
+  }
+
+  try {
+    const pools = await client.getAllPools();
+    return Array.isArray(pools) ? pools : [];
+  } catch (err) {
+    console.error("Failed to fetch pools:", err);
+    throw new Error("Failed to fetch pools");
+  }
 }
 
 async function contractGetTokenMeta(tokenAddress: string): Promise<TokenMeta> {
-  // TODO: replace with SEP-41 token.symbol() / token.decimals() calls
-  await new Promise((r) => setTimeout(r, 200));
-  const mocks: Record<string, TokenMeta> = {
-    GDQOE23CFSUMSVQK4Y5JHPPYK73VYCNHZHA7ENKCV37P6SUEO6XQBKPP: {
-      symbol: "USDC",
-      decimals: 7,
-      name: "USD Coin",
-    },
-    GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5: {
-      symbol: "XLM",
-      decimals: 7,
-      name: "Stellar Lumens",
-    },
-  };
-  return mocks[tokenAddress] ?? { symbol: "TOKEN", decimals: 7, name: "Unknown Token" };
+  const client = await getSdkClient();
+  if (!client) {
+    throw new Error("SDK client not available");
+  }
+
+  try {
+    const meta = await client.getTokenMetadata(tokenAddress);
+    return {
+      symbol: meta.symbol || "TOKEN",
+      decimals: meta.decimals || 7,
+      name: meta.name || "Unknown Token",
+    };
+  } catch (err) {
+    console.error(`Failed to fetch token metadata for ${tokenAddress}:`, err);
+    return { symbol: "TOKEN", decimals: 7, name: "Unknown Token" };
+  }
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
@@ -125,6 +134,7 @@ export function useAllPools() {
   const [pools, setPools] = useState<PoolData[]>([]);
   const [state, setState] = useState<FetchState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
 
   const fetch = useCallback(async () => {
     setState("loading");
@@ -133,17 +143,22 @@ export function useAllPools() {
       const data = await contractGetAllPools();
       setPools(data);
       setState("success");
+      setIsStale(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load pools");
       setState("error");
+      // Mark existing data as stale but keep it visible
+      if (pools.length > 0) {
+        setIsStale(true);
+      }
     }
-  }, []);
+  }, [pools.length]);
 
   useEffect(() => {
     fetch();
   }, [fetch]);
 
-  return { pools, state, error, refresh: fetch };
+  return { pools, state, error, isStale, refresh: fetch };
 }
 
 export function usePool(poolId: string | null) {

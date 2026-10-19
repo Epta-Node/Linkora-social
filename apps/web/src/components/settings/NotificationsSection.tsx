@@ -45,14 +45,15 @@ export function NotificationsSection({ address }: { address: string }) {
       try {
         const serverPrefs = await fetchPreferencesFromServer(address);
         if (serverPrefs) {
+          const serverSettings = serverPrefs.preferences ?? serverPrefs;
           setSettings({
-            browserPushEnabled: serverPrefs.browserPushEnabled,
-            newFollowers: serverPrefs.newFollowers,
-            newLikes: serverPrefs.newLikes,
-            newComments: serverPrefs.newComments,
-            directMessages: serverPrefs.directMessages,
-            poolActivity: serverPrefs.poolActivity,
-            governanceUpdates: serverPrefs.governanceUpdates,
+            browserPushEnabled: serverSettings.browserPushEnabled ?? false,
+            newFollowers: serverSettings.newFollowers ?? true,
+            newLikes: serverSettings.newLikes ?? true,
+            newComments: serverSettings.newComments ?? true,
+            directMessages: serverSettings.directMessages ?? true,
+            poolActivity: serverSettings.poolActivity ?? true,
+            governanceUpdates: serverSettings.governanceUpdates ?? true,
           });
         }
       } catch (error) {

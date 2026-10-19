@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Post } from "../components/PostCard";
 import { initDatabase, getCachedPosts, evictStaleCache } from "../utils/db";
-import { fetchAndCachePosts, syncPendingPosts } from "../utils/sync";
+import {
+  fetchAndCachePosts,
+  fetchPostById,
+  getSyncPendingPostsOptions,
+  resolvePostWithFallback,
+  syncPendingPosts,
+} from "../utils/sync";
+import { useNetworkContext } from "../context/NetworkContext";
 
 const PAGE_SIZE = 10;
 
@@ -19,13 +26,26 @@ export function subscribeToFeedUpdates(listener: () => void): () => void {
   };
 }
 
+/**
+ * Resolves a post for a detail screen: local cache first, then the indexer.
+ *
+ * The detail screen used to resolve its content from SQLite alone, so every
+ * deep link, share and notification target for a post outside the newest cached
+ * page rendered "not found" (#1544).
+ */
 export function getFeedPostById(postId: string): Promise<Post | null> {
-  // Return via DB import if needed, or query cache.
-  // Note: Since this is now async, screens should fetch it asynchronously.
-  return import("../utils/db").then((db) => db.getCachedPostById(postId));
+  return resolvePostWithFallback(postId);
 }
 
 export const getFeedPost = getFeedPostById;
+
+/**
+ * Retry action for a post the screen could not load: forces a fresh indexer
+ * fetch, bypassing the cache, and writes the result back.
+ */
+export function retryPostFetch(postId: string): Promise<Post | null> {
+  return fetchPostById(postId);
+}
 
 export function markFeedPostDeleted(postId: string | number): void {
   // Mark post deleted in local cache
@@ -50,8 +70,20 @@ export function useFeed(): UseFeedReturn {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
+  const { contractId, rpcUrl, network } = useNetworkContext();
+
   const offsetRef = useRef(0);
   const loadingRef = useRef(false);
+  const loadedPostsRef = useRef(0);
+  const postsLengthRef = useRef(0);
+  const hasMoreRef = useRef(true);
+  // Always holds the *current* network id, independent of which network a
+  // given syncWithNetwork call started under — read after the network
+  // round-trip below to detect a switch that happened mid-flight.
+  const networkIdRef = useRef(network.id);
+  useEffect(() => {
+    networkIdRef.current = network.id;
+  }, [network.id]);
 
   // Load posts from SQLite cache
   const loadFromCache = useCallback(async (limit: number, replace: boolean) => {
@@ -62,9 +94,12 @@ export function useFeed(): UseFeedReturn {
       setPosts((prev) => {
         const next = replace ? cached : [...prev, ...cached];
         offsetRef.current = next.length;
+        loadedPostsRef.current = next.length;
+        postsLengthRef.current = next.length;
         return next;
       });
       setHasMore(cached.length >= limit);
+      hasMoreRef.current = cached.length >= limit;
     } catch (err) {
       console.warn("Failed to load posts from SQLite cache:", err);
     }
@@ -77,6 +112,10 @@ export function useFeed(): UseFeedReturn {
       loadingRef.current = true;
       setLoading(true);
       setError(null);
+      // Captured once, together with contractId/rpcUrl in this closure — see
+      // the dependency array below. Used to detect a network switch that
+      // happens while this call is still in flight (#1550).
+      const startNetworkId = network.id;
 
       try {
         // 1. Initialize DB if not done
@@ -84,7 +123,7 @@ export function useFeed(): UseFeedReturn {
 
         // 2. Fetch remote page and upsert to SQLite
         const offset = replace ? 0 : offsetRef.current;
-        await fetchAndCachePosts(PAGE_SIZE, offset);
+        await fetchAndCachePosts(PAGE_SIZE, offset, !replace);
 
         // 3. Evict stale rows periodically on initial refresh
         if (replace) {
@@ -92,20 +131,26 @@ export function useFeed(): UseFeedReturn {
         }
 
         // 4. Reload from SQLite (the entire loaded list so far, to refresh all visible posts)
-        const currentLoadedCount = replace ? PAGE_SIZE : posts.length + PAGE_SIZE;
+        const currentLoadedCount = replace ? PAGE_SIZE : loadedPostsRef.current + PAGE_SIZE;
         const cached = await getCachedPosts(currentLoadedCount, 0);
         setPosts(cached);
         offsetRef.current = cached.length;
+        loadedPostsRef.current = cached.length;
+        postsLengthRef.current = cached.length;
         setHasMore(cached.length >= currentLoadedCount);
+        hasMoreRef.current = cached.length >= currentLoadedCount;
 
-        // 5. Fire background sync for pending posts
-        void syncPendingPosts().then(() => {
-          notifyFeedUpdate();
-        });
+        // 5. Fire background sync for pending posts (only if wallet kit is available)
+        const syncOptions = getSyncPendingPostsOptions(contractId, rpcUrl, network.id);
+        if (syncOptions) {
+          void syncPendingPosts(syncOptions).then(() => {
+            notifyFeedUpdate();
+          });
+        }
       } catch (err) {
         console.warn("Network sync failed, displaying cached data:", err);
         // Fallback: just load from cache if we haven't already
-        if (posts.length === 0) {
+        if (loadedPostsRef.current === 0) {
           await loadFromCache(PAGE_SIZE, true);
         }
         setError("Offline mode. Serving cached posts.");
@@ -114,7 +159,7 @@ export function useFeed(): UseFeedReturn {
         loadingRef.current = false;
       }
     },
-    [posts.length, loadFromCache]
+    [loadFromCache, contractId, rpcUrl, network.id]
   );
 
   // Initial load
@@ -133,23 +178,29 @@ export function useFeed(): UseFeedReturn {
     return () => {
       active = false;
     };
+    // Re-runs whenever syncWithNetwork's identity changes — i.e. whenever
+    // contractId/rpcUrl/network.id change (#1550) — so switching networks
+    // re-syncs against the new one instead of the closure this effect
+    // captured on mount.
   }, [loadFromCache, syncWithNetwork]);
 
   // Subscribe to feed updates (e.g. from optimistic creation or sync confirmation)
   useEffect(() => {
     return subscribeToFeedUpdates(async () => {
-      const limit = Math.max(PAGE_SIZE, posts.length);
+      const limit = Math.max(PAGE_SIZE, postsLengthRef.current);
       const cached = await getCachedPosts(limit, 0);
       setPosts(cached);
       offsetRef.current = cached.length;
+      loadedPostsRef.current = cached.length;
+      postsLengthRef.current = cached.length;
     });
-  }, [posts.length]);
+  }, []);
 
   const loadMore = useCallback(() => {
-    if (!loading && hasMore) {
+    if (!loadingRef.current && hasMoreRef.current) {
       void syncWithNetwork(false);
     }
-  }, [loading, hasMore, syncWithNetwork]);
+  }, [syncWithNetwork]);
 
   const refresh = useCallback(() => {
     void syncWithNetwork(true);

@@ -48,8 +48,14 @@ export default function ProfileHeader({
   return (
     <View style={styles.container}>
       <View style={styles.row}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{(profile.username ?? "").charAt(0).toUpperCase() || "?"}</Text>
+        <View
+          style={styles.avatar}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Text style={styles.avatarText}>
+            {(profile.username ?? "").charAt(0).toUpperCase() || "?"}
+          </Text>
         </View>
         <View style={styles.meta}>
           <Text style={styles.username}>{profile.username ?? shortAddress}</Text>
@@ -58,7 +64,13 @@ export default function ProfileHeader({
         </View>
         <View style={styles.actionWrap}>
           {isOwnProfile ? (
-            <Pressable style={styles.editButton} onPress={onEditPress} accessibilityRole="button">
+            <Pressable
+              style={styles.editButton}
+              onPress={onEditPress}
+              accessibilityRole="button"
+              accessibilityLabel="Edit profile"
+              testID="profile-edit"
+            >
               <Text style={styles.editText}>Edit</Text>
             </Pressable>
           ) : (
@@ -66,6 +78,9 @@ export default function ProfileHeader({
               style={[styles.followButton, isFollowing ? styles.following : null]}
               onPress={onToggleFollow}
               accessibilityRole="button"
+              accessibilityLabel={isFollowing ? "Following. Tap to unfollow" : "Follow"}
+              accessibilityState={{ selected: isFollowing }}
+              testID="profile-toggle-follow"
             >
               <Text style={[styles.followText, isFollowing ? styles.followingText : null]}>
                 {isFollowing ? "Following" : "Follow"}
@@ -79,7 +94,9 @@ export default function ProfileHeader({
         <Pressable onPress={onFollowersPress} accessibilityRole="button" style={styles.countItem}>
           <Text
             style={styles.countNumber}
-            accessibilityLabel={followerCount === null ? "Followers loading" : `${followerCount} followers`}
+            accessibilityLabel={
+              followerCount === null ? "Followers loading" : `${followerCount} followers`
+            }
             testID="follower-count"
           >
             {followerCount === null ? "—" : followerCount}
@@ -89,7 +106,9 @@ export default function ProfileHeader({
         <Pressable onPress={onFollowingPress} accessibilityRole="button" style={styles.countItem}>
           <Text
             style={styles.countNumber}
-            accessibilityLabel={followingCount === null ? "Following loading" : `${followingCount} following`}
+            accessibilityLabel={
+              followingCount === null ? "Following loading" : `${followingCount} following`
+            }
             testID="following-count"
           >
             {followingCount === null ? "—" : followingCount}

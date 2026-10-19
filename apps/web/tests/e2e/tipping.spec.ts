@@ -10,7 +10,8 @@ test.describe("Post Tipping", () => {
 
   test("feed page is accessible after wallet connect", async ({ page }) => {
     await page.goto("/feed");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
     await expect(page.locator("main").first()).toBeVisible({ timeout: 10000 });
   });
 
@@ -19,7 +20,8 @@ test.describe("Post Tipping", () => {
     // is no tip control on the post detail page, so we assert directly on the
     // feed rather than navigating into a post.
     await page.goto("/feed");
-    await page.waitForLoadState("networkidle");
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(500);
 
     const firstPost = page.locator("article").first();
     const hasPost = await firstPost.isVisible().catch(() => false);

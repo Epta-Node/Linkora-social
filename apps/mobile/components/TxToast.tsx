@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Linking,
@@ -25,6 +26,8 @@ export interface TxToastState {
 interface TxToastProps {
   toast: TxToastState;
   onDismiss: () => void;
+  /** Called with `true` while the user is touching the toast (pauses auto-dismiss) and `false` on release. */
+  onPauseChange?: (paused: boolean) => void;
   theme: ThemeTokens;
 }
 
@@ -33,7 +36,7 @@ function shortHash(hash: string): string {
   return `${hash.slice(0, 8)}…${hash.slice(-6)}`;
 }
 
-export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
+export function TxToast({ toast, onDismiss, onPauseChange, theme }: TxToastProps) {
   const translateY = useRef(new Animated.Value(-24)).current;
   const opacity = useRef(new Animated.Value(0)).current;
 
@@ -58,6 +61,16 @@ export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
       }),
     ]).start();
   }, [opacity, translateY]);
+
+  // #1595 — a transient toast is not part of the reading order, so an error
+  // shown after a failed clipboard/settings action must be announced explicitly
+  // (VoiceOver) rather than only rendered. TalkBack gets the liveRegion below.
+  useEffect(() => {
+    if (toast.kind === "error") {
+      const announcement = [toast.title, toast.message].filter(Boolean).join(". ");
+      AccessibilityInfo.announceForAccessibility(announcement);
+    }
+  }, [toast.id, toast.kind, toast.title, toast.message]);
 
   const panResponder = useMemo(
     () =>
@@ -87,6 +100,8 @@ export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
 
   return (
     <Animated.View
+      testID="toast"
+      accessibilityLiveRegion={toast.kind === "error" ? "assertive" : "polite"}
       style={[
         styles.toast,
         {
@@ -97,6 +112,9 @@ export function TxToast({ toast, onDismiss, theme }: TxToastProps) {
         },
       ]}
       {...panResponder.panHandlers}
+      onTouchStart={() => onPauseChange?.(true)}
+      onTouchEnd={() => onPauseChange?.(false)}
+      onTouchCancel={() => onPauseChange?.(false)}
     >
       <View
         style={[

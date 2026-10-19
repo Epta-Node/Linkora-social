@@ -10,6 +10,8 @@ export interface MediaUploadProps {
   onRemoveImage: (id: string) => void;
   isCompressing?: boolean;
   maxCount?: number;
+  error?: string | null;
+  maxUploadBytes?: number;
 }
 
 export function MediaUpload({
@@ -18,6 +20,8 @@ export function MediaUpload({
   onRemoveImage,
   isCompressing = false,
   maxCount = 4,
+  error = null,
+  maxUploadBytes,
 }: MediaUploadProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -31,6 +35,8 @@ export function MediaUpload({
   };
 
   const isMaxReached = images.length >= maxCount;
+  const sizeLabel =
+    maxUploadBytes != null ? ` (max ${(maxUploadBytes / (1024 * 1024)).toFixed(1)}MB)` : "";
 
   return (
     <div className="space-y-2">
@@ -61,8 +67,25 @@ export function MediaUpload({
         ) : (
           <ImageIcon className="h-4 w-4 text-gray-500" />
         )}
-        <span>Add image</span>
+        <span>Add image{sizeLabel}</span>
       </button>
+
+      {/* Server-reported size limit note */}
+      {maxUploadBytes != null && (
+        <p className="text-xs text-gray-400">
+          Files above {(maxUploadBytes / (1024 * 1024)).toFixed(1)}MB are rejected before upload.
+        </p>
+      )}
+
+      {/* Upload / validation errors surfaced in the dropzone */}
+      {error && (
+        <div
+          role="alert"
+          className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 border border-red-200"
+        >
+          {error}
+        </div>
+      )}
 
       {/* Image preview grid below */}
       {images.length > 0 && (
@@ -78,6 +101,18 @@ export function MediaUpload({
                 alt="Upload preview"
                 className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
               />
+              {/* Pending upload overlay */}
+              {img.uploading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <Loader2 className="h-6 w-6 animate-spin text-white" />
+                </div>
+              )}
+              {/* Per-file upload error */}
+              {img.error && (
+                <div className="absolute inset-x-0 bottom-0 bg-red-600/90 px-1.5 py-1 text-[10px] leading-tight text-white">
+                  Upload failed
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => onRemoveImage(img.id)}

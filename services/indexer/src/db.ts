@@ -28,6 +28,7 @@ export interface Post {
   created_ledger: number;
   deleted_ledger: number | null;
   content: string;
+  tags?: string[];
 }
 
 export interface Like {
@@ -170,7 +171,8 @@ export interface Database {
     offset: number;
   }): Promise<{ posts: Post[]; total: number }>;
   searchPosts(filters: {
-    q: string;
+    q?: string;
+    tag?: string;
     limit: number;
     offset: number;
   }): Promise<{ posts: Post[]; total: number }>;
@@ -179,6 +181,12 @@ export interface Database {
     limit: number;
     cursor?: number;
   }): Promise<{ posts: Post[]; total: number; hasMore: boolean }>;
+  getFeed?(filters: {
+    viewer?: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ posts: Post[]; total: number }>;
+
   getFollowers(
     address: string,
     limit: number,

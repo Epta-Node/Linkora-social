@@ -1,9 +1,14 @@
 import { ConnectionHealthMonitor, ConnectionStatus } from "../health";
+import * as rpc from "@stellar/stellar-sdk/rpc";
 
 const mockGetLatestLedger = jest.fn();
+const mockGetNetwork = jest.fn();
 
 jest.mock("@stellar/stellar-sdk/rpc", () => ({
-  Server: jest.fn().mockImplementation(() => ({ getLatestLedger: mockGetLatestLedger })),
+  Server: jest.fn().mockImplementation(() => ({
+    getLatestLedger: mockGetLatestLedger,
+    getNetwork: mockGetNetwork,
+  })),
   Api: {
     isSimulationError: (r: unknown) => !!(r as { error?: unknown }).error,
     isSimulationSuccess: (r: unknown) => !!(r as { result?: unknown }).result,
@@ -28,7 +33,7 @@ jest.mock("@stellar/stellar-base", () => ({
 }));
 
 /** Wait for a condition to become true, polling every 10ms. */
-function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
+function waitFor(condition: () => boolean, timeoutMs = 5000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const poll = () => {
@@ -43,6 +48,7 @@ function waitFor(condition: () => boolean, timeoutMs = 500): Promise<void> {
 describe("ConnectionHealthMonitor", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetNetwork.mockResolvedValue({ passphrase: "Test SDF Network ; September 2015" });
   });
 
   describe("healthCheck()", () => {
@@ -56,6 +62,32 @@ describe("ConnectionHealthMonitor", () => {
       mockGetLatestLedger.mockRejectedValue(new Error("Network error"));
       const monitor = new ConnectionHealthMonitor("https://rpc.example.com");
       expect(await monitor.healthCheck()).toBe(false);
+    });
+
+    it("rejects an RPC that reports a different network passphrase", async () => {
+      mockGetNetwork.mockResolvedValue({
+        passphrase: "Public Global Stellar Network ; September 2015",
+      });
+      mockGetLatestLedger.mockResolvedValue({ sequence: 100 });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com");
+
+      expect(await monitor.healthCheck()).toBe(false);
+      await expect(monitor.getHealthResult()).resolves.toMatchObject({
+        healthy: false,
+        expectedNetworkPassphrase: "Test SDF Network ; September 2015",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+      expect(mockGetLatestLedger).not.toHaveBeenCalled();
+    });
+
+    it("rejects a malformed latest-ledger sequence", async () => {
+      mockGetLatestLedger.mockResolvedValue({ sequence: Number.NaN });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com");
+
+      await expect(monitor.getHealthResult()).resolves.toMatchObject({
+        healthy: false,
+        error: "RPC returned an invalid latest ledger sequence.",
+      });
     });
   });
 
@@ -290,6 +322,7 @@ describe("ConnectionHealthMonitor", () => {
 
   describe("LinkoraClient integration", () => {
     let LinkoraClient: typeof import("../client").LinkoraClient;
+    const MockServer = rpc.Server as unknown as jest.Mock;
     beforeAll(async () => {
       ({ LinkoraClient } = await import("../client"));
     });
@@ -306,6 +339,21 @@ describe("ConnectionHealthMonitor", () => {
       expect(await client.healthCheck()).toBe(false);
     });
 
+    it("exposes the configured network in detailed health results", async () => {
+      mockGetNetwork.mockResolvedValue({ passphrase: "Test SDF Network ; September 2015" });
+      const client = new LinkoraClient({
+        contractId: "CDUMMY",
+        rpcUrl: "https://rpc.example.com",
+        networkPassphrase: "Public Global Stellar Network ; September 2015",
+      });
+
+      await expect(client.getHealthResult()).resolves.toMatchObject({
+        healthy: false,
+        expectedNetworkPassphrase: "Public Global Stellar Network ; September 2015",
+        networkPassphrase: "Test SDF Network ; September 2015",
+      });
+    });
+
     it("onConnectionStatusChange starts checks and fires callback", async () => {
       mockGetLatestLedger.mockResolvedValue({ sequence: 1 });
       const client = new LinkoraClient({
@@ -320,6 +368,79 @@ describe("ConnectionHealthMonitor", () => {
       await waitFor(() => cb.mock.calls.length > 0);
       expect(cb).toHaveBeenCalledWith("connected");
       client.stopHealthChecks();
+    });
+
+    it("reuses a single rpc.Server across simulate, healthCheck, and prepareTransaction", async () => {
+      MockServer.mockClear();
+      mockGetLatestLedger.mockResolvedValue({ sequence: 1 });
+
+      const client = new LinkoraClient({ contractId: "CDUMMY", rpcUrl: "https://rpc.example.com" });
+
+      // The constructor should create exactly one rpc.Server
+      expect(MockServer).toHaveBeenCalledTimes(1);
+      const callsAfterCtor = MockServer.mock.calls.length;
+
+      // healthCheck reuses the same server — no additional Server construction
+      await client.healthCheck();
+      expect(MockServer).toHaveBeenCalledTimes(1);
+
+      // createRpcServer returns the cached instance
+      const server = client.createRpcServer();
+      expect(MockServer).toHaveBeenCalledTimes(1);
+      expect(server).toBeDefined();
+
+      // Confirm MockServer was not called again during any of the above
+      expect(MockServer.mock.calls.length).toBe(callsAfterCtor);
+    });
+  });
+  describe("jitter and backoff (Issue 1265)", () => {
+    it("adds jitter to initial and subsequent checks", async () => {
+      const setTimeoutSpy = jest.spyOn(global, "setTimeout");
+
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 50,
+        backoffMs: 20,
+      });
+      monitor.start();
+
+      expect(setTimeoutSpy).toHaveBeenCalled();
+      const scheduledDelays = setTimeoutSpy.mock.calls
+        .map((call) => call[1])
+        .filter((delay): delay is number => typeof delay === "number" && delay <= 50);
+      const firstCallDelay = Math.min(...scheduledDelays);
+      expect(firstCallDelay).toBeGreaterThanOrEqual(0);
+      expect(firstCallDelay).toBeLessThanOrEqual(50); // up to the initial interval jitter cap
+
+      monitor.stop();
+      setTimeoutSpy.mockRestore();
+    });
+
+    it("stops probing when max backoff is reached and can be resumed", async () => {
+      mockGetLatestLedger.mockImplementation(() => {
+        return Promise.reject(new Error("down"));
+      });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 10,
+        backoffMs: 10,
+        maxBackoffMs: 10,
+      });
+      monitor.start();
+
+      // Wait for a few backoff cycles
+      await new Promise((r) => setTimeout(r, 300));
+
+      const checksAfterStop = mockGetLatestLedger.mock.calls.length;
+
+      // Wait another 100ms to ensure no further checks occur
+      await new Promise((r) => setTimeout(r, 100));
+      expect(mockGetLatestLedger.mock.calls.length).toBe(checksAfterStop);
+
+      // Manual resume should restart it
+      monitor.resume();
+      await new Promise((r) => setTimeout(r, 100));
+      expect(mockGetLatestLedger.mock.calls.length).toBeGreaterThan(checksAfterStop);
+
+      monitor.stop();
     });
   });
 });

@@ -2,15 +2,14 @@ import React, { useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { useTheme } from "../theme/useTheme";
+import type { PoolCatalogEntry } from "../utils/poolCatalog";
 
-export interface PoolSearchResult {
-  id: string;
-  name: string;
-  description: string;
-  token: string;
-  balance: string;
-  members: number;
-}
+/**
+ * #1592 — a pool search result is a catalog entry. The shape used to be
+ * redeclared here, which let the ids Explore offered drift from the ids the
+ * catalog (and therefore the detail route) knew about.
+ */
+export type PoolSearchResult = PoolCatalogEntry;
 
 interface PoolRowProps {
   pool: PoolSearchResult;

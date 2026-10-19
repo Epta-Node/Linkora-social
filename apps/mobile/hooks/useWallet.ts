@@ -33,13 +33,10 @@ export interface UseWalletReturn {
   disconnect: () => Promise<void>;
   /** Re-check persisted wallet state */
   refresh: () => Promise<void>;
-  /** Update the active network preference */
-  setNetwork: (network: WalletNetwork) => void;
 }
 
 export function useWallet(): UseWalletReturn {
-  const { wallet, network, state, error, connect, disconnect, refresh, setNetwork } =
-    useWalletContext();
+  const { wallet, network, state, error, connect, disconnect, refresh } = useWalletContext();
 
   return {
     address: wallet.address,
@@ -51,7 +48,6 @@ export function useWallet(): UseWalletReturn {
     connect,
     disconnect,
     refresh,
-    setNetwork,
   };
 }
 

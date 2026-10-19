@@ -52,6 +52,12 @@ export enum ProposalStatus {
   Executed = "Executed",
 }
 
+export enum ReportStatus {
+  Pending = "Pending",
+  Dismissed = "Dismissed",
+  Upheld = "Upheld",
+}
+
 // ── Structs / Contract Types ───────────────────────────────
 
 export interface Pool {
@@ -104,4 +110,14 @@ export interface GovProposal {
   status: GovStatus;
   votes_against: number;
   votes_for: number;
+}
+
+export interface Report {
+  created_ledger: number;
+  post_id: bigint;
+  reason_hash: Uint8Array;
+  reporter: string;
+  stake_amount: bigint;
+  status: ReportStatus;
+  token: string;
 }

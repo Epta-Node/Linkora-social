@@ -1,29 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useWalletContext } from "@/components/WalletProvider";
 import { useNotificationsContext } from "@/contexts/NotificationsContext";
+import type { Notification } from "@/contexts/NotificationsContext";
+import {
+  fetchNotificationPage,
+  markAllNotificationsRead,
+  mergeNotifications,
+} from "@/lib/notificationsApi";
 
-export type NotificationType = "follow" | "like" | "tip" | "governance";
-
-export interface Notification {
-  id: string;
-  type: NotificationType;
-  actor: string;
-  postId?: number;
-  proposalId?: number;
-  parameter?: string;
-  amountXlm?: string;
-  excerpt?: string;
-  timestamp: string;
-  read: boolean;
-}
+export type { NotificationType, Notification } from "@/contexts/NotificationsContext";
 
 const LS_NOTIFICATIONS_KEY = "linkora:notifications:items";
-const PAGE_SIZE = 10;
-const EXCERPT_LEN = 60;
-const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL ?? "http://localhost:3001";
-const INDEXER_WS_URL = INDEXER_URL.replace(/^http/, "ws") + "/ws";
 
 function loadStored(address: string): Notification[] {
   try {
@@ -36,162 +25,167 @@ function loadStored(address: string): Notification[] {
 }
 
 function persist(address: string, items: Notification[]): void {
-  localStorage.setItem(`${LS_NOTIFICATIONS_KEY}:${address}`, JSON.stringify(items));
-}
-
-function stroopsToXlm(amount: bigint | string | number): string {
-  return (Number(amount) / 1e7).toFixed(2);
-}
-
-async function fetchPostExcerpt(postId: number): Promise<string | undefined> {
   try {
-    const res = await fetch(`${INDEXER_URL}/api/posts/${postId}`);
-    if (!res.ok) return undefined;
-    const post = (await res.json()) as { content?: string };
-    if (!post.content) return undefined;
-    const text = post.content.trim();
-    return text.length > EXCERPT_LEN ? `${text.slice(0, EXCERPT_LEN)}…` : text;
+    localStorage.setItem(`${LS_NOTIFICATIONS_KEY}:${address}`, JSON.stringify(items));
   } catch {
-    return undefined;
+    // Storage full or unavailable: the inbox still works from memory.
   }
 }
 
+export type NotificationsStatus = "idle" | "loading" | "loading-more" | "error";
+
+/**
+ * Inbox for the connected wallet, backed by the indexer's cursor-paginated
+ * notifications API (issue #1632) and merged with live items from
+ * NotificationsProvider, which owns the WebSocket and the global unread badge.
+ *
+ * - Pages are fetched with the opaque `next_cursor`; items are merged by id,
+ *   so overlapping pages and items that already arrived live never duplicate.
+ * - "Mark all as read" is optimistic: the list and badge update immediately,
+ *   and both are rolled back if the signed API call fails.
+ * - Reading a single item is tracked locally (no wallet prompt per click).
+ */
 export function useNotifications() {
   const { address } = useWalletContext();
-  const { incrementUnread, resetUnread } = useNotificationsContext();
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [page, setPage] = useState(1);
+  const {
+    decrementUnread,
+    resetUnread,
+    incrementUnread,
+    notifications: liveNotifications,
+  } = useNotificationsContext();
+
+  const [items, setItems] = useState<Notification[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [status, setStatus] = useState<NotificationsStatus>("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [markAllPending, setMarkAllPending] = useState(false);
+  const [markAllError, setMarkAllError] = useState<string | null>(null);
+
   const addressRef = useRef<string | null>(null);
+  const itemsRef = useRef<Notification[]>([]);
+  const inFlight = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    if (!address) {
-      setNotifications([]);
-      return;
-    }
-    setNotifications(loadStored(address));
-    addressRef.current = address;
-  }, [address]);
-
-  const addNotification = useCallback(
-    (n: Notification) => {
-      if (!addressRef.current) return;
-      setNotifications((prev) => {
-        if (prev.some((x) => x.id === n.id)) return prev;
-        const next = [n, ...prev].sort(
-          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        );
-        persist(addressRef.current!, next);
-        return next;
-      });
-      incrementUnread();
-    },
-    [incrementUnread]
-  );
-
-  useEffect(() => {
-    if (!address) return;
-
-    const ws = new WebSocket(INDEXER_WS_URL);
-
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          action: "subscribe",
-          types: ["follow", "like", "tip", "gov_proposal_created", "gov_proposal_executed"],
-        })
-      );
-    };
-
-    ws.onmessage = async (e) => {
-      try {
-        const { type, payload } = JSON.parse(e.data);
-        if (!payload || !payload.data) return;
-
-        const data = payload.data;
-        const timestamp = data.ledgerClosedAt ?? new Date().toISOString();
-        const eventId = data.pagingToken ?? `${type}-${Date.now()}`;
-
-        if (type === "follow" && data.followee === address) {
-          addNotification({
-            id: eventId,
-            type: "follow",
-            actor: data.follower,
-            timestamp,
-            read: false,
-          });
-        } else if (type === "like" && data.user !== address) {
-          const excerpt = await fetchPostExcerpt(data.post_id);
-          addNotification({
-            id: eventId,
-            type: "like",
-            actor: data.user,
-            postId: data.post_id,
-            excerpt,
-            timestamp,
-            read: false,
-          });
-        } else if (type === "tip" && data.tipper !== address) {
-          const excerpt = await fetchPostExcerpt(data.post_id);
-          addNotification({
-            id: eventId,
-            type: "tip",
-            actor: data.tipper,
-            postId: data.post_id,
-            amountXlm: stroopsToXlm(data.amount),
-            excerpt,
-            timestamp,
-            read: false,
-          });
-        } else if (type === "gov_proposal_created") {
-          addNotification({
-            id: eventId,
-            type: "governance",
-            actor: data.proposer ?? "System",
-            proposalId: data.proposal_id,
-            parameter: data.parameter,
-            excerpt: "A new governance proposal was created",
-            timestamp,
-            read: false,
-          });
-        } else if (type === "gov_proposal_executed") {
-          addNotification({
-            id: eventId,
-            type: "governance",
-            actor: "System",
-            proposalId: data.proposal_id,
-            parameter: data.parameter,
-            excerpt: "A governance proposal was executed",
-            timestamp,
-            read: false,
-          });
-        }
-      } catch (err) {
-        console.error("Failed to process websocket message", err);
-      }
-    };
-
-    return () => {
-      ws.close();
-    };
-  }, [address, addNotification]);
-
-  const markAllRead = useCallback(() => {
-    if (!addressRef.current) return;
-    setNotifications((prev) => {
-      const next = prev.map((n) => ({ ...n, read: true }));
-      persist(addressRef.current!, next);
-      return next;
-    });
-    resetUnread();
-  }, [resetUnread]);
-
-  const loadMore = useCallback(() => {
-    setPage((p) => p + 1);
+  const commit = useCallback((next: Notification[]) => {
+    itemsRef.current = next;
+    setItems(next);
+    if (addressRef.current) persist(addressRef.current, next);
   }, []);
 
-  const visibleNotifications = notifications.slice(0, page * PAGE_SIZE);
-  const hasMore = notifications.length > page * PAGE_SIZE;
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const loadPage = useCallback(
+    async (cursor: string | null) => {
+      const owner = addressRef.current;
+      if (!owner) return;
+      inFlight.current?.abort();
+      const controller = new AbortController();
+      inFlight.current = controller;
+      setStatus(cursor ? "loading-more" : "loading");
+      setError(null);
+      try {
+        const page = await fetchNotificationPage(owner, { cursor, signal: controller.signal });
+        if (controller.signal.aborted || addressRef.current !== owner) return;
+        commit(mergeNotifications(itemsRef.current, page.notifications));
+        setNextCursor(page.nextCursor);
+        setHasMore(page.hasMore);
+        setStatus("idle");
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Could not load notifications");
+        setStatus("error");
+      }
+    },
+    [commit]
+  );
 
-  return { notifications: visibleNotifications, hasMore, unreadCount, markAllRead, loadMore };
+  // Cached items render immediately; the first page then reconciles them.
+  useEffect(() => {
+    inFlight.current?.abort();
+    addressRef.current = address ?? null;
+    setNextCursor(null);
+    setHasMore(false);
+    setMarkAllError(null);
+    if (!address) {
+      itemsRef.current = [];
+      setItems([]);
+      setStatus("idle");
+      return;
+    }
+    itemsRef.current = loadStored(address);
+    setItems(itemsRef.current);
+    void loadPage(null);
+    return () => inFlight.current?.abort();
+  }, [address, loadPage]);
+
+  // Live items from the provider, deduped by id.
+  useEffect(() => {
+    if (!addressRef.current || !liveNotifications || liveNotifications.length === 0) return;
+    commit(mergeNotifications(itemsRef.current, liveNotifications));
+  }, [liveNotifications, commit]);
+
+  const loadMore = useCallback(() => {
+    if (!hasMore || !nextCursor || status === "loading" || status === "loading-more") return;
+    void loadPage(nextCursor);
+  }, [hasMore, nextCursor, status, loadPage]);
+
+  const retry = useCallback(() => {
+    void loadPage(nextCursor);
+  }, [loadPage, nextCursor]);
+
+  const markAllRead = useCallback(async () => {
+    const owner = addressRef.current;
+    if (!owner || markAllPending) return;
+    const previous = itemsRef.current;
+    const unreadIds = new Set(previous.filter((n) => !n.read).map((n) => n.id));
+
+    commit(previous.map((n) => (n.read ? n : { ...n, read: true })));
+    resetUnread();
+    setMarkAllError(null);
+    setMarkAllPending(true);
+    try {
+      await markAllNotificationsRead(owner);
+    } catch (err) {
+      if (addressRef.current === owner) {
+        // Restore exactly the items that were unread, keeping the badge in step.
+        commit(itemsRef.current.map((n) => (unreadIds.has(n.id) ? { ...n, read: false } : n)));
+        unreadIds.forEach(() => incrementUnread());
+        setMarkAllError(
+          err instanceof Error ? err.message : "Could not mark notifications as read"
+        );
+      }
+    } finally {
+      setMarkAllPending(false);
+    }
+  }, [commit, incrementUnread, markAllPending, resetUnread]);
+
+  /**
+   * Mark a single notification as read and keep the global unread counter in
+   * sync. Unread state is preserved until the user explicitly reads an item
+   * (or uses "Mark all read"); it is never cleared just by visiting the page.
+   */
+  const markRead = useCallback(
+    (id: string) => {
+      if (!addressRef.current) return;
+      const target = itemsRef.current.find((n) => n.id === id);
+      if (!target || target.read) return;
+      commit(itemsRef.current.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      decrementUnread();
+    },
+    [commit, decrementUnread]
+  );
+
+  const unreadCount = useMemo(() => items.filter((n) => !n.read).length, [items]);
+
+  return {
+    notifications: items,
+    hasMore,
+    unreadCount,
+    status,
+    error,
+    markAllPending,
+    markAllError,
+    markAllRead,
+    markRead,
+    loadMore,
+    retry,
+  };
 }

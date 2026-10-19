@@ -257,7 +257,7 @@ describe("LinkoraClient simulation and fee injection", () => {
         _isSuccess: true,
         minResourceFee: "10000",
         transactionData: null,
-        result: { retval: null },
+        result: [{ auth: [] }, { auth: [] }],
       };
       mockSimulateTransaction.mockResolvedValue(mockResult);
 
@@ -288,6 +288,26 @@ describe("LinkoraClient simulation and fee injection", () => {
       ];
 
       await expect(client.buildMultiOpTx(sourceAccount, ops)).rejects.toThrow(SimulationError);
+    });
+
+    it("should throw SimulationError when simulated auth entries do not match op count", async () => {
+      const mockResult = {
+        _isSuccess: true,
+        minResourceFee: "10000",
+        transactionData: null,
+        result: [{ auth: [] }],
+      };
+      mockSimulateTransaction.mockResolvedValue(mockResult);
+
+      const sourceAccount = new Account("GSOURCE", "0");
+      const ops = [
+        { method: "approve", args: [{ _type: "scval", _val: "TOKEN" }] as any[] },
+        { method: "pool_deposit", args: [{ _type: "scval", _val: "POOL" }] as any[] },
+      ];
+
+      await expect(client.buildMultiOpTx(sourceAccount, ops)).rejects.toThrow(
+        "expected 2 auth entries for 2 operations"
+      );
     });
   });
 });

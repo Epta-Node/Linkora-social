@@ -65,12 +65,19 @@ export class InvalidManifestError extends LinkoraError {
  * Thrown when transaction simulation fails. Contains the full diagnostic event log.
  */
 export class SimulationError extends LinkoraError {
+  public error?: string;
+  public hostError?: string;
+
   constructor(
     message: string,
     public readonly eventLog?: unknown,
-    originalError?: unknown
+    originalError?: unknown,
+    error?: string,
+    hostError?: string
   ) {
     super(message, "SIMULATION_FAILED", undefined, originalError);
+    this.error = error;
+    this.hostError = hostError;
   }
 }
 
@@ -128,6 +135,17 @@ export class TimeoutError extends LinkoraError {
 }
 
 /**
+ * Raised when every bounded retry attempt for an idempotent request has
+ * failed (issue #1363). Carries the number of attempts made and the final
+ * transport error as `originalError`.
+ */
+export class RetryExhaustedError extends LinkoraError {
+  constructor(message: string, details?: Record<string, unknown>, originalError?: unknown) {
+    super(message, "RETRY_EXHAUSTED", details, originalError);
+  }
+}
+
+/**
  * Thrown when an on-chain contract invocation fails (simulation error, contract
  * FAILED status, or a diagnostic trap returned by Soroban).
  */
@@ -148,22 +166,84 @@ export class CircuitBreakerError extends LinkoraError {
   }
 }
 
+/**
+ * Thrown when the deployed contract version or capability marker does not match SDK expectation.
+ */
+export class VersionMismatchError extends LinkoraError {
+  constructor(message: string, details?: Record<string, unknown>, originalError?: unknown) {
+    super(message, "VERSION_MISMATCH", details, originalError);
+  }
+}
+
+/**
+ * Discriminated result type for on-chain read operations.
+ * Callers can explicitly distinguish valid data, genuinely empty/absent data, and errors.
+ */
+export type ReadResult<T> =
+  | { ok: true; value: T; absent?: false }
+  | { ok: true; value: null; absent: true }
+  | { ok: false; error: LinkoraError };
+
+
 // ── Contract error codes ──────────────────────────────────────────────────────
+//
+// These numeric codes are the `#[repr(u32)]` discriminants of the on-chain
+// `ContractError` enum in `src/errors.rs`.  Any new variant added there
+// **must** be reflected here so that typed SDK errors surface to callers
+// instead of the generic `ContractError` fallback.
+//
+// Codes 100–143 match the Rust enum exactly (issue #1679).
 
 export enum ContractErrorCode {
-  AlreadyInitialized = 1,
-  UsernameTaken = 2,
-  UsernameTooLong = 3,
-  NotAdmin = 4,
-  OnlyAuthor = 5,
-  Blocked = 6,
-  InsufficientAllowance = 7,
-  InsufficientBalance = 8,
-  CooldownActive = 9,
-  NotFound = 10,
-  PostTooLong = 11,
-  InvalidInput = 12,
-  SimulationFailed = 13,
+  AlreadyInitialized = 100,
+  NotInitialized = 101,
+  UsernameTaken = 102,
+  UsernameTooShort = 103,
+  UsernameTooLong = 104,
+  ContentTooLong = 105,
+  ContentEmpty = 106,
+  Blocked = 107,
+  NotBlocked = 108,
+  Unauthorized = 109,
+  PostNotFound = 110,
+  ProfileNotFound = 111,
+  PoolNotFound = 112,
+  PoolExists = 113,
+  InvalidThreshold = 114,
+  /** Fewer valid signers than the pool's M-of-N threshold requires. */
+  InsufficientSigners = 115,
+  /** A signer address is not a member of the pool's admin set. */
+  UnauthorizedSigner = 116,
+  LowBalance = 117,
+  WrongToken = 118,
+  AlreadyPaused = 119,
+  NotPaused = 120,
+  ContractPaused = 121,
+  AlreadyFollowing = 122,
+  NotFollowing = 123,
+  SelfInteractionNotAllowed = 124,
+  InvalidAmount = 125,
+  /** The per-tipper tip cooldown window is still active. */
+  TipCooldownActive = 126,
+  InvalidCooldown = 127,
+  GraphEntryExpired = 128,
+  /** Caller does not hold the role required for this entry-point. */
+  UnauthorizedRole = 129,
+  PoolAdminNotFound = 130,
+  PoolAdminExists = 131,
+  ProposalNotFound = 132,
+  /** The proposal's vote window has closed; it can no longer be acted on. */
+  ProposalExpired = 133,
+  TimeLockNotExpired = 134,
+  QuorumNotMet = 135,
+  AlreadyVoted = 136,
+  ReportNotFound = 137,
+  InvalidVerdict = 138,
+  InvalidPostId = 139,
+  ZeroAddress = 140,
+  CannotRemoveLastAdmin = 141,
+  CannotRemoveLastUpgrader = 142,
+  MathOverflow = 143,
 }
 
 type ErrorConstructor = new (
@@ -174,18 +254,49 @@ type ErrorConstructor = new (
 
 const errorCodeRegistry: Map<ContractErrorCode, ErrorConstructor> = new Map([
   [ContractErrorCode.AlreadyInitialized, ContractError],
+  [ContractErrorCode.NotInitialized, ContractError],
   [ContractErrorCode.UsernameTaken, ValidationError],
+  [ContractErrorCode.UsernameTooShort, ValidationError],
   [ContractErrorCode.UsernameTooLong, ValidationError],
-  [ContractErrorCode.NotAdmin, UnauthorizedError],
-  [ContractErrorCode.OnlyAuthor, UnauthorizedError],
+  [ContractErrorCode.ContentTooLong, ValidationError],
+  [ContractErrorCode.ContentEmpty, ValidationError],
   [ContractErrorCode.Blocked, UnauthorizedError],
-  [ContractErrorCode.InsufficientAllowance, InsufficientBalanceError],
-  [ContractErrorCode.InsufficientBalance, InsufficientBalanceError],
-  [ContractErrorCode.CooldownActive, CooldownError],
-  [ContractErrorCode.NotFound, NotFoundError],
-  [ContractErrorCode.PostTooLong, ValidationError],
-  [ContractErrorCode.InvalidInput, ValidationError],
-  [ContractErrorCode.SimulationFailed, ContractError],
+  [ContractErrorCode.NotBlocked, ValidationError],
+  [ContractErrorCode.Unauthorized, UnauthorizedError],
+  [ContractErrorCode.PostNotFound, NotFoundError],
+  [ContractErrorCode.ProfileNotFound, NotFoundError],
+  [ContractErrorCode.PoolNotFound, NotFoundError],
+  [ContractErrorCode.PoolExists, ContractError],
+  [ContractErrorCode.InvalidThreshold, ValidationError],
+  [ContractErrorCode.InsufficientSigners, UnauthorizedError],
+  [ContractErrorCode.UnauthorizedSigner, UnauthorizedError],
+  [ContractErrorCode.LowBalance, InsufficientBalanceError],
+  [ContractErrorCode.WrongToken, ValidationError],
+  [ContractErrorCode.AlreadyPaused, ContractError],
+  [ContractErrorCode.NotPaused, ContractError],
+  [ContractErrorCode.ContractPaused, ContractError],
+  [ContractErrorCode.AlreadyFollowing, ValidationError],
+  [ContractErrorCode.NotFollowing, ValidationError],
+  [ContractErrorCode.SelfInteractionNotAllowed, ValidationError],
+  [ContractErrorCode.InvalidAmount, ValidationError],
+  [ContractErrorCode.TipCooldownActive, CooldownError],
+  [ContractErrorCode.InvalidCooldown, ValidationError],
+  [ContractErrorCode.GraphEntryExpired, ContractError],
+  [ContractErrorCode.UnauthorizedRole, UnauthorizedError],
+  [ContractErrorCode.PoolAdminNotFound, NotFoundError],
+  [ContractErrorCode.PoolAdminExists, ContractError],
+  [ContractErrorCode.ProposalNotFound, NotFoundError],
+  [ContractErrorCode.ProposalExpired, ContractError],
+  [ContractErrorCode.TimeLockNotExpired, ContractError],
+  [ContractErrorCode.QuorumNotMet, ContractError],
+  [ContractErrorCode.AlreadyVoted, ContractError],
+  [ContractErrorCode.ReportNotFound, NotFoundError],
+  [ContractErrorCode.InvalidVerdict, ValidationError],
+  [ContractErrorCode.InvalidPostId, ValidationError],
+  [ContractErrorCode.ZeroAddress, ValidationError],
+  [ContractErrorCode.CannotRemoveLastAdmin, UnauthorizedError],
+  [ContractErrorCode.CannotRemoveLastUpgrader, UnauthorizedError],
+  [ContractErrorCode.MathOverflow, ValidationError],
 ]);
 
 function tryMapByErrorCode(err: unknown): LinkoraError | null {
@@ -199,6 +310,78 @@ function tryMapByErrorCode(err: unknown): LinkoraError | null {
 
   const msg = err instanceof Error ? err.message : String(err);
   return new Ctor(msg, undefined, err);
+}
+
+// ── Transport / network error detection ───────────────────────────────────
+
+/**
+ * Error codes that indicate a transport / connectivity failure. Matches Node's
+ * `errno` socket codes (thrown by undici/axios when an RPC or Horizon endpoint
+ * is unreachable or times out) and the browser `fetch` error codes. These are
+ * surfaced as the `code` property on `AxiosError` / `TypeError` instances that
+ * `@stellar/stellar-sdk` propagates verbatim when the network is unavailable.
+ */
+const NETWORK_ERROR_CODE =
+  /^(?:ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETDOWN|ENETUNREACH|EHOSTUNREACH|EADDRINUSE|EADDRNOTAVAIL|EPIPE|EPROTO|ECANCELED|ERR_NETWORK|ERR_HTTP_REQUEST_TIMEOUT|ERR_ABORTED)(?:\s|$)/i;
+
+/**
+ * Transport-specific markers used to recognize a connectivity failure from the
+ * error message (and its `cause` chain) without hijacking unrelated contract,
+ * validation or signing messages.
+ */
+const NETWORK_MESSAGE_PATTERN =
+  /ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ENETDOWN|fetch failed|load failed|network error|net::ERR_|unreachable/i;
+
+/**
+ * Walk the `cause` chain (Node 16.9+/undici wrap the real socket error as
+ * `TypeError: fetch failed → cause: Error: connect ECONNREFUSED …`) so the
+ * underlying transport signal is not lost when only the wrapper is inspected.
+ */
+function collectCauseMessages(err: unknown): string[] {
+  const messages: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; current && typeof current === "object" && depth < 10; depth += 1) {
+    if (current instanceof Error && current.message) {
+      messages.push(current.message);
+    }
+    const next = (current as { cause?: unknown }).cause;
+    if (!next || next === current) break;
+    current = next;
+  }
+  return messages;
+}
+
+/**
+ * Map transport-level failures thrown by `rpc.Server` / http calls when the
+ * RPC is unreachable (ECONNREFUSED, timeouts, DNS failures) into a typed
+ * {@link NetworkError} so callers of simulate/prepareTransaction can classify
+ * them instead of receiving the raw socket error.
+ */
+function tryMapTransportError(err: unknown): NetworkError | null {
+  if (typeof err !== "object" || err === null) return null;
+
+  // String `code` fields (axios `errno` codes, undici/Node socket codes).
+  const code = (err as { code?: unknown }).code;
+  if (typeof code === "string" && NETWORK_ERROR_CODE.test(code)) {
+    return new NetworkError(
+      err instanceof Error ? err.message : code,
+      { code, cause: collectCauseMessages(err) } as Record<string, unknown>,
+      err
+    );
+  }
+
+  // Message-only transport signals, searched across the whole `cause` chain.
+  const chainMessages = collectCauseMessages(err);
+  const text = chainMessages.join("\n");
+  if (NETWORK_MESSAGE_PATTERN.test(text)) {
+    return new NetworkError(
+      err instanceof Error ? err.message : (chainMessages[chainMessages.length - 1] ?? text),
+      undefined,
+      err
+    );
+  }
+
+  return null;
 }
 
 function mapByRegex(msg: string, err: unknown): LinkoraError {
@@ -226,6 +409,15 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
   if (/blocked/i.test(msg)) {
     return new UnauthorizedError("Operation rejected: user has blocked you.", undefined, err);
   }
+  if (/overflow|underflow|division by zero|out of bounds/i.test(msg)) {
+    return new ValidationError(`Contract math or bounds assertion failed: ${msg}`, { rawMessage: msg }, err);
+  }
+  if (/assert!|assertion failed/i.test(msg)) {
+    return new ValidationError(`Contract assertion failed: ${msg}`, { rawMessage: msg }, err);
+  }
+  if (/panic!\((?:.*)\)|contract panic|panic/i.test(msg)) {
+    return new ContractError(`Contract panic: ${msg}`, { rawMessage: msg, unmapped: false }, err);
+  }
   if (/sign|freighter|ledger|wallet/i.test(msg)) {
     return new SigningError(msg, undefined, err);
   }
@@ -238,21 +430,46 @@ function mapByRegex(msg: string, err: unknown): LinkoraError {
   if (/invalid|too long|must be positive|cannot exceed/i.test(msg)) {
     return new ValidationError(`Invalid input parameters: ${msg}`, undefined, err);
   }
-  if (/simulation failed|trap|contract error|host function/i.test(msg)) {
-    return new ContractError(msg, undefined, err);
+  if (/simulation failed|trap|contract error|host function|HostError/i.test(msg)) {
+    return new ContractError(msg, { rawMessage: msg }, err);
   }
-  if (/connection|network|timeout|ECONNREFUSED|fetch failed/i.test(msg)) {
+  if (
+    /connection|network|timeout|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|ENETDOWN|fetch (?:failed|to connect)|load failed|net::ERR_|unreachable/i.test(
+      msg
+    )
+  ) {
     return new NetworkError(msg, undefined, err);
   }
 
-  return new LinkoraError(msg, "LINKORA_ERROR", undefined, err);
+  // Preserve raw context for unmapped panics/errors for triage
+  return new ContractError(msg, { rawMessage: msg, unmapped: true }, err);
 }
 
-// TODO(#1043): Add instanceof SimulationError check before regex fallback
 export function mapError(err: unknown): LinkoraError {
+  if (err instanceof SimulationError) {
+    return err;
+  }
   const codeMapped = tryMapByErrorCode(err);
   if (codeMapped) return codeMapped;
 
+  const networkMapped = tryMapTransportError(err);
+  if (networkMapped) return networkMapped;
+
   const msg = err instanceof Error ? err.message : String(err);
   return mapByRegex(msg, err);
+}
+
+/**
+ * Thrown when importing a portable signed transaction fails: malformed
+ * payload, tampered XDR (digest mismatch), wrong network, unsigned
+ * envelope, or unparseable XDR (issue #1357).
+ */
+export class InvalidSignedTransactionError extends LinkoraError {
+  constructor(
+    message: string,
+    details?: Record<string, unknown>,
+    originalError?: unknown
+  ) {
+    super(message, "INVALID_SIGNED_TRANSACTION", details, originalError);
+  }
 }

@@ -1,30 +1,47 @@
 import { NextResponse } from "next/server";
 
+const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 20;
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const q = searchParams.get("q") ?? "";
-
-  const mockPosts = [
-    {
-      id: "old-post",
-      author: "GALICE1234567890",
-      content: "A stellar builders update from last month.",
-      tip_total: 2,
-      timestamp: 1_733_011_200,
-    },
-    {
-      id: "new-post",
-      author: "GBOB1234567890",
-      content: "Fresh Stellar launch notes.",
-      tip_total: 50,
-      timestamp: 1_738_368_000,
-    },
-  ];
+  const rawLimit = parseInt(searchParams.get("limit") || String(DEFAULT_LIMIT), 10);
+  const limit = Math.min(Math.max(Number.isFinite(rawLimit) ? rawLimit : DEFAULT_LIMIT, 1), MAX_LIMIT);
+  const offset = parseInt(searchParams.get("offset") || "0", 10);
 
   if (!q) {
-    return NextResponse.json({ posts: [] });
+    return NextResponse.json({ posts: [], total: 0 });
   }
 
-  const posts = mockPosts.filter((p) => p.content.toLowerCase().includes(q.toLowerCase()));
-  return NextResponse.json({ posts: posts.length > 0 ? posts : mockPosts });
+  const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:3001";
+
+  try {
+    const res = await fetch(
+      `${indexerUrl}/api/search/posts?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`,
+      { next: { revalidate: 0 }, signal: AbortSignal.timeout(5000) }
+    );
+
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: `Search service returned ${res.status}` },
+        { status: 502 }
+      );
+    }
+
+    const data = await res.json();
+    return NextResponse.json({
+      posts: data.posts ?? [],
+      total: data.total ?? 0,
+      limit,
+      offset,
+      has_more: data.has_more ?? false,
+    });
+  } catch (err) {
+    const isTimeout = err instanceof Error && err.name === "TimeoutError";
+    return NextResponse.json(
+      { error: isTimeout ? "Search service timed out" : "Search service unreachable" },
+      { status: isTimeout ? 504 : 502 }
+    );
+  }
 }

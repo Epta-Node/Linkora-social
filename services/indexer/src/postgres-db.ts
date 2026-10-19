@@ -10,6 +10,7 @@ import {
   GovernanceProposal,
   GovernanceVote,
 } from "./db";
+import { followCountDriftTotal } from "./metrics";
 
 export class PostgresDatabase implements Database {
   private pool: Pool;
@@ -73,6 +74,40 @@ export class PostgresDatabase implements Database {
     );
   }
 
+  /** Rebuild trigger-maintained counts from the authoritative follows table. */
+  async reconcileFollowCounts(): Promise<number> {
+    const result = await this.pool.query<{ drifted: number | string }>(`
+      WITH expected AS (
+        SELECT address AS user_address,
+               (SELECT COUNT(*) FROM follows WHERE follower = address)::int AS following_count,
+               (SELECT COUNT(*) FROM follows WHERE followee = address)::int AS followers_count
+        FROM profiles
+        UNION
+        SELECT follower, COUNT(*)::int, (SELECT COUNT(*) FROM follows WHERE followee = follower)::int
+        FROM follows GROUP BY follower
+        UNION
+        SELECT followee, (SELECT COUNT(*) FROM follows WHERE follower = followee)::int, COUNT(*)::int
+        FROM follows GROUP BY followee
+      ), drift AS (
+        SELECT e.user_address
+        FROM expected e
+        FULL OUTER JOIN follow_counts c USING (user_address)
+        WHERE COALESCE(e.followers_count, 0) <> COALESCE(c.followers_count, 0)
+           OR COALESCE(e.following_count, 0) <> COALESCE(c.following_count, 0)
+      ), upsert AS (
+        INSERT INTO follow_counts (user_address, followers_count, following_count)
+        SELECT user_address, followers_count, following_count FROM expected
+        ON CONFLICT (user_address) DO UPDATE SET
+          followers_count = EXCLUDED.followers_count,
+          following_count = EXCLUDED.following_count
+      )
+      SELECT COUNT(*)::int AS drifted FROM drift
+    `);
+    const drifted = Number(result.rows[0]?.drifted ?? 0);
+    if (drifted > 0) followCountDriftTotal.inc(drifted);
+    return drifted;
+  }
+
   async getFollowers(
     address: string,
     limit: number,
@@ -127,11 +162,12 @@ export class PostgresDatabase implements Database {
 
   async insertPost(post: Post): Promise<void> {
     const content = (post as { content?: string }).content ?? "";
+    const tags = Array.from(new Set((content.match(/#[\w]+/g) || []).map((t) => t.toLowerCase())));
 
     await this.pool.query(
       `
-      INSERT INTO posts (id, author, content, tip_total, like_count, created_at, deleted_at)
-      VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NULL)
+      INSERT INTO posts (id, author, content, tip_total, like_count, created_at, deleted_at, tags)
+      VALUES ($1, $2, $3, $4, $5, to_timestamp($6), NULL, $7)
       ON CONFLICT (id) DO NOTHING
       `,
       [
@@ -141,6 +177,7 @@ export class PostgresDatabase implements Database {
         post.tip_total.toString(),
         post.like_count.toString(),
         post.created_ledger,
+        tags,
       ]
     );
   }
@@ -263,13 +300,64 @@ export class PostgresDatabase implements Database {
   }
 
   async searchPosts(filters: {
-    q: string;
+    q?: string;
+    tag?: string;
     limit: number;
     offset: number;
   }): Promise<{ posts: Post[]; total: number }> {
-    const { q, limit, offset } = filters;
+    const { q, tag, limit, offset } = filters;
 
-    const sanitised = q
+    if (tag || (q && q.startsWith("#"))) {
+      const searchTag = (tag || q!).toLowerCase();
+
+      const totalRes = await this.pool.query(
+        `
+        SELECT COUNT(*)::int AS total
+        FROM posts
+        WHERE deleted_at IS NULL
+          AND $1 = ANY(tags)
+        `,
+        [searchTag]
+      );
+      const total = totalRes.rows[0]?.total ?? 0;
+
+      const res = await this.pool.query(
+        `
+        SELECT
+          id,
+          author,
+          content,
+          tags,
+          deleted_at IS NOT NULL AS deleted,
+          tip_total,
+          like_count,
+          extract(epoch from created_at)::bigint AS created_ledger,
+          CASE WHEN deleted_at IS NULL THEN NULL ELSE extract(epoch from deleted_at)::bigint END AS deleted_ledger
+        FROM posts
+        WHERE deleted_at IS NULL
+          AND $1 = ANY(tags)
+        ORDER BY created_at DESC
+        OFFSET $2 LIMIT $3
+        `,
+        [searchTag, offset, limit]
+      );
+
+      const posts: Post[] = res.rows.map((row) => ({
+        id: BigInt(row.id),
+        author: row.author,
+        content: row.content,
+        tags: row.tags || [],
+        deleted: row.deleted,
+        tip_total: BigInt(row.tip_total),
+        like_count: BigInt(row.like_count),
+        created_ledger: Number(row.created_ledger),
+        deleted_ledger: row.deleted_ledger === null ? null : Number(row.deleted_ledger),
+      }));
+
+      return { posts, total };
+    }
+
+    const sanitised = (q || "")
       .trim()
       .replace(/[^\w\s]/gu, " ")
       .trim();
@@ -301,6 +389,7 @@ export class PostgresDatabase implements Database {
         id,
         author,
         content,
+        tags,
         deleted_at IS NOT NULL AS deleted,
         tip_total,
         like_count,
@@ -320,6 +409,7 @@ export class PostgresDatabase implements Database {
       id: BigInt(row.id),
       author: row.author,
       content: row.content,
+      tags: row.tags || [],
       deleted: row.deleted,
       tip_total: BigInt(row.tip_total),
       like_count: BigInt(row.like_count),
@@ -566,7 +656,11 @@ export class PostgresDatabase implements Database {
         address,
         amount,
         ledger,
-        created_at
+        created_at,
+        COALESCE(SUM(CASE WHEN type = 'deposit' AND created_at >= NOW() - INTERVAL '7 days' THEN amount ELSE 0 END) OVER (), 0) AS volume_7d,
+        COALESCE(SUM(CASE WHEN type = 'deposit' AND created_at >= NOW() - INTERVAL '30 days' THEN amount ELSE 0 END) OVER (), 0) AS volume_30d,
+        COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE 0 END) OVER (), 0) AS total_deposited,
+        COALESCE(SUM(CASE WHEN type = 'withdraw' THEN amount ELSE 0 END) OVER (), 0) AS total_withdrawn
       FROM pool_events
       WHERE pool_id = $1
       ORDER BY ledger DESC
@@ -588,6 +682,16 @@ export class PostgresDatabase implements Database {
 
     const totalDeposited = deposits.reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
     const totalWithdrawn = withdrawals.reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
+    const volume7d =
+      BigInt(eventsRes.rows[0]?.volume_7d ?? "0") ||
+      deposits
+        .filter((e) => new Date(e.timestamp).getTime() >= Date.now() - 7 * 24 * 60 * 60 * 1000)
+        .reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
+    const volume30d =
+      BigInt(eventsRes.rows[0]?.volume_30d ?? "0") ||
+      deposits
+        .filter((e) => new Date(e.timestamp).getTime() >= Date.now() - 30 * 24 * 60 * 60 * 1000)
+        .reduce((sum, e) => sum + BigInt(e.amount), BigInt(0));
 
     const uniqueContributors = new Set(events.map((e) => e.address));
 
@@ -596,8 +700,8 @@ export class PostgresDatabase implements Database {
       total_withdrawn: totalWithdrawn.toString(),
       contributor_count: uniqueContributors.size,
       recent_events: events.slice(0, 20),
-      volume_7d: totalDeposited.toString(),
-      volume_30d: totalDeposited.toString(),
+      volume_7d: volume7d.toString(),
+      volume_30d: volume30d.toString(),
     };
   }
 
@@ -697,37 +801,39 @@ export class PostgresDatabase implements Database {
   async insertGovernanceVote(vote: GovernanceVote): Promise<boolean> {
     const res = await this.pool.query(
       `
-      INSERT INTO governance_votes (proposal_id, voter, support, ledger)
-      VALUES ($1, $2, $3, $4)
-      ON CONFLICT (proposal_id, voter) DO NOTHING
-      RETURNING proposal_id
+      WITH inserted AS (
+        INSERT INTO governance_votes (proposal_id, voter, support, ledger)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (proposal_id, voter) DO NOTHING
+        RETURNING proposal_id, support
+      )
+      UPDATE governance_proposals gp
+      SET
+        votes_for = gp.votes_for + (
+          SELECT COUNT(*)::int
+          FROM inserted
+          WHERE inserted.proposal_id = gp.proposal_id AND inserted.support = TRUE
+        ),
+        votes_against = gp.votes_against + (
+          SELECT COUNT(*)::int
+          FROM inserted
+          WHERE inserted.proposal_id = gp.proposal_id AND inserted.support = FALSE
+        ),
+        updated_ledger = $5
+      WHERE gp.proposal_id = $6
+      RETURNING gp.proposal_id
       `,
-      [vote.proposal_id.toString(), vote.voter, vote.support, vote.ledger]
+      [
+        vote.proposal_id.toString(),
+        vote.voter,
+        vote.support,
+        vote.ledger,
+        vote.ledger,
+        vote.proposal_id.toString(),
+      ]
     );
 
-    const inserted = (res.rowCount ?? 0) > 0;
-    if (inserted) {
-      if (vote.support) {
-        await this.pool.query(
-          `
-          UPDATE governance_proposals
-          SET votes_for = votes_for + 1, updated_ledger = $1
-          WHERE proposal_id = $2
-          `,
-          [vote.ledger, vote.proposal_id.toString()]
-        );
-      } else {
-        await this.pool.query(
-          `
-          UPDATE governance_proposals
-          SET votes_against = votes_against + 1, updated_ledger = $1
-          WHERE proposal_id = $2
-          `,
-          [vote.ledger, vote.proposal_id.toString()]
-        );
-      }
-    }
-    return inserted;
+    return (res.rowCount ?? 0) > 0;
   }
 
   async listGovernanceProposals(filters: {

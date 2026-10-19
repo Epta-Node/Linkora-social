@@ -7,6 +7,9 @@ module.exports = {
   moduleNameMapper: {
     "^expo-router$": "<rootDir>/jest.expo-router-mock.js",
     "^@stellar/wallet-kit$": "<rootDir>/jest.wallet-kit-mock.js",
+    // The workspace SDK is consumed from source (per tsconfig `paths`), not from
+    // its compiled `dist`, so point Jest at the TypeScript entry point.
+    "^linkora-sdk$": "<rootDir>/../../packages/sdk/src/index.ts",
   },
   collectCoverage: true,
   coverageReporters: ["json", "lcov", "text", "clover"],

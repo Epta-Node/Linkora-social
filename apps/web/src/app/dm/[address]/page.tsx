@@ -72,7 +72,7 @@ export default function DirectMessagePage() {
   const decryptMessages = useCallback(
     async (raw: RelayMessage[], recipientPubKey: Uint8Array): Promise<DecryptedMessage[]> => {
       if (!myAddress) return [];
-      const keypair = loadDmKeypair(myAddress);
+      const keypair = await loadDmKeypair(myAddress);
       if (!keypair) return [];
 
       return raw.map((msg): DecryptedMessage => {
@@ -160,7 +160,7 @@ export default function DirectMessagePage() {
       // are only persisted locally after a successful on-chain publish.
       await publishDmKey(myAddress, keypair.publicKey);
 
-      storeDmKeypair(myAddress, keypair);
+      await storeDmKeypair(myAddress, keypair);
       setKeysReady(true);
       // Load conversation immediately
       await loadMessages();
@@ -181,7 +181,7 @@ export default function DirectMessagePage() {
       const trimmed = newMessage.trim();
       if (!myAddress || !trimmed || sending) return;
 
-      const keypair = loadDmKeypair(myAddress);
+      const keypair = await loadDmKeypair(myAddress);
       if (!keypair) return;
 
       setSending(true);

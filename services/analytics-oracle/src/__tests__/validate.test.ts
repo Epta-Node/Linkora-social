@@ -1,5 +1,5 @@
 import { validateReport, ValidationError, encodeReport } from "../codec.js";
-import { AnalyticsReport } from "../types.js";
+import { AnalyticsReport, U32_MAX } from "../types.js";
 
 const VALID_REPORT: AnalyticsReport = {
   version: 1,
@@ -172,24 +172,30 @@ describe("validateReport", () => {
       expect(() => validateReport({ ...VALID_REPORT, followerDelta: 0n })).not.toThrow();
     });
 
-    it("rejects negative followerDelta", () => {
-      expect(() => validateReport({ ...VALID_REPORT, followerDelta: -1n })).toThrow(
-        ValidationError
-      );
-    });
-
-    it("includes field name in error", () => {
-      try {
-        validateReport({ ...VALID_REPORT, followerDelta: -5n });
-      } catch (e) {
-        expect((e as ValidationError).field).toBe("followerDelta");
-      }
+    it("accepts negative followerDelta (net unfollows)", () => {
+      expect(() => validateReport({ ...VALID_REPORT, followerDelta: -10n })).not.toThrow();
+      expect(() => encodeReport({ ...VALID_REPORT, followerDelta: -10n })).not.toThrow();
     });
   });
 
   describe("uniqueTippers", () => {
     it("accepts zero uniqueTippers", () => {
       expect(() => validateReport({ ...VALID_REPORT, uniqueTippers: 0 })).not.toThrow();
+    });
+
+    it("accepts counts across the signed 32-bit boundary through the u32 maximum", () => {
+      for (const count of [2 ** 31 - 1, 2 ** 31, U32_MAX]) {
+        expect(() => encodeReport({ ...VALID_REPORT, uniqueTippers: count })).not.toThrow();
+      }
+    });
+
+    it("rejects counts above the u32 maximum", () => {
+      expect(() => validateReport({ ...VALID_REPORT, uniqueTippers: U32_MAX + 1 })).toThrow(
+        ValidationError
+      );
+      expect(() => encodeReport({ ...VALID_REPORT, uniqueTippers: U32_MAX + 1 })).toThrow(
+        ValidationError
+      );
     });
 
     it("rejects negative uniqueTippers", () => {

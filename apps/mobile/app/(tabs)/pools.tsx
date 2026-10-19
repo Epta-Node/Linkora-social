@@ -5,13 +5,17 @@ import { PoolCard } from "../../components/PoolCard";
 import { PoolCardSkeleton } from "../../components/skeletons/PoolCardSkeleton";
 import { usePools } from "../../hooks/usePools";
 import { EmptyState } from "../../components/states/EmptyState";
+import { poolDetailRoute } from "../../utils/poolCatalog";
 
 export default function PoolsScreen() {
   const router = useRouter();
   const { pools, loading, error, refresh } = usePools();
 
+  // #1592 — the one pool detail route is `/pools/[id]`. This used to push
+  // `/pool/[id]`, a second screen backed by ids (`pool-1/2/3`) that no pool in
+  // the list had, so every card opened "Pool not found".
   const handlePoolPress = (poolId: string) => {
-    router.push(`/pool/${poolId}`);
+    router.push(poolDetailRoute(poolId) as Parameters<typeof router.push>[0]);
   };
 
   if (loading) {
@@ -30,7 +34,7 @@ export default function PoolsScreen() {
     );
   }
 
-  if (error) {
+  if (error && pools.length === 0) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -75,22 +79,40 @@ export default function PoolsScreen() {
         <Text style={styles.subtitle}>Community funding pools</Text>
       </View>
 
+      {error ? (
+        <View style={styles.noticeContainer}>
+          <Text style={styles.noticeText} accessibilityRole="alert">
+            {error}
+          </Text>
+          <TouchableOpacity
+            onPress={refresh}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading pools"
+          >
+            <Text style={styles.noticeAction}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       <View style={styles.listContainer}>
         {pools.map((pool) => (
+          // #1594 — exactly one pressable per card. PoolCard is presentational
+          // and no longer registers its own onPress, so a single tap fires
+          // `router.push` once.
           <TouchableOpacity
-            key={pool.pool_id}
-            onPress={() => handlePoolPress(pool.pool_id)}
+            key={pool.id}
+            onPress={() => handlePoolPress(pool.id)}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={`Pool ${pool.pool_id}`}
+            accessibilityLabel={`${pool.name}, balance ${pool.balance}`}
+            accessibilityHint="Opens the pool details"
           >
             <PoolCard
-              id={pool.pool_id}
-              name={pool.token}
-              description={`${pool.admins.length} admin${pool.admins.length === 1 ? "" : "s"}`}
-              totalValue={`${pool.balance.toString()}`}
-              participants={pool.admins.length}
-              onPress={() => handlePoolPress(pool.pool_id)}
+              id={pool.id}
+              name={pool.name}
+              description={pool.description}
+              totalValue={pool.balance}
+              participants={pool.members}
             />
           </TouchableOpacity>
         ))}
@@ -148,5 +170,29 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 14,
     fontWeight: "600",
+  },
+  noticeContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#111827",
+    borderWidth: 1,
+    borderColor: "#1f2937",
+  },
+  noticeText: {
+    flex: 1,
+    color: "#e2e8f0",
+    fontSize: 12,
+  },
+  noticeAction: {
+    color: "#818cf8",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

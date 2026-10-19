@@ -126,13 +126,24 @@ describe("FreighterSigner", () => {
   });
 
   it("should throw error if Freighter sign fails", async () => {
-    mockFreighterSign.mockRejectedValue(new Error("User rejected"));
+    mockFreighterSign.mockRejectedValue(new Error("Some random error"));
 
     const signer = new FreighterSigner();
 
     await expect(signer.signTransaction("fakexdrstring")).rejects.toThrow(
       "Failed to sign transaction with Freighter"
     );
+  });
+
+  it("should throw a user_rejected SigningError if Freighter sign fails with user decline", async () => {
+    mockFreighterSign.mockRejectedValue(new Error("User declined access"));
+
+    const signer = new FreighterSigner();
+
+    await expect(signer.signTransaction("fakexdrstring")).rejects.toMatchObject({
+      name: "SigningError",
+      details: { reason: "user_rejected" }
+    });
   });
 
   // ── Network passphrase forwarding ───────────────────────────────────────────
@@ -327,6 +338,17 @@ describe("LedgerSigner", () => {
 
     expect(typeof result).toBe("string");
     expect(result).toBe(mockSigBuffer.toString("base64"));
+  });
+
+  it("should throw a user_rejected SigningError if Ledger sign fails with user rejected", async () => {
+    mockLedgerSignTransaction.mockRejectedValue(new Error("user rejected by user"));
+
+    const signer = new LedgerSigner();
+
+    await expect(signer.signTransaction("fakexdrstring")).rejects.toMatchObject({
+      name: "SigningError",
+      details: { reason: "user_rejected" }
+    });
   });
 
   it("should invalidate public key cache on close()", async () => {

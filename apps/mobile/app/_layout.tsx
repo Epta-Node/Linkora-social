@@ -45,6 +45,9 @@ function RootNavigator() {
     }
 
     function handleDeepLink(url: string) {
+      // #1555 — parseDeepLink is the single validator for every externally
+      // supplied route. A cold start and a warm `url` event take the identical
+      // path, and anything it rejects is not navigated to.
       const deepLink = parseDeepLink(url);
       if (!deepLink) return;
       router.push(deepLink.path as Parameters<typeof router.push>[0]);

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { fetchCreatorTokenPrice } from "@/lib/api";
 
 const trendingTopics = [
   { tag: "#StellarSoroban", posts: "42.8K posts" },
@@ -18,6 +19,33 @@ const suggestedConnections = [
 export function RightSidebar() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
+
+  // Creator-token price/volume backed by a module-level TTL cache. Because the
+  // cache reuses the previous value within the TTL, remounting this sidebar
+  // (dashboard navigation) does not trigger a fresh RPC call or a flash back to
+  // a loading state — preventing Cumulative Layout Shift.
+  const [creatorToken, setCreatorToken] = useState<{
+    price: string | null;
+    volume24h: string | null;
+    ready: boolean;
+  }>({ price: null, volume24h: null, ready: false });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchCreatorTokenPrice.get().then((value) => {
+      if (cancelled) return;
+      setCreatorToken({ price: value.price, volume24h: value.volume24h, ready: true });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const priceLabel = creatorToken.ready
+    ? creatorToken.price && creatorToken.price !== "null"
+      ? creatorToken.price
+      : "—"
+    : "Loading…";
 
   return (
     <aside
@@ -228,6 +256,66 @@ export function RightSidebar() {
           >
             Share
           </button>
+        </div>
+      </div>
+
+      {/* Creator Token Price — fixed height placeholder prevents layout shift */}
+      <div
+        aria-label="Creator token price"
+        style={{
+          backgroundColor: "var(--bg-secondary, #1E293B)",
+          borderRadius: "16px",
+          border: "1px solid var(--border, #334155)",
+          padding: "16px",
+          minHeight: "112px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: "12px",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3
+            style={{
+              margin: 0,
+              color: "var(--text-primary, #F8FAFC)",
+              fontSize: "0.95rem",
+              fontWeight: 700,
+            }}
+          >
+            Creator Token
+          </h3>
+          <span
+            style={{
+              fontSize: "0.7rem",
+              color: "var(--accent-primary, #60A5FA)",
+              fontWeight: 600,
+            }}
+          >
+            7C
+          </span>
+        </div>
+        <div>
+          <span
+            style={{
+              display: "block",
+              color: "var(--text-primary, #F8FAFC)",
+              fontWeight: 700,
+              fontSize: "1.1rem",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {priceLabel}
+          </span>
+          <span
+            style={{
+              display: "block",
+              color: "var(--text-secondary, #94A3B8)",
+              fontSize: "0.75rem",
+            }}
+          >
+            {creatorToken.volume24h ? `24h Vol ${creatorToken.volume24h}` : "Tracking 24h volume"}
+          </span>
         </div>
       </div>
 

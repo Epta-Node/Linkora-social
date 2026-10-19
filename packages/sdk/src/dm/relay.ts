@@ -52,6 +52,37 @@ export class RelayAuthError extends Error {
   }
 }
 
+/**
+ * Version prefix of the DM message signature. Must stay in sync with
+ * `DM_AUTH_MESSAGE_VERSION` in `services/dm-relay/src/auth.ts`.
+ */
+export const DM_AUTH_MESSAGE_VERSION = "v2";
+
+/** Lowercase hex SHA-256 of the base64 ciphertext, as it appears on the wire. */
+export function hashCiphertext(ciphertextB64: string): string {
+  return Buffer.from(sha256(new TextEncoder().encode(ciphertextB64))).toString("hex");
+}
+
+/**
+ * Builds the exact string that gets SHA-256 hashed and Ed25519 signed before a
+ * message is submitted to the relay.
+ *
+ * Layout: `v2:{recipient}:{message_index}:{timestamp}:{ciphertextHash}`
+ *
+ * The relay derives the identical string in
+ * `services/dm-relay/src/auth.ts#buildDmAuthMessage`, so the ciphertext the
+ * signature commits to is the ciphertext that gets stored — a captured request
+ * cannot be re-sent with substituted ciphertext.
+ */
+export function buildDmAuthMessage(
+  to: string,
+  nonce: number,
+  timestamp: number,
+  ciphertextB64: string
+): string {
+  return [DM_AUTH_MESSAGE_VERSION, to, nonce, timestamp, hashCiphertext(ciphertextB64)].join(":");
+}
+
 export type ConnectionState = "connected" | "disconnected" | "reconnecting";
 
 export type ConnectionStateCallback = (state: ConnectionState) => void;
@@ -190,11 +221,20 @@ export class RelayClient {
 
   /**
    * Create an authentication signature for message submission.
-   * Signs sha256(sender + timestamp) with the sender's Stellar private key.
+   *
+   * Signs sha256(`v2:{recipient}:{message_index}:{timestamp}:{ciphertextHash}`)
+   * with the sender's Stellar private key — the same digest the relay
+   * recomputes in `services/dm-relay/src/auth.ts`.
    */
-  private createAuthSignature(senderKeypair: Keypair, timestamp: number): string {
-    const authData = senderKeypair.publicKey() + timestamp.toString();
-    const hash = sha256(new TextEncoder().encode(authData));
+  private createAuthSignature(
+    senderKeypair: Keypair,
+    recipient: string,
+    messageIndex: number,
+    timestamp: number,
+    ciphertextB64: string
+  ): string {
+    const authMessage = buildDmAuthMessage(recipient, messageIndex, timestamp, ciphertextB64);
+    const hash = sha256(new TextEncoder().encode(authMessage));
     const signature = senderKeypair.sign(Buffer.from(hash));
     return Buffer.from(signature).toString("hex");
   }
@@ -212,8 +252,14 @@ export class RelayClient {
     maxRetries: number = 3
   ): Promise<void> {
     const timestamp = Math.floor(Date.now() / 1000);
-    const signature = this.createAuthSignature(senderKeypair, timestamp);
     const ciphertext_b64 = Buffer.from(ciphertext).toString("base64");
+    const signature = this.createAuthSignature(
+      senderKeypair,
+      recipient,
+      messageIndex,
+      timestamp,
+      ciphertext_b64
+    );
 
     const request: SendMessageRequest = {
       sender: senderKeypair.publicKey(),
@@ -231,6 +277,9 @@ export class RelayClient {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            // The relay requires a per-request idempotency key so a client
+            // retry cannot store the same message twice.
+            "X-Idempotency-Key": crypto.randomUUID(),
           },
           body: JSON.stringify(request),
         },

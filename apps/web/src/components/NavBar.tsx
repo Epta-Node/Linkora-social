@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
+import { ConnectError } from "@/components/WalletProvider";
 import SearchBar from "@/components/SearchBar";
 import { BottomNav } from "@/components/mobile/BottomNav";
 import { useNotificationsContext } from "@/contexts/NotificationsContext";
@@ -25,9 +26,9 @@ function truncateAddress(address: string): string {
 
 export function NavBar() {
   const router = useRouter();
-  const { address, connected, network, connect, disconnect } = useWallet();
+  const { address, connected, network, connect, disconnect, isConnecting } = useWallet();
   const { unreadCount } = useNotificationsContext();
-  const { registerComposeHandler, unregisterComposeHandler, registerSearchRef } =
+  const { registerComposeHandler, unregisterComposeHandler, registerSearchRef, openHelpModal } =
     useKeyboardShortcutsContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
@@ -60,7 +61,13 @@ export function NavBar() {
   const handleConnect = useCallback(async () => {
     try {
       await connect();
-    } catch {
+    } catch (err) {
+      // ConnectError gives us a typed reason so we can show the right message.
+      if (err instanceof ConnectError && err.reason === "declined") {
+        // User dismissed the Freighter prompt — don't show the install banner.
+        return;
+      }
+      // "not-installed", "no-address", or any unexpected error → show banner.
       setShowFreighterBanner(true);
     }
   }, [connect]);
@@ -206,6 +213,29 @@ export function NavBar() {
                   />
                 </svg>
               </Link>
+              <button
+                onClick={openHelpModal}
+                className="rounded-lg p-1.5 text-[var(--text-muted)] hover:text-violet-400 transition-colors"
+                aria-label="Keyboard shortcuts"
+                title="Keyboard shortcuts (?)"
+                data-testid="keyboard-shortcuts-entry"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="h-5 w-5"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z"
+                  />
+                </svg>
+              </button>
               <Link
                 href="/notifications"
                 aria-label={`Notifications${unreadCount > 0 ? ` (${unreadCount} unread)` : ""}`}
@@ -271,11 +301,13 @@ export function NavBar() {
           ) : (
             <button
               onClick={handleConnect}
-              className="rounded-lg bg-violet-600 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-violet-500 transition-colors"
-              aria-label="Connect Freighter wallet"
+              disabled={isConnecting}
+              className="rounded-lg bg-violet-600 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-violet-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              aria-label={isConnecting ? "Connecting wallet…" : "Connect Freighter wallet"}
+              aria-busy={isConnecting}
               data-testid="connect-wallet"
             >
-              Connect
+              {isConnecting ? "Connecting…" : "Connect"}
             </button>
           )}
         </div>

@@ -11,6 +11,22 @@ import { summarizeFootprint, assessFootprintGrowth, FootprintSummary } from "./c
 
 const DEFAULT_TIMEOUT = 30;
 
+/**
+ * How many times `pollTransaction` asks the RPC for the transaction before it
+ * gives up. Passed explicitly rather than relying on the SDK default so the
+ * confirmation window is a reviewable property of this service (#1536).
+ */
+const POLL_ATTEMPTS = 10;
+
+/**
+ * The confirmed-success status of a polled transaction. `GetTransactionStatus`
+ * moved from `rpc.Api` to the `rpc` namespace in stellar-sdk 15; accept either
+ * so this check survives the SDK upgrade.
+ */
+const GetTransactionStatus: typeof rpc.Api.GetTransactionStatus =
+  (rpc as { GetTransactionStatus?: typeof rpc.Api.GetTransactionStatus }).GetTransactionStatus ??
+  rpc.Api.GetTransactionStatus;
+
 // ── Retry support ─────────────────────────────────────────────────────────────
 
 /** Node/undici error codes that indicate a transient network failure. */
@@ -250,7 +266,23 @@ export async function submitAttestation(
       const prepared = rpc.assembleTransaction(tx, sim).build();
       prepared.sign(oracleKeypair);
       const result = await server.sendTransaction(prepared);
-      await server.pollTransaction(result.hash);
+
+      // `pollTransaction` RESOLVES — it does not throw — when its attempt
+      // budget is exhausted without the transaction ever being found, so its
+      // return value must be inspected. Discarding it meant a submission that
+      // the RPC accepted but that never landed on chain (dropped from the
+      // mempool, bad sequence number, too low a fee to be included) was logged
+      // and cached as a successful attestation (#1536).
+      const polled = await server.pollTransaction(result.hash, { attempts: POLL_ATTEMPTS });
+      const status = polled?.status;
+      if (status !== GetTransactionStatus.SUCCESS) {
+        throw new Error(
+          `Attestation transaction ${result.hash} was not confirmed on chain: status=${
+            status ?? "unknown"
+          }`
+        );
+      }
+
       return result.hash;
     },
     { logContext }

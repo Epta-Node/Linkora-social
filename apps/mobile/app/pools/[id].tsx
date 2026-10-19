@@ -4,7 +4,8 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { PoolDepositForm } from "../../components/PoolDepositForm";
 import { PoolWithdrawForm } from "../../components/PoolWithdrawForm";
-import { setPoolBalance, usePoolRecord } from "../../utils/poolStore";
+import { refreshPoolFromIndexer, setPoolBalance, usePoolRecord } from "../../utils/poolStore";
+import { poolAdminsRoute } from "../../utils/poolCatalog";
 
 type Tab = "deposit" | "withdraw" | "admins";
 
@@ -19,6 +20,19 @@ export default function PoolsDetailScreen(): JSX.Element {
   const [liveState, setLiveState] = useState<"connecting" | "live" | "offline">(
     POOL_EVENTS_URL ? "connecting" : "offline"
   );
+
+  // #1592 — this screen is reachable from the Pools tab, Explore search,
+  // deep links and notification taps, so it is the one place that has to
+  // reconcile pool state. It used to render `POOL_FIXTURES` under a "live"
+  // badge and never called the indexer at all.
+  useEffect(() => {
+    if (!poolId) return;
+
+    refreshPoolFromIndexer(poolId).catch(() => {
+      // Leave the record untouched on failure. The badge below already says
+      // the data is not live, and the pool store keeps its last known state.
+    });
+  }, [poolId]);
 
   useEffect(() => {
     if (!POOL_EVENTS_URL || !poolId) return;
@@ -50,6 +64,11 @@ export default function PoolsDetailScreen(): JSX.Element {
 
   const adminPreview = useMemo(() => pool.admins.slice(0, 3), [pool.admins]);
 
+  // #1592 — the badge must not claim "live" for fixture data. Without a relay
+  // socket the only live signal available is whether the indexer has actually
+  // sourced this record.
+  const liveLabel = POOL_EVENTS_URL ? liveState : pool.source === "chain" ? "live" : "offline";
+
   if (!poolId) {
     return (
       <View style={[styles.container, styles.center]}>
@@ -75,7 +94,7 @@ export default function PoolsDetailScreen(): JSX.Element {
           <Text style={styles.description}>{pool.description}</Text>
         </View>
         <View style={styles.liveBadge}>
-          <Text style={styles.liveBadgeText}>{liveState}</Text>
+          <Text style={styles.liveBadgeText}>{liveLabel}</Text>
         </View>
       </View>
 
@@ -96,7 +115,7 @@ export default function PoolsDetailScreen(): JSX.Element {
             accessibilityState={{ selected: activeTab === tab }}
           >
             <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-              {tab[0].toUpperCase() + tab.slice(1)}
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
             </Text>
           </Pressable>
         ))}
@@ -111,8 +130,12 @@ export default function PoolsDetailScreen(): JSX.Element {
           <View style={styles.adminPanelHeader}>
             <Text style={styles.panelTitle}>Admin list</Text>
             <Pressable
-              onPress={() => router.push(`/pool/${pool.id}/admins`)}
+              onPress={() =>
+                router.push(poolAdminsRoute(pool.id) as Parameters<typeof router.push>[0])
+              }
               style={styles.manageButton}
+              accessibilityRole="button"
+              accessibilityLabel={`Manage admins for ${pool.name}`}
             >
               <Text style={styles.manageButtonText}>Manage</Text>
             </Pressable>

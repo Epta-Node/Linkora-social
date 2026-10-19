@@ -83,9 +83,9 @@ INSERT INTO indexer_state (ledger_sequence, state_root) VALUES
   (200, 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef')
 ON CONFLICT (ledger_sequence) DO NOTHING;
 
--- After migration 012, raw_events is a partitioned parent and sent_notifications.event_id
--- references raw_events_legacy(id) (re-pointed by migration 012).  On a partial migration
--- run (012 not yet applied) raw_events is still the plain heap table and the FK points
+-- After migration 017, raw_events is a partitioned parent and sent_notifications.event_id
+-- references raw_events_legacy(id) (re-pointed by migration 017).  On a partial migration
+-- run (017 not yet applied) raw_events is still the plain heap table and the FK points
 -- there directly.  Insert the seed row into whichever table the FK currently targets so
 -- the sent_notifications insert always succeeds.
 DO $$
@@ -94,12 +94,12 @@ BEGIN
     SELECT 1 FROM pg_class
     WHERE relname = 'raw_events_legacy' AND relkind = 'r'
   ) THEN
-    -- Post-012: insert into the legacy heap table that the FK references.
+    -- Post-017: insert into the legacy heap table that the FK references.
     INSERT INTO raw_events_legacy (id, ledger_sequence, event_index, contract_id, topic, data)
     VALUES (1, 200, 0, 'CCONTRACTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', ARRAY['LikeEvent'], '{"post_id":1}'::jsonb)
     ON CONFLICT (ledger_sequence, event_index) DO NOTHING;
   ELSE
-    -- Pre-012: insert into raw_events (plain heap table).
+    -- Pre-017: insert into raw_events (plain heap table).
     INSERT INTO raw_events (id, ledger_sequence, event_index, contract_id, topic, data)
     VALUES (1, 200, 0, 'CCONTRACTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', ARRAY['LikeEvent'], '{"post_id":1}'::jsonb)
     ON CONFLICT (ledger_sequence, event_index) DO NOTHING;

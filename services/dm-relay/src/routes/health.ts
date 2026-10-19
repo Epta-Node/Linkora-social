@@ -24,6 +24,13 @@ interface DependencyCheck {
   latencyMs: number;
 }
 
+interface PoolCheck {
+  status: "healthy" | "unhealthy";
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+}
+
 export interface HealthState {
   db: Database;
   startTime: number;
@@ -44,6 +51,13 @@ async function checkDatabase(db: Database): Promise<DependencyCheck> {
   }
 }
 
+/** Pool utilisation and a proactive health probe, distinct from `checkDatabase`
+ *  (issue #888): the pool can be saturated or degraded before a single ping fails. */
+async function checkPool(db: Database): Promise<PoolCheck> {
+  const health = await db.getPoolHealth();
+  return { status: health.status, ...health.metrics };
+}
+
 export function createHealthRouter(state: HealthState): Router {
   const router = Router();
   const rateLimitStatus = state.rateLimitStatus ?? getRateLimitStoreStatus;
@@ -62,15 +76,15 @@ export function createHealthRouter(state: HealthState): Router {
       return;
     }
 
-    const database = await checkDatabase(state.db);
-    const healthy = database.status === "up";
+    const [database, pool] = await Promise.all([checkDatabase(state.db), checkPool(state.db)]);
+    const healthy = database.status === "up" && pool.status === "healthy";
     const status = healthy ? (rateLimiter.shared ? "ok" : "degraded") : "degraded";
 
     res.status(healthy ? 200 : 503).json({
       status,
       uptime,
       rateLimiter,
-      checks: { database },
+      checks: { database, pool },
     });
   });
 

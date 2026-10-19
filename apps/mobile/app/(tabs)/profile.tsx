@@ -32,16 +32,52 @@ export default function ProfileScreen() {
   const resolvedFollowerCount = profileLoading ? null : followerCount;
   const resolvedFollowingCount = profileLoading ? null : followingCount;
 
+  // #1595 — clipboard access can be denied/unavailable; a rejected promise here
+  // used to surface as an unhandled rejection with no feedback to the user.
   const copyAddress = async () => {
     if (!address) return;
-    await Clipboard.setStringAsync(address);
-    showToast({ kind: "success", title: "Copied!", message: "Wallet address copied to clipboard." });
+    try {
+      await Clipboard.setStringAsync(address);
+      showToast({
+        kind: "success",
+        title: "Copied!",
+        message: "Wallet address copied to clipboard.",
+      });
+    } catch {
+      showToast({
+        kind: "error",
+        title: "Couldn't copy",
+        message: "Copying the address failed. Please try again.",
+      });
+    }
+  };
+
+  // #1595 — same for disconnect: clearing the keychain can fail, and the user
+  // must be told the wallet is still connected rather than left guessing.
+  const handleDisconnect = async () => {
+    try {
+      await disconnect();
+    } catch {
+      showToast({
+        kind: "error",
+        title: "Disconnect failed",
+        message: "We couldn't clear your wallet session. Please try again.",
+      });
+    }
   };
 
   const errorMessage = error ?? profileError;
 
   if (errorMessage) {
-    return <ErrorState message={errorMessage} onRetry={() => { refresh(); refreshProfile(); }} />;
+    return (
+      <ErrorState
+        message={errorMessage}
+        onRetry={() => {
+          refresh();
+          refreshProfile();
+        }}
+      />
+    );
   }
 
   return (
@@ -62,17 +98,15 @@ export default function ProfileScreen() {
             isOwnProfile
             onFollowersPress={() =>
               router.push(
-                `/profile/followers?address=${address}` as Parameters<typeof router.push>[0],
+                `/profile/followers?address=${address}` as Parameters<typeof router.push>[0]
               )
             }
             onFollowingPress={() =>
               router.push(
-                `/profile/following?address=${address}` as Parameters<typeof router.push>[0],
+                `/profile/following?address=${address}` as Parameters<typeof router.push>[0]
               )
             }
-            onEditPress={() =>
-              router.push("/profile/edit" as Parameters<typeof router.push>[0])
-            }
+            onEditPress={() => router.push("/profile/edit" as Parameters<typeof router.push>[0])}
             onToggleFollow={() => {
               // The Profile tab is always the wallet owner's own profile, so there
               // is no follow toggle to expose from this screen.
@@ -81,7 +115,13 @@ export default function ProfileScreen() {
 
           <View style={styles.panel}>
             <Text style={styles.eyebrow}>Wallet</Text>
-            <TouchableOpacity onPress={copyAddress} activeOpacity={0.6}>
+            <TouchableOpacity
+              onPress={copyAddress}
+              activeOpacity={0.6}
+              accessibilityRole="button"
+              accessibilityLabel="Copy wallet address"
+              accessibilityHint="Copies your full wallet address to the clipboard"
+            >
               <Text style={styles.address}>
                 {address.slice(0, 8)}…{address.slice(-6)}
               </Text>
@@ -99,13 +139,19 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.button}
-              onPress={() =>
-                router.push("/settings" as Parameters<typeof router.push>[0])
-              }
+              onPress={() => router.push("/settings" as Parameters<typeof router.push>[0])}
+              accessibilityRole="button"
+              accessibilityLabel="Open settings"
             >
               <Text style={styles.buttonText}>Open settings</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.secondaryButton} onPress={disconnect}>
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={handleDisconnect}
+              accessibilityRole="button"
+              accessibilityLabel="Disconnect wallet"
+              accessibilityHint="Clears your wallet session from this device"
+            >
               <Text style={styles.secondaryButtonText}>Disconnect</Text>
             </TouchableOpacity>
           </View>

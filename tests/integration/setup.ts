@@ -653,15 +653,21 @@ export async function teardown(cfgDir?: string): Promise<void> {
 /**
  * Create an auth signature for the DM relay's POST /messages endpoint.
  * The relay's AuthService.verifyMessageAuth expects:
- *   signature = Ed25519_sign(sha256(to + ":" + nonce + ":" + timestamp))
+ *   signature = Ed25519_sign(sha256(
+ *     "v2:" + to + ":" + nonce + ":" + timestamp + ":" + sha256_hex(ciphertext)
+ *   ))
  */
 export function createRelayMessageSignature(
   keypair: Keypair,
   recipient: string,
   nonce: number,
-  timestamp: number
+  timestamp: number,
+  ciphertextB64: string
 ): string {
-  const authMessage = `${recipient}:${nonce}:${timestamp}`;
+  const ciphertextHash = Buffer.from(sha256(new TextEncoder().encode(ciphertextB64))).toString(
+    "hex"
+  );
+  const authMessage = `v2:${recipient}:${nonce}:${timestamp}:${ciphertextHash}`;
   const hash = sha256(new TextEncoder().encode(authMessage));
   const signature = keypair.sign(Buffer.from(hash));
   return Buffer.from(signature).toString("hex");

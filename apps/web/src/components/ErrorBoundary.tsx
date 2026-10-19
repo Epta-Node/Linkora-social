@@ -43,6 +43,8 @@ export interface ErrorBoundaryProps {
   fallback?: ReactNode;
   /** Optional callback invoked after the boundary successfully resets. */
   onReset?: () => void;
+  /** Optional callback for contacting support (receives error details). */
+  onContactSupport?: (error: Error) => void;
 }
 
 interface ErrorBoundaryState {
@@ -121,6 +123,22 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     this.props.onReset?.();
   }
 
+  reloadPage(): void {
+    window.location.reload();
+  }
+
+  contactSupport(): void {
+    const error = this.state.error;
+    if (error && this.props.onContactSupport) {
+      this.props.onContactSupport(error);
+    } else {
+      const errorMsg = error?.message || "Unknown error";
+      const subject = encodeURIComponent("Linkora Support Request");
+      const body = encodeURIComponent(`Error: ${errorMsg}\n\nStack: ${error?.stack || "N/A"}`);
+      window.location.href = `mailto:support@linkora.app?subject=${subject}&body=${body}`;
+    }
+  }
+
   render(): ReactNode {
     if (!this.state.hasError) {
       return this.props.children;
@@ -149,21 +167,53 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           {/* User-friendly message — no stack traces */}
           <p style={styles.message}>{message}</p>
 
-          {/* Try again button */}
-          <button
-            type="button"
-            onClick={this.resetError}
-            style={styles.button}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "var(--color-primary-hover)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary)";
-            }}
-          >
-            Try again
-          </button>
+          {/* Action buttons */}
+          <div style={styles.buttonGroup}>
+            <button
+              type="button"
+              onClick={this.resetError}
+              style={styles.button}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--color-primary-hover)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background = "var(--color-primary)";
+              }}
+            >
+              Try again
+            </button>
+            <button
+              type="button"
+              onClick={() => this.reloadPage()}
+              style={{ ...styles.button, ...styles.buttonSecondary }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--color-secondary-hover, #6b7280)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--color-secondary, #9ca3af)";
+              }}
+            >
+              Reload page
+            </button>
+            <button
+              type="button"
+              onClick={() => this.contactSupport()}
+              style={{ ...styles.button, ...styles.buttonSecondary }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--color-secondary-hover, #6b7280)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.background =
+                  "var(--color-secondary, #9ca3af)";
+              }}
+            >
+              Contact support
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -382,6 +432,12 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: "var(--space-xl, 32px)",
     fontSize: "0.95rem",
   },
+  buttonGroup: {
+    display: "flex",
+    gap: "0.75rem",
+    flexWrap: "wrap",
+    justifyContent: "center",
+  },
   button: {
     display: "inline-flex",
     alignItems: "center",
@@ -395,6 +451,10 @@ const styles: Record<string, CSSProperties> = {
     border: "none",
     cursor: "pointer",
     transition: "background 0.15s",
+  },
+  buttonSecondary: {
+    background: "var(--color-secondary, #9ca3af)",
+    color: "#fff",
   },
 };
 

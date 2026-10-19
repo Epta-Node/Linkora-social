@@ -41,6 +41,7 @@
     "expo-router": "~57.0.8",
     "expo-secure-store": "~57.0.1",
     "expo-sqlite": "~57.0.1",
+    "linkora-sdk": "workspace:*",
     "lucide-react-native": "^0.511.0",
     "react": "19.2.3",
     "react-native": "0.86.0",

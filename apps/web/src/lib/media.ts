@@ -12,9 +12,16 @@ export const MAX_IMAGE_SIZE_BYTES = MAX_IMAGE_SIZE_MB * 1024 * 1024;
 export const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 /**
- * Validates file size and format before uploading/compressing
+ * Validates file size and format before uploading/compressing.
+ *
+ * `maxBytes` defaults to the local image cap but callers that know the
+ * server's real upload budget should pass it through so oversized files are
+ * rejected client-side before any transfer begins.
  */
-export function validateImageFile(file: File): { valid: boolean; error?: string } {
+export function validateImageFile(
+  file: File,
+  maxBytes: number = MAX_IMAGE_SIZE_BYTES
+): { valid: boolean; error?: string } {
   if (!ALLOWED_IMAGE_TYPES.includes(file.type.toLowerCase())) {
     return {
       valid: false,
@@ -22,10 +29,10 @@ export function validateImageFile(file: File): { valid: boolean; error?: string 
     };
   }
 
-  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+  if (file.size > maxBytes) {
     return {
       valid: false,
-      error: `File size exceeds ${MAX_IMAGE_SIZE_MB}MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB).`,
+      error: `File size exceeds the ${(maxBytes / (1024 * 1024)).toFixed(1)}MB limit (${(file.size / (1024 * 1024)).toFixed(1)}MB).`,
     };
   }
 

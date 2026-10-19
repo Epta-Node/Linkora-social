@@ -45,32 +45,32 @@ beforeEach(() => {
 // ── Keypair persistence (smoke tests) ───────────────────────────────────────
 
 describe("DmKeyPair persistence", () => {
-  it("stores and loads a keypair round-trip", () => {
+  it("stores and loads a keypair round-trip", async () => {
     const kp = { publicKey: randomBytes(32), privateKey: randomBytes(32) };
-    storeDmKeypair(ALICE, kp);
+    await storeDmKeypair(ALICE, kp);
     expect(hasDmKeypair(ALICE)).toBe(true);
 
-    const loaded = loadDmKeypair(ALICE);
+    const loaded = await loadDmKeypair(ALICE);
     expect(loaded).not.toBeNull();
     expect(bytesToBase64(loaded!.publicKey)).toBe(bytesToBase64(kp.publicKey));
     expect(bytesToBase64(loaded!.privateKey)).toBe(bytesToBase64(kp.privateKey));
   });
 
-  it("clearDmKeypair removes the stored keys", () => {
-    storeDmKeypair(ALICE, { publicKey: randomBytes(32), privateKey: randomBytes(32) });
+  it("clearDmKeypair removes the stored keys", async () => {
+    await storeDmKeypair(ALICE, { publicKey: randomBytes(32), privateKey: randomBytes(32) });
     clearDmKeypair(ALICE);
     expect(hasDmKeypair(ALICE)).toBe(false);
-    expect(loadDmKeypair(ALICE)).toBeNull();
+    expect(await loadDmKeypair(ALICE)).toBeNull();
   });
 
-  it("accounts are isolated", () => {
+  it("accounts are isolated", async () => {
     const kpA = { publicKey: randomBytes(32), privateKey: randomBytes(32) };
     const kpB = { publicKey: randomBytes(32), privateKey: randomBytes(32) };
-    storeDmKeypair(ALICE, kpA);
-    storeDmKeypair(BOB, kpB);
+    await storeDmKeypair(ALICE, kpA);
+    await storeDmKeypair(BOB, kpB);
 
-    const loadedA = loadDmKeypair(ALICE);
-    const loadedB = loadDmKeypair(BOB);
+    const loadedA = await loadDmKeypair(ALICE);
+    const loadedB = await loadDmKeypair(BOB);
     expect(bytesToBase64(loadedA!.publicKey)).toBe(bytesToBase64(kpA.publicKey));
     expect(bytesToBase64(loadedB!.publicKey)).toBe(bytesToBase64(kpB.publicKey));
     expect(bytesToBase64(loadedA!.publicKey)).not.toBe(bytesToBase64(loadedB!.publicKey));
@@ -205,10 +205,10 @@ describe("sync cursor", () => {
 // ── Full rotation-then-resync path ───────────────────────────────────────────
 
 describe("rotation-then-resync path", () => {
-  it("detects rotation, invalidates session keys, and resets cursor", () => {
+  it("detects rotation, invalidates session keys, and resets cursor", async () => {
     // 1. Simulate initial state: ALICE has a keypair and a cached published key
     const initialPub = randomBytes(32);
-    storeDmKeypair(ALICE, { publicKey: initialPub, privateKey: randomBytes(32) });
+    await storeDmKeypair(ALICE, { publicKey: initialPub, privateKey: randomBytes(32) });
     storePublishedKey(ALICE, initialPub);
 
     // 2. Cache session keys for conversations with BOB and CHARLIE

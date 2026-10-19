@@ -1,13 +1,5 @@
 import React from "react";
-import {
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { useRouter } from "expo-router";
 
@@ -35,14 +27,26 @@ export default function SettingsScreen(): JSX.Element {
 
   const handleSaveRpc = async () => {
     setMessage(null);
-    await setRpcUrl(draftRpcUrl);
-    setMessage("RPC endpoint saved.");
+    try {
+      await setRpcUrl(draftRpcUrl);
+      setMessage("RPC endpoint saved.");
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Invalid RPC endpoint.";
+      Alert.alert("Invalid RPC endpoint", text);
+    }
   };
 
+  // #1595 — persisting/resetting settings touches the keychain; a failure here
+  // must be reported, not thrown into the void.
   const handleReset = async () => {
     setMessage(null);
-    await resetRpcUrl();
-    setMessage("RPC endpoint restored to the network default.");
+    try {
+      await resetRpcUrl();
+      setMessage("RPC endpoint restored to the network default.");
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Could not reset the RPC endpoint.";
+      Alert.alert("Reset failed", text);
+    }
   };
 
   const handleResetAll = () => {
@@ -52,8 +56,13 @@ export default function SettingsScreen(): JSX.Element {
         text: "Reset",
         style: "destructive",
         onPress: async () => {
-          await resetSettings();
-          setMessage("Network settings reset.");
+          try {
+            await resetSettings();
+            setMessage("Network settings reset.");
+          } catch (err) {
+            const text = err instanceof Error ? err.message : "Could not reset network settings.";
+            Alert.alert("Reset failed", text);
+          }
         },
       },
     ]);
@@ -78,10 +87,7 @@ export default function SettingsScreen(): JSX.Element {
         <Text style={styles.sectionLabel}>Network</Text>
         <View style={styles.buttonRow}>
           <Pressable
-            style={[
-              styles.networkButton,
-              !isMainnet ? styles.networkButtonActive : null,
-            ]}
+            style={[styles.networkButton, !isMainnet ? styles.networkButtonActive : null]}
             onPress={() => setSelectedNetwork("TESTNET")}
             accessibilityRole="button"
             accessibilityLabel="Switch to Testnet"
@@ -117,10 +123,20 @@ export default function SettingsScreen(): JSX.Element {
           accessibilityLabel="RPC endpoint"
         />
         <View style={styles.buttonRow}>
-          <Pressable style={styles.secondaryButton} onPress={handleReset}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={handleReset}
+            accessibilityRole="button"
+            accessibilityLabel="Reset RPC endpoint to default"
+          >
             <Text style={styles.secondaryButtonText}>Reset default</Text>
           </Pressable>
-          <Pressable style={styles.primaryButton} onPress={handleSaveRpc}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={handleSaveRpc}
+            accessibilityRole="button"
+            accessibilityLabel="Save RPC endpoint"
+          >
             <Text style={styles.primaryButtonText}>Save RPC</Text>
           </Pressable>
         </View>
@@ -136,16 +152,21 @@ export default function SettingsScreen(): JSX.Element {
       <View style={styles.section}>
         <Pressable
           style={styles.secondaryButton}
-          onPress={() =>
-            router.push("/settings/blocked" as Parameters<typeof router.push>[0])
-          }
+          onPress={() => router.push("/settings/blocked" as Parameters<typeof router.push>[0])}
+          accessibilityRole="button"
+          accessibilityLabel="Manage blocked users"
         >
           <Text style={styles.secondaryButtonText}>Manage blocked users</Text>
         </Pressable>
       </View>
 
       <View style={styles.section}>
-        <Pressable style={styles.dangerButton} onPress={handleResetAll}>
+        <Pressable
+          style={styles.dangerButton}
+          onPress={handleResetAll}
+          accessibilityRole="button"
+          accessibilityLabel="Reset all network settings"
+        >
           <Text style={styles.dangerButtonText}>Reset all network settings</Text>
         </Pressable>
       </View>

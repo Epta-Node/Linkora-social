@@ -1,4 +1,5 @@
 import * as rpc from "@stellar/stellar-sdk/rpc";
+import { Buffer } from "buffer";
 import {
   Contract,
   nativeToScVal,
@@ -6,13 +7,15 @@ import {
   Transaction,
   TransactionBuilder,
   Account,
+  Address,
   Keypair,
   Operation,
-  StrKey,
   xdr,
+  type FeeBumpTransaction,
 } from "@stellar/stellar-base";
 import { GeneratedLinkoraClient } from "./generated/client.js";
 import { Profile, Post, Pool, SimulationResult, LedgerFootprint } from "./types.js";
+import { Page, PaginationOptions, fetchPageWithCursor, paginateList } from "./pagination.js";
 import {
   mapError,
   NotFoundError,
@@ -20,16 +23,102 @@ import {
   ValidationError,
   InvalidInputError,
   NetworkError,
+  LinkoraError,
+  VersionMismatchError,
+  ReadResult,
 } from "./errors.js";
+import { ClassicAccountClient, ClassicBalance } from "./classic.js";
+import { ContractState } from "./state.js";
 import { GovParameter } from "./generated/types.js";
 import type { GovProposal } from "./generated/types.js";
-import { ConnectionHealthMonitor, HealthCheckConfig, ConnectionStatusCallback } from "./health.js";
+import {
+  ConnectionHealthMonitor,
+  HealthCheckConfig,
+  ConnectionStatusCallback,
+  type RpcHealthResult,
+} from "./health.js";
 import { fetchWithTimeout } from "./utils/fetch.js";
+import {
+  createRpcClientAdapter,
+  type QueueSigner,
+  type RpcClient,
+  type RunOptions,
+} from "./queue.js";
+import { submitTransaction } from "./submit.js";
+import { mapMultiOperationAuth } from "./multi-operation-auth.js";
+import { buildBumpSequenceTransaction, buildFeeBumpTransaction } from "./tx-builder.js";
+import {
+  ensureAddress,
+  ensureAddressList,
+  ensureContractAddress,
+  ensureNonEmptyString,
+} from "./validate.js";
 
 const { isSimulationError, isSimulationSuccess } = rpc.Api;
 
 const DEFAULT_NETWORK = "Test SDF Network ; September 2015";
 const DEFAULT_TIMEOUT = 30;
+const MAX_BYTES = 64 * 1024; // 64KB max limit for Soroban host function byte arguments
+
+/**
+ * Detect whether a hostname refers to the local machine (loopback only).
+ * `localhost`, `127.0.0.0/8` and `[::1]` are considered local. Anything else
+ * (including LAN addresses) is treated as remote.
+ */
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost") return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  return host === "::1" || host === "0:0:0:0:0:0:0:1";
+}
+
+/**
+ * Resolve the effective `allowHttp` setting.
+ *
+ * Insecure `http://` is rejected unless explicitly opted-in. Local (loopback)
+ * hosts may opt in via `allowHttp: true` (development networks). Non-loopback
+ * `http://` hosts are always rejected — even when `allowHttp: true` — so that a
+ * misconfigured public RPC can never transit transaction/XDR data in plaintext.
+ */
+function resolveAllowHttp(config: { rpcUrl: string; allowHttp?: boolean }): boolean {
+  const explicit = Boolean(config.allowHttp);
+  const isHttp = config.rpcUrl.startsWith("http://");
+  if (!isHttp) return explicit ? true : false;
+
+  let hostname = "";
+  try {
+    hostname = new URL(config.rpcUrl).hostname;
+  } catch {
+    hostname = config.rpcUrl;
+  }
+
+  const local = isLoopbackHost(hostname);
+
+  if (!explicit) {
+    throw new Error(
+      `Refusing to use insecure HTTP RPC at "${config.rpcUrl}". ` +
+        `Local development RPCs must opt in explicitly by passing allowHttp: true. ` +
+        `Use an https:// RPC URL for any remote endpoint.`
+    );
+  }
+
+  if (!local) {
+    throw new Error(
+      `Refusing to use insecure HTTP RPC at "${config.rpcUrl}". ` +
+        `Plaintext HTTP is only permitted for local (loopback) development endpoints. ` +
+        `Use an https:// RPC URL.`
+    );
+  }
+
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[linkora-sdk] Warning: connecting to an insecure HTTP RPC at "${config.rpcUrl}". ` +
+      `This is intended for local development only and should never be used with a ` +
+      `production or mainnet endpoint.`
+  );
+
+  return true;
+}
 
 function scvAddress(value: string): xdr.ScVal {
   return nativeToScVal(value, { type: "address" });
@@ -40,38 +129,20 @@ function scvString(value: string): xdr.ScVal {
 function scvU32(value: number): xdr.ScVal {
   return nativeToScVal(value, { type: "u32" });
 }
+function _scvU64(value: number | bigint): xdr.ScVal {
+  return nativeToScVal(value, { type: "u64" });
+}
+function scvSymbol(value: string): xdr.ScVal {
+  return nativeToScVal(value, { type: "symbol" });
+}
 function scvI128(value: number | bigint): xdr.ScVal {
   return nativeToScVal(value, { type: "i128" });
 }
-
-function ensureNonEmptyString(value: string, fieldName: string): void {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new InvalidInputError(`${fieldName} must be a non-empty string.`);
-  }
-}
-
-function isValidContractAddress(value: string): boolean {
-  try {
-    return StrKey.isValidContract(value);
-  } catch {
-    return false;
-  }
-}
-
-function ensureAddress(value: string, fieldName: string): void {
-  ensureNonEmptyString(value, fieldName);
-  if (!StrKey.isValidEd25519PublicKey(value) && !isValidContractAddress(value)) {
-    throw new InvalidInputError(
-      `${fieldName} must be a valid Stellar public key or contract address.`
-    );
-  }
-}
-
-function ensureAddressList(values: string[], fieldName: string): void {
-  if (!Array.isArray(values)) {
-    throw new ValidationError(`${fieldName} must be an array of Stellar public keys.`);
-  }
-  values.forEach((value, index) => ensureAddress(value, `${fieldName}[${index}]`));
+function scvAddressVec(value: string[]): xdr.ScVal {
+  return nativeToScVal(
+    value.map((addr) => Address.fromString(addr)),
+    { type: "vec" }
+  );
 }
 
 function ensureInteger(value: number | bigint, fieldName: string, min = 0): bigint {
@@ -106,6 +177,14 @@ function ensureGovParameter(parameter: GovParameter): void {
   }
 }
 
+function ensureMaxBytes(value: Uint8Array, fieldName: string, maxBytes: number = MAX_BYTES): void {
+  if (value.length > maxBytes) {
+    throw new ValidationError(
+      `${fieldName} exceeds maximum allowed size of ${maxBytes} bytes (got ${value.length} bytes).`
+    );
+  }
+}
+
 export interface ClientConfig {
   contractId: string;
   rpcUrl: string;
@@ -117,8 +196,13 @@ export interface ClientConfig {
   /** Timeout in ms for HTTP requests (default 30 000). */
   timeoutMs?: number;
   /**
-   * Allow insecure `http://` RPC connections (local development networks).
-   * Defaults to true when `rpcUrl` starts with `http://`.
+   * Allow insecure `http://` RPC connections (local development networks only).
+   *
+   * Insecure HTTP is **disabled by default**. To use a local development RPC
+   * over plaintext `http://` (e.g. `http://localhost:8000`), explicitly set
+   * this to `true`. Non-localhost `http://` RPC URLs are always rejected
+   * (even with this flag set) to keep sensitive transaction/XDR data from
+   * transiting in the clear — see {@link ClientConfig.allowHttp}.
    */
   allowHttp?: boolean;
   /** Horizon URL for account sequence fetching. If not provided, defaults based on networkPassphrase. */
@@ -146,6 +230,7 @@ export interface SetProfileWithNewTokenParams {
  * error handling, and type conversions (e.g. bigint ↔ number).
  */
 export class LinkoraClient extends GeneratedLinkoraClient {
+  public readonly classic: ClassicAccountClient;
   private tokenFactoryId?: string;
   private readonly _rpcUrl: string;
   private readonly _networkPassphrase: string;
@@ -154,6 +239,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   private readonly _timeoutMs: number;
   private readonly _allowHttp: boolean;
   private readonly _horizonUrl?: string;
+  private readonly _rpcServer: rpc.Server;
 
   constructor(config: ClientConfig) {
     super({
@@ -167,17 +253,63 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     this._rpcUrl = config.rpcUrl;
     this._networkPassphrase = config.networkPassphrase || DEFAULT_NETWORK;
     this._timeoutMs = config.timeoutMs ?? 30_000;
-    this._allowHttp = config.allowHttp ?? config.rpcUrl.startsWith("http://");
+    this._allowHttp = resolveAllowHttp({ rpcUrl: config.rpcUrl, allowHttp: config.allowHttp });
     this._horizonUrl = config.horizonUrl;
 
+    this._rpcServer = new rpc.Server(this._rpcUrl, { allowHttp: this._allowHttp });
+
+    this.classic = new ClassicAccountClient({
+      networkPassphrase: this._networkPassphrase,
+      horizonUrl: this._horizonUrl,
+      timeoutMs: this._timeoutMs,
+    });
+
     const { autoStart, ...healthCfg } = config.healthCheck ?? {};
-    this._healthMonitor = new ConnectionHealthMonitor(this._rpcUrl, healthCfg);
+    this._healthMonitor = new ConnectionHealthMonitor(
+      this._rpcUrl,
+      healthCfg,
+      this._rpcServer,
+      this._networkPassphrase
+    );
     if (autoStart) this._healthMonitor.start();
   }
 
-  /** Build an RPC server handle honoring the insecure-HTTP setting. */
-  private createRpcServer(): rpc.Server {
-    return new rpc.Server(this._rpcUrl, { allowHttp: this._allowHttp });
+  /** Get the shared client-wide RPC server instance. */
+  public get rpcServer(): rpc.Server {
+    return this._rpcServer;
+  }
+
+  /** Return the client-wide RPC server handle. */
+  public createRpcServer(): rpc.Server {
+    return this._rpcServer;
+  }
+
+  /** Build a string-XDR {@link RpcClient} adapter for use with `TransactionQueue`. */
+  createRpcClient(): RpcClient {
+    return createRpcClientAdapter(
+      this.createRpcServer(),
+      this._networkPassphrase,
+      async (accountId) => {
+        const account = await this.classic.getAccount(accountId);
+        return { sequence: account.sequence, ledger: account.last_modified_ledger };
+      }
+    );
+  }
+
+  /**
+   * Convenience method to sign and submit a transaction using the TransactionQueue.
+   *
+   * @param xdrOrTx The transaction to submit (base64 XDR string or Transaction object).
+   * @param signer The wallet signer.
+   * @param opts Optional run options.
+   * @returns The transaction hash.
+   */
+  async submitTransaction(
+    xdrOrTx: string | Transaction,
+    signer: QueueSigner,
+    opts?: RunOptions
+  ): Promise<string> {
+    return submitTransaction(this, xdrOrTx, signer, opts);
   }
 
   /**
@@ -195,6 +327,11 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    */
   healthCheck(): Promise<boolean> {
     return this._healthMonitor.healthCheck();
+  }
+
+  /** Return detailed RPC health including the configured and reported network identity. */
+  getHealthResult(): Promise<RpcHealthResult> {
+    return this._healthMonitor.getHealthResult();
   }
 
   /**
@@ -265,59 +402,116 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * }
    * ```
    */
-  async simulate(method: string, ...args: xdr.ScVal[]): Promise<SimulationResult> {
-    const server = this.createRpcServer();
-    const contract = new Contract(this._contractId);
-    const buildOp = () => contract.call(method, ...args);
+  async simulate(method: string, ...args: Array<xdr.ScVal | Account>): Promise<SimulationResult> {
+    // Issue #1356: the trailing argument may optionally be the real source
+    // `Account`, so the reported footprint/soroban-data is derived from the
+    // SAME pipeline the submit path uses (and therefore matches it exactly).
+    const rest: unknown[] = [...args];
+    let sourceAccount: Account | undefined;
+    if (rest.length > 0 && rest[rest.length - 1] instanceof Account) {
+      sourceAccount = rest.pop() as Account;
+    }
+    if (!sourceAccount) {
+      const source = Keypair.random();
+      sourceAccount = new Account(source.publicKey(), "0");
+    }
 
-    const source = Keypair.random();
-    const account = new Account(source.publicKey(), "0");
-    const tx = new TransactionBuilder(account, {
+    const scValArgs = rest as xdr.ScVal[];
+    const { simulation } = await this.simulateInvocationOnContract(
+      method,
+      this._contractId,
+      sourceAccount,
+      scValArgs
+    );
+
+    // Footprint and soroban transaction data are extracted by the ONE shared
+    // pipeline (issue #1356) — the same artifact the submit path signs and
+    // sends, so a dry-run cannot diverge from the real submission.
+    const resourceFee = isSimulationSuccess(simulation) ? simulation.minResourceFee || "0" : "0";
+    const { footprint, sorobanData } = this.extractSorobanArtifacts(simulation);
+
+    return { success: true, resourceFee, footprint, sorobanData };
+  }
+
+  /**
+   * Shared footprint/soroban-data pipeline (issue #1356).
+   *
+   * Builds the invocation transaction ONCE, runs the simulation through the
+   * RPC server, and assembles the submit-ready transaction from the
+   * simulation (resource fees + soroban transaction data + auth entries).
+   * Both the dry-run reporter (`simulate`) and the submission path
+   * (`prepareTransaction`, whose output is what gets signed and submitted)
+   * MUST use this single pipeline so a simulation cannot diverge from the
+   * real submission on footprint entry count or data amount.
+   */
+  private async simulateInvocationOnContract(
+    method: string,
+    contractId: string,
+    sourceAccount: Account,
+    args: xdr.ScVal[]
+  ): Promise<{ simulation: rpc.Api.SimulateTransactionResponse; assembled: Transaction }> {
+    const server = this.createRpcServer();
+    const contract = new Contract(contractId);
+
+    const rawTx = new TransactionBuilder(sourceAccount, {
       fee: "100",
       networkPassphrase: this._networkPassphrase,
     })
-      .addOperation(buildOp())
+      .addOperation(contract.call(method, ...args))
       .setTimeout(DEFAULT_TIMEOUT)
       .build();
 
-    const result = await server.simulateTransaction(tx);
+    const simulation = await server.simulateTransaction(rawTx);
 
-    if (isSimulationError(result)) {
+    if (isSimulationError(simulation)) {
       throw new SimulationError(
-        `Transaction simulation failed: ${result.error}`,
-        result.events,
-        result.error
+        `Transaction simulation failed: ${simulation.error}`,
+        simulation.events,
+        simulation.error
       );
     }
 
-    if (!isSimulationSuccess(result) || !result.result) {
-      throw new SimulationError("Unknown simulation error", undefined, result);
+    if (!isSimulationSuccess(simulation) || !simulation.result) {
+      throw new SimulationError("Unknown simulation error", undefined, simulation);
     }
 
-    const resourceFee = result.minResourceFee || "0";
+    // assembleTransaction applies resource fees, soroban transaction data and
+    // the auth entries produced by simulation (required by require_auth()).
+    const assembled = rpc.assembleTransaction(rawTx, simulation).build() as Transaction;
 
+    return { simulation, assembled };
+  }
+
+  /**
+   * Shared extraction of the ledger footprint and soroban transaction data
+   * from a simulation result — the single source both the dry-run report and
+   * the submit path read from (issue #1356).
+   */
+  private extractSorobanArtifacts(simulation: rpc.Api.SimulateTransactionResponse): {
+    footprint: LedgerFootprint;
+    sorobanData?: string;
+  } {
     let footprint: LedgerFootprint = { readOnly: [], readWrite: [] };
-    if (result.transactionData) {
+    let sorobanData: string | undefined;
+
+    // transactionData is only present on a successful simulation response.
+    if (isSimulationSuccess(simulation) && simulation.transactionData) {
       try {
-        const built = result.transactionData.build();
+        const built = simulation.transactionData.build();
+        const fp = built.resources().footprint();
         footprint = {
-          readOnly: built
-            .resources()
-            .footprint()
-            .readOnly()
-            .map((e: unknown) => JSON.stringify(e)),
-          readWrite: built
-            .resources()
-            .footprint()
-            .readWrite()
-            .map((e: unknown) => JSON.stringify(e)),
+          readOnly: fp.readOnly().map((e: unknown) => JSON.stringify(e)),
+          readWrite: fp.readWrite().map((e: unknown) => JSON.stringify(e)),
         };
+        // The assembled submit artifact carries exactly this soroban
+        // transaction data, so reporting it lets callers assert parity.
+        sorobanData = built.toXDR("base64");
       } catch {
         // Keep empty footprint if structure extraction fails
       }
     }
 
-    return { success: true, resourceFee, footprint };
+    return { footprint, sorobanData };
   }
 
   /**
@@ -358,38 +552,30 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     sourceAccount: Account,
     ...args: xdr.ScVal[]
   ): Promise<Transaction> {
-    const server = this.createRpcServer();
-    const contract = new Contract(this._contractId);
+    return this.prepareTransactionOnContract(method, this._contractId, sourceAccount, ...args);
+  }
 
-    const rawTx = new TransactionBuilder(sourceAccount, {
-      fee: "100",
-      networkPassphrase: this._networkPassphrase,
-    })
-      .addOperation(contract.call(method, ...args))
-      .setTimeout(DEFAULT_TIMEOUT)
-      .build();
-
-    const simulationResult = await server.simulateTransaction(rawTx);
-
-    if (isSimulationError(simulationResult)) {
-      throw new SimulationError(
-        `Transaction preparation failed: ${simulationResult.error}`,
-        simulationResult.events,
-        simulationResult.error
-      );
-    }
-
-    if (!isSimulationSuccess(simulationResult) || !simulationResult.result) {
-      throw new SimulationError(
-        "Unknown simulation error during transaction preparation",
-        undefined,
-        simulationResult
-      );
-    }
-
-    // assembleTransaction applies resource fees, soroban transaction data and
-    // the auth entries produced by simulation (required by require_auth()).
-    return rpc.assembleTransaction(rawTx, simulationResult).build() as Transaction;
+  /**
+   * Like {@link prepareTransaction}, but builds the Soroban invocation against an
+   * arbitrary contract (e.g. a SEP-41 token contract) instead of the Linkora
+   * contract. Used to prepare the token `increase_allowance` pre-approval step.
+   */
+  private async prepareTransactionOnContract(
+    method: string,
+    contractId: string,
+    sourceAccount: Account,
+    ...args: xdr.ScVal[]
+  ): Promise<Transaction> {
+    // Issue #1356: route preparation through the ONE shared
+    // simulate-and-assemble pipeline so the submitted transaction carries
+    // exactly the footprint/soroban-data the simulation reported.
+    const { assembled } = await this.simulateInvocationOnContract(
+      method,
+      contractId,
+      sourceAccount,
+      args
+    );
+    return assembled;
   }
 
   /**
@@ -436,7 +622,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     sourceAccount: Account,
     ops: Array<{ method: string; args: xdr.ScVal[] }>
   ): Promise<Transaction> {
-    const server = this.createRpcServer();
+    const server = this._rpcServer;
     const contract = new Contract(this._contractId);
 
     const tempSource = Keypair.random();
@@ -470,7 +656,9 @@ export class LinkoraClient extends GeneratedLinkoraClient {
 
     // rpc.assembleTransaction only supports single-invoke transactions, so for
     // multi-op transactions apply each op's simulated auth entries manually.
-    const results = simulationResult.result ?? [];
+    const results = Array.isArray(simulationResult.result) ? simulationResult.result : [];
+
+    const authByOperation = mapMultiOperationAuth(results, ops);
 
     const realBuilder = new TransactionBuilder(sourceAccount, {
       fee: String(Number(simulationResult.minResourceFee || "0") + 100),
@@ -490,12 +678,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
           args: opDef.args,
         })
       );
-      const auth = (results as unknown as Array<{ auth?: xdr.SorobanAuthorizationEntry[] }>)[i]
-        ?.auth;
       realBuilder.addOperation(
         Operation.invokeHostFunction({
           func,
-          auth: auth ?? [],
+          auth: authByOperation[i],
         })
       );
     });
@@ -594,6 +780,27 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Fetch the configured maximum post content length from the contract.
+   *
+   * Falls back to the Rust default `MAX_CONTENT_LEN` (280 bytes, defined in
+   * `packages/contracts/contracts/linkora-contracts/src/validation.rs`) when
+   * the contract has no override stored.
+   *
+   * @returns The max post content length in UTF-8 bytes.
+   *
+   * @example
+   * ```ts
+   * const max = await client.getMaxPostContentLen();
+   * console.log(`Max post length: ${max} bytes`);
+   * ```
+   */
+  async getMaxPostContentLen(): Promise<number> {
+    const retval = await this.simulateCallOnContract(this._contractId, "get_max_post_content_len");
+    if (!retval) return 280;
+    return Number(scValToNative(retval));
+  }
+
+  /**
    * Get the number of likes a post has received.
    *
    * @param postId The ID of the post.
@@ -610,22 +817,154 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Execute a read function and wrap the outcome into a discriminated ReadResult<T>.
+   * Callers can distinguish valid values, missing/empty data, and transport errors.
+   */
+  async executeReadResult<T>(fn: () => Promise<T | null>): Promise<ReadResult<T>> {
+    try {
+      const value = await fn();
+      if (value === null) {
+        return { ok: true, value: null, absent: true };
+      }
+      return { ok: true, value };
+    } catch (error: unknown) {
+      const linkoraErr = error instanceof LinkoraError ? error : mapError(error);
+      if (linkoraErr instanceof NotFoundError) {
+        return { ok: true, value: null, absent: true };
+      }
+      return { ok: false, error: linkoraErr };
+    }
+  }
+
+  /**
+   * Batch multiple contract read/simulation operations into a single RPC roundtrip.
+   *
+   * @param ops Array of contract operations specifying function method and ScVal arguments.
+   * @returns Array of ScVal return values (or null for empty results).
+   */
+  async batchSimulate(
+    ops: Array<{ contractId?: string; method: string; args: xdr.ScVal[] }>
+  ): Promise<Array<xdr.ScVal | null>> {
+    if (ops.length === 0) return [];
+
+    const tempSource = Keypair.random();
+    const tempAccount = new Account(tempSource.publicKey(), "0");
+    const tempBuilder = new TransactionBuilder(tempAccount, {
+      fee: "100",
+      networkPassphrase: this._networkPassphrase,
+    });
+
+    for (const opDef of ops) {
+      const targetContractId = opDef.contractId ?? this._contractId;
+      const contract = new Contract(targetContractId);
+      tempBuilder.addOperation(contract.call(opDef.method, ...opDef.args));
+    }
+
+    const tempTx = tempBuilder.setTimeout(DEFAULT_TIMEOUT).build();
+    const simulationResult = await this._rpcServer.simulateTransaction(tempTx);
+
+    if (isSimulationError(simulationResult)) {
+      throw mapError(simulationResult.error);
+    }
+
+    if (!isSimulationSuccess(simulationResult) || !simulationResult.result) {
+      return ops.map(() => null);
+    }
+
+    const results = simulationResult.result ?? [];
+    return ops.map((_, i) => {
+      const entry = (results as unknown as Array<{ retval?: xdr.ScVal }>)[i];
+      return entry?.retval ?? null;
+    });
+  }
+
+  /**
+   * Read the contract version or capability marker from the connected contract.
+   * Returns the version string if supported by the contract, or "unknown".
+   */
+  async getContractVersion(): Promise<string> {
+    try {
+      const retval = await this.simulateCallOnContract(this._contractId, "version");
+      if (!retval) return "unknown";
+      return (scValToNative(retval) as string) ?? "unknown";
+    } catch {
+      return "unknown";
+    }
+  }
+
+  /**
+   * Verify that the contract version matches the expected capability version.
+   *
+   * @param expectedVersion The required contract version.
+   * @throws {VersionMismatchError} If the deployed contract version does not match.
+   */
+  async verifyContractVersion(expectedVersion: string): Promise<boolean> {
+    const actualVersion = await this.getContractVersion();
+    if (actualVersion !== "unknown" && actualVersion !== expectedVersion) {
+      throw new VersionMismatchError(
+        `Contract version mismatch: expected "${expectedVersion}", but deployed contract returned "${actualVersion}".`,
+        { expected: expectedVersion, actual: actualVersion }
+      );
+    }
+    return true;
+  }
+
+  /**
+   * Fetch classic Stellar account balances (native XLM and tokens) via Horizon.
+   */
+  getClassicAccountBalances(address: string): Promise<ClassicBalance[]> {
+    return this.classic.getAccountBalances(address);
+  }
+
+  /**
+   * Fetch non-native asset trustlines for a classic account via Horizon.
+   */
+  getClassicAccountTrustlines(address: string): Promise<ClassicBalance[]> {
+    return this.classic.getAccountTrustlines(address);
+  }
+
+  /**
    * Get the current treasury address where protocol fees are sent.
    *
    * @returns The treasury Stellar public key, or null if not set.
-   *
-   * @example
-   * ```ts
-   * const treasury = await client.getTreasury();
-   * console.log(`Treasury address: ${treasury}`);
-   * ```
    */
   async getTreasury(): Promise<string | null> {
     try {
       return await super.getTreasury();
-    } catch {
-      return null;
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
     }
+  }
+
+  /**
+   * Fetch the global state of the contract, including version and implementation WASM hash.
+   *
+   * @returns The ContractState object.
+   */
+  async getContractState(): Promise<ContractState> {
+    const retval = await this.simulateCallOnContract(this._contractId, "get_contract_state");
+    if (!retval) {
+      throw new Error("Failed to read contract state");
+    }
+    const raw: unknown = scValToNative(retval);
+    if (typeof raw !== "object" || raw === null) {
+      throw new Error("Contract returned an invalid contract state.");
+    }
+    const state = raw as Record<string, unknown>;
+    const version = Number(state.version);
+    const implementationHash = state.implementation_wasm_hash;
+    if (
+      !Number.isSafeInteger(version) ||
+      (implementationHash != null && !(implementationHash instanceof Uint8Array))
+    ) {
+      throw new Error("Contract returned malformed contract state fields.");
+    }
+    return {
+      version,
+      implementation_wasm_hash:
+        implementationHash == null ? null : Buffer.from(implementationHash as Uint8Array),
+    };
   }
 
   /**
@@ -691,8 +1030,9 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   async getDmKey(address: string): Promise<Uint8Array | null> {
     try {
       return await super.getDmKey(address);
-    } catch {
-      return null;
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
     }
   }
 
@@ -772,8 +1112,22 @@ export class LinkoraClient extends GeneratedLinkoraClient {
       });
     }
 
-    const effectiveHorizonUrl = horizonUrl ?? this._horizonUrl ?? this.getDefaultHorizonUrl();
+    const sourceAccount = await this.getAccountForTx(userAddress, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "publish_dm_key",
+      sourceAccount,
+      nativeToScVal(userAddress, { type: "address" }),
+      nativeToScVal(Array.from(x25519PubKey), { type: "bytes" })
+    );
 
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Helper to fetch the latest sequence number from Horizon and return a Stellar Account.
+   */
+  private async getAccountForTx(userAddress: string, horizonUrl?: string): Promise<Account> {
+    const effectiveHorizonUrl = horizonUrl ?? this._horizonUrl ?? this.getDefaultHorizonUrl();
     const res = await fetchWithTimeout(
       `${effectiveHorizonUrl}/accounts/${userAddress}`,
       undefined,
@@ -786,16 +1140,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
       );
     }
     const data = (await res.json()) as { sequence: string };
-
-    const sourceAccount = new Account(userAddress, data.sequence);
-    const tx = await this.prepareTransaction(
-      "publish_dm_key",
-      sourceAccount,
-      nativeToScVal(userAddress, { type: "address" }),
-      nativeToScVal(Array.from(x25519PubKey), { type: "bytes" })
-    );
-
-    return tx.toEnvelope().toXDR("base64");
+    return new Account(userAddress, data.sequence);
   }
 
   private getDefaultHorizonUrl(): string {
@@ -956,7 +1301,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    *
    * @param user The Stellar public key of the user.
    * @param username The desired username.
-   * @param creatorToken The contract ID of the user's creator token.
+   * @param creatorToken The user's creator token — a Soroban contract address (C...).
    * @returns The base64-encoded XDR of the transaction operation.
    *
    * @example
@@ -968,7 +1313,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   setProfile(user: string, username: string, creatorToken: string): string {
     ensureAddress(user, "user");
     ensureNonEmptyString(username, "username");
-    ensureAddress(creatorToken, "creatorToken");
+    ensureContractAddress(creatorToken, "creatorToken");
     return super.setProfile(user, username, creatorToken);
   }
 
@@ -994,7 +1339,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    *
    * @param author The Stellar public key of the author.
    * @param content The text content of the post.
-   * @returns The base64-encoded XDR of the transaction operation.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
    *
    * @example
    * ```ts
@@ -1006,6 +1351,27 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     ensureAddress(author, "author");
     ensureNonEmptyString(content, "content");
     return super.createPost(author, content);
+  }
+
+  /**
+   * Build a submittable create_post transaction with the caller as the proper source account.
+   *
+   * @param author The Stellar public key of the author.
+   * @param content The text content of the post.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareCreatePostTx(author: string, content: string, horizonUrl?: string): Promise<string> {
+    ensureAddress(author, "author");
+    ensureNonEmptyString(content, "content");
+    const sourceAccount = await this.getAccountForTx(author, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "create_post",
+      sourceAccount,
+      scvAddress(author),
+      scvString(content)
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1032,7 +1398,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    *
    * @param follower The Stellar public key of the follower.
    * @param followee The Stellar public key of the user to follow.
-   * @returns The base64-encoded XDR of the transaction operation.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
    *
    * @example
    * ```ts
@@ -1047,11 +1413,32 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Build a submittable follow transaction with the caller as the proper source account.
+   *
+   * @param follower The Stellar public key of the follower.
+   * @param followee The Stellar public key of the user to follow.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareFollowTx(follower: string, followee: string, horizonUrl?: string): Promise<string> {
+    ensureAddress(follower, "follower");
+    ensureAddress(followee, "followee");
+    const sourceAccount = await this.getAccountForTx(follower, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "follow",
+      sourceAccount,
+      scvAddress(follower),
+      scvAddress(followee)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
    * Unfollow a user.
    *
    * @param follower The Stellar public key of the follower.
    * @param followee The Stellar public key of the user to unfollow.
-   * @returns The base64-encoded XDR of the transaction operation.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
    *
    * @example
    * ```ts
@@ -1063,6 +1450,139 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     ensureAddress(follower, "follower");
     ensureAddress(followee, "followee");
     return super.unfollow(follower, followee);
+  }
+
+  /**
+   * Build a submittable unfollow transaction with the caller as the proper source account.
+   *
+   * @param follower The Stellar public key of the follower.
+   * @param followee The Stellar public key of the user to unfollow.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareUnfollowTx(
+    follower: string,
+    followee: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(follower, "follower");
+    ensureAddress(followee, "followee");
+    const sourceAccount = await this.getAccountForTx(follower, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "unfollow",
+      sourceAccount,
+      scvAddress(follower),
+      scvAddress(followee)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable block_user transaction with the caller as the proper
+   * source account.
+   *
+   * @param blocker The Stellar public key of the user initiating the block.
+   * @param blocked The Stellar public key of the user being blocked.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareBlockUserTx(
+    blocker: string,
+    blocked: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(blocker, "blocker");
+    ensureAddress(blocked, "blocked");
+    const sourceAccount = await this.getAccountForTx(blocker, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "block_user",
+      sourceAccount,
+      scvAddress(blocker),
+      scvAddress(blocked)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable unblock_user transaction with the caller as the proper
+   * source account.
+   *
+   * @param blocker The Stellar public key of the user who created the block.
+   * @param blocked The Stellar public key of the user being unblocked.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareUnblockUserTx(
+    blocker: string,
+    blocked: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(blocker, "blocker");
+    ensureAddress(blocked, "blocked");
+    const sourceAccount = await this.getAccountForTx(blocker, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "unblock_user",
+      sourceAccount,
+      scvAddress(blocker),
+      scvAddress(blocked)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable delete_post transaction with the author as the proper
+   * source account.
+   *
+   * @param author The Stellar public key of the post author (and required signer).
+   * @param postId The id of the post to delete.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareDeletePostTx(
+    author: string,
+    postId: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(author, "author");
+    ensurePositiveInteger(postId, "postId");
+    const sourceAccount = await this.getAccountForTx(author, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "delete_post",
+      sourceAccount,
+      scvAddress(author),
+      nativeToScVal(postId, { type: "u64" })
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable set_profile transaction with the caller as the proper
+   * source account.
+   *
+   * @param user The Stellar public key of the profile owner.
+   * @param username The new username.
+   * @param creatorToken The SEP-41 creator token contract address.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareSetProfileTx(
+    user: string,
+    username: string,
+    creatorToken: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(user, "user");
+    ensureNonEmptyString(username, "username");
+    ensureContractAddress(creatorToken, "creatorToken");
+    const sourceAccount = await this.getAccountForTx(user, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "set_profile",
+      sourceAccount,
+      scvAddress(user),
+      scvString(username),
+      scvAddress(creatorToken)
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1108,7 +1628,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    *
    * @param user The Stellar public key of the user liking the post.
    * @param postId The ID of the post.
-   * @returns The base64-encoded XDR of the transaction operation.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
    *
    * @example
    * ```ts
@@ -1123,13 +1643,38 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   }
 
   /**
+   * Build a submittable like_post transaction with the caller as the proper source account.
+   *
+   * @param user The Stellar public key of the user liking the post.
+   * @param postId The ID of the post.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareLikePostTx(
+    user: string,
+    postId: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(user, "user");
+    ensurePositiveInteger(postId, "postId");
+    const sourceAccount = await this.getAccountForTx(user, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "like_post",
+      sourceAccount,
+      nativeToScVal(user, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" })
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
    * Tip the author of a post.
    *
    * @param tipper The Stellar public key of the user sending the tip.
    * @param postId The ID of the post whose author will receive the tip.
-   * @param token The contract ID of the token used for the tip.
+   * @param token The tip token — a Soroban contract address (C...).
    * @param amount The tip amount in stroops (or smallest decimal unit).
-   * @returns The base64-encoded XDR of the transaction operation.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
    *
    * @example
    * ```ts
@@ -1140,9 +1685,42 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   tip(tipper: string, postId: number | bigint, token: string, amount: number | bigint): string {
     ensureAddress(tipper, "tipper");
     ensurePositiveInteger(postId, "postId");
-    ensureAddress(token, "token");
+    ensureContractAddress(token, "token");
     ensurePositiveInteger(amount, "amount");
     return super.tip(tipper, BigInt(postId), token, BigInt(amount));
+  }
+
+  /**
+   * Build a submittable tip transaction with the caller as the proper source account.
+   *
+   * @param tipper The Stellar public key of the user sending the tip.
+   * @param postId The ID of the post whose author will receive the tip.
+   * @param token The tip token — a Soroban contract address (C...).
+   * @param amount The tip amount in stroops.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareTipTx(
+    tipper: string,
+    postId: number | bigint,
+    token: string,
+    amount: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(tipper, "tipper");
+    ensurePositiveInteger(postId, "postId");
+    ensureContractAddress(token, "token");
+    ensurePositiveInteger(amount, "amount");
+    const sourceAccount = await this.getAccountForTx(tipper, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "tip",
+      sourceAccount,
+      nativeToScVal(tipper, { type: "address" }),
+      nativeToScVal(postId, { type: "u64" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1150,7 +1728,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    *
    * @param admin The Stellar public key of the pool creator/initial admin.
    * @param poolId The unique identifier for the pool.
-   * @param token The contract ID of the token used in this pool.
+   * @param token The pool token — a Soroban contract address (C...).
    * @param initialAdmins Array of Stellar public keys of the initial admins.
    * @param threshold The required signature threshold for pool actions.
    * @returns The base64-encoded XDR of the transaction operation.
@@ -1176,10 +1754,48 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   ): string {
     ensureAddress(admin, "admin");
     ensureNonEmptyString(poolId, "poolId");
-    ensureAddress(token, "token");
+    ensureContractAddress(token, "token");
     ensureAddressList(initialAdmins, "initialAdmins");
     ensureInteger(threshold, "threshold", 1);
     return super.createPool(admin, poolId, token, initialAdmins, Number(threshold));
+  }
+
+  /**
+   * Build a submittable create_pool transaction with the caller as the proper
+   * source account.
+   *
+   * @param admin The Stellar public key of the pool creator/initial admin.
+   * @param poolId The unique identifier for the pool.
+   * @param token The pool token — a Soroban contract address (C...).
+   * @param initialAdmins Array of Stellar public keys of the initial admins.
+   * @param threshold The required signature threshold for pool actions.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareCreatePoolTx(
+    admin: string,
+    poolId: string,
+    token: string,
+    initialAdmins: string[],
+    threshold: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(admin, "admin");
+    ensureNonEmptyString(poolId, "poolId");
+    ensureContractAddress(token, "token");
+    ensureAddressList(initialAdmins, "initialAdmins");
+    ensureInteger(threshold, "threshold", 1);
+    const sourceAccount = await this.getAccountForTx(admin, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "create_pool",
+      sourceAccount,
+      scvAddress(admin),
+      scvSymbol(poolId),
+      scvAddress(token),
+      scvAddressVec(initialAdmins),
+      scvU32(Number(threshold))
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1187,9 +1803,9 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    *
    * @param depositor The Stellar public key of the user depositing tokens.
    * @param poolId The ID of the pool.
-   * @param token The contract ID of the token.
+   * @param token The pool token — a Soroban contract address (C...).
    * @param amount The amount to deposit.
-   * @returns The base64-encoded XDR of the transaction operation.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
    *
    * @example
    * ```ts
@@ -1200,9 +1816,77 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   poolDeposit(depositor: string, poolId: string, token: string, amount: number | bigint): string {
     ensureAddress(depositor, "depositor");
     ensureNonEmptyString(poolId, "poolId");
-    ensureAddress(token, "token");
+    ensureContractAddress(token, "token");
     ensurePositiveInteger(amount, "amount");
     return super.poolDeposit(depositor, poolId, token, BigInt(amount));
+  }
+
+  /**
+   * Build a submittable pool_deposit transaction with the caller as the proper source account.
+   *
+   * @param depositor The Stellar public key of the user depositing tokens.
+   * @param poolId The ID of the pool.
+   * @param token The pool token — a Soroban contract address (C...).
+   * @param amount The amount to deposit.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async preparePoolDepositTx(
+    depositor: string,
+    poolId: string,
+    token: string,
+    amount: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(depositor, "depositor");
+    ensureNonEmptyString(poolId, "poolId");
+    ensureContractAddress(token, "token");
+    ensurePositiveInteger(amount, "amount");
+    const sourceAccount = await this.getAccountForTx(depositor, horizonUrl);
+    const tx = await this.prepareTransaction(
+      "pool_deposit",
+      sourceAccount,
+      nativeToScVal(depositor, { type: "address" }),
+      nativeToScVal(poolId, { type: "symbol" }),
+      nativeToScVal(token, { type: "address" }),
+      nativeToScVal(amount, { type: "i128" })
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable SEP-41 `increase_allowance` transaction against the
+   * token contract, authorizing the pool contract to spend the depositor's
+   * tokens during `pool_deposit`.
+   *
+   * @param depositor The Stellar public key of the token holder granting the allowance.
+   * @param token The SEP-41 token — a Soroban contract address (C...).
+   * @param spender The contract / account authorized to spend (the pool contract).
+   * @param amount The amount to approve in stroops.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareIncreaseAllowanceTx(
+    depositor: string,
+    token: string,
+    spender: string,
+    amount: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddress(depositor, "depositor");
+    ensureContractAddress(token, "token");
+    ensureAddress(spender, "spender");
+    ensurePositiveInteger(amount, "amount");
+    const sourceAccount = await this.getAccountForTx(depositor, horizonUrl);
+    const tx = await this.prepareTransactionOnContract(
+      "increase_allowance",
+      token,
+      sourceAccount,
+      scvAddress(depositor),
+      scvAddress(spender),
+      scvI128(amount)
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1236,6 +1920,130 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     ensurePositiveInteger(amount, "amount");
     ensureAddress(recipient, "recipient");
     return super.poolWithdraw(signers, poolId, BigInt(amount), recipient);
+  }
+
+  /**
+   * Build a submittable pool_withdraw transaction with the caller as the proper
+   * source account.
+   *
+   * @param signers Array of Stellar public keys of the admins authorizing the withdrawal.
+   * @param poolId The ID of the pool.
+   * @param amount The amount to withdraw.
+   * @param recipient The Stellar public key to receive the tokens.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async preparePoolWithdrawTx(
+    signers: string[],
+    poolId: string,
+    amount: number | bigint,
+    recipient: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddressList(signers, "signers");
+    ensureNonEmptyString(poolId, "poolId");
+    ensurePositiveInteger(amount, "amount");
+    ensureAddress(recipient, "recipient");
+    const sourceAccount = await this.getAccountForTx(signers[0], horizonUrl);
+    const tx = await this.prepareTransaction(
+      "pool_withdraw",
+      sourceAccount,
+      scvAddressVec(signers),
+      scvSymbol(poolId),
+      scvI128(amount),
+      scvAddress(recipient)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable add_pool_admin transaction with the first signer as the
+   * proper source account.
+   *
+   * @param signers Array of Stellar public keys of the admins authorizing the change.
+   * @param poolId The ID of the pool.
+   * @param newAdmin The Stellar public key to add as an admin.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareAddPoolAdminTx(
+    signers: string[],
+    poolId: string,
+    newAdmin: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddressList(signers, "signers");
+    ensureNonEmptyString(poolId, "poolId");
+    ensureAddress(newAdmin, "newAdmin");
+    const sourceAccount = await this.getAccountForTx(signers[0], horizonUrl);
+    const tx = await this.prepareTransaction(
+      "add_pool_admin",
+      sourceAccount,
+      scvAddressVec(signers),
+      scvSymbol(poolId),
+      scvAddress(newAdmin)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable remove_pool_admin transaction with the first signer as
+   * the proper source account.
+   *
+   * @param signers Array of Stellar public keys of the admins authorizing the change.
+   * @param poolId The ID of the pool.
+   * @param admin The Stellar public key of the admin to remove.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareRemovePoolAdminTx(
+    signers: string[],
+    poolId: string,
+    admin: string,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddressList(signers, "signers");
+    ensureNonEmptyString(poolId, "poolId");
+    ensureAddress(admin, "admin");
+    const sourceAccount = await this.getAccountForTx(signers[0], horizonUrl);
+    const tx = await this.prepareTransaction(
+      "remove_pool_admin",
+      sourceAccount,
+      scvAddressVec(signers),
+      scvSymbol(poolId),
+      scvAddress(admin)
+    );
+    return tx.toEnvelope().toXDR("base64");
+  }
+
+  /**
+   * Build a submittable update_pool_threshold transaction with the first signer
+   * as the proper source account.
+   *
+   * @param signers Array of Stellar public keys of the admins authorizing the change.
+   * @param poolId The ID of the pool.
+   * @param threshold The new signing threshold.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareUpdatePoolThresholdTx(
+    signers: string[],
+    poolId: string,
+    threshold: number | bigint,
+    horizonUrl?: string
+  ): Promise<string> {
+    ensureAddressList(signers, "signers");
+    ensureNonEmptyString(poolId, "poolId");
+    ensurePositiveInteger(threshold, "threshold");
+    const sourceAccount = await this.getAccountForTx(signers[0], horizonUrl);
+    const tx = await this.prepareTransaction(
+      "update_pool_threshold",
+      sourceAccount,
+      scvAddressVec(signers),
+      scvSymbol(poolId),
+      nativeToScVal(Number(threshold), { type: "u32" })
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   /**
@@ -1385,6 +2193,8 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     windowEnd: number | bigint
   ): string {
     ensureNonEmptyString(oracleName, "oracleName");
+    ensureMaxBytes(reportCbor, "reportCbor");
+    ensureMaxBytes(signature, "signature");
     ensureAddress(creator, "creator");
     ensureInteger(windowStart, "windowStart", 0);
     ensureInteger(windowEnd, "windowEnd", 0);
@@ -1484,10 +2294,10 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * console.log("Deploy Op:", deployOp, "Profile Op:", profileOp);
    * ```
    */
-  setProfileWithNewToken(
+  async setProfileWithNewToken(
     params: SetProfileWithNewTokenParams,
     sourceAccount?: Account
-  ): [string, string] {
+  ): Promise<[string, string]> {
     if (!this.tokenFactoryId) {
       throw new ValidationError(
         "tokenFactoryId must be set in ClientConfig to use setProfileWithNewToken",
@@ -1496,6 +2306,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
         }
       );
     }
+
     const deployTx = this.deployCreatorToken(
       {
         deployer: params.user,
@@ -1503,10 +2314,17 @@ export class LinkoraClient extends GeneratedLinkoraClient {
       },
       sourceAccount
     );
-    // NOTE: the token address used here is a placeholder; callers should
-    // first simulate deployCreatorToken to get the real token address, then
-    // call setProfile(user, username, tokenAddress) directly.
-    const profileTx = this.setProfile(params.user, params.username, params.user);
+
+    const tokenAddress = await this.simulateDeployCreatorToken({
+      deployer: params.user,
+      ...params.tokenParams,
+    });
+
+    if (!tokenAddress) {
+      throw new Error("Failed to determine the deployed creator token contract ID.");
+    }
+
+    const profileTx = this.setProfile(params.user, params.username, tokenAddress);
     return [deployTx, profileTx];
   }
 
@@ -1595,12 +2413,163 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     return tx.toEnvelope().toXDR("base64");
   }
 
+  // ── Cursor pagination for list reads (issue #1358) ────────────────────────
+
+  /**
+   * Fetch ONE page of followers behind an opaque cursor (issue #1358).
+   *
+   * @param user The account whose follower list is read.
+   * @param opts `cursor` from a previous page (omit for the first page) and
+   * `pageSize`.
+   * @returns The follower addresses plus the next opaque cursor, if any.
+   *
+   * @example
+   * ```ts
+   * let cursor: string | undefined;
+   * do {
+   *   const page = await client.fetchFollowersPage("GBFOY...", { cursor, pageSize: 100 });
+   *   console.log(page.items);
+   *   cursor = page.nextCursor;
+   * } while (cursor);
+   * ```
+   */
+  async fetchFollowersPage(
+    user: string,
+    opts?: { cursor?: string; pageSize?: number }
+  ): Promise<Page<string>> {
+    return fetchPageWithCursor<string>({
+      cursor: opts?.cursor,
+      pageSize: opts?.pageSize,
+      fetchPage: (offset, limit) => this.getFollowers(user, offset, limit),
+    });
+  }
+
+  /** Fetch ONE page of accounts `user` follows, behind an opaque cursor. */
+  async fetchFollowingPage(
+    user: string,
+    opts?: { cursor?: string; pageSize?: number }
+  ): Promise<Page<string>> {
+    return fetchPageWithCursor<string>({
+      cursor: opts?.cursor,
+      pageSize: opts?.pageSize,
+      fetchPage: (offset, limit) => this.getFollowing(user, offset, limit),
+    });
+  }
+
+  /** Fetch ONE page of post IDs authored by `author`, behind an opaque cursor. */
+  async fetchPostsByAuthorPage(
+    author: string,
+    opts?: { cursor?: string; pageSize?: number }
+  ): Promise<Page<bigint>> {
+    return fetchPageWithCursor<bigint>({
+      cursor: opts?.cursor,
+      pageSize: opts?.pageSize,
+      fetchPage: (offset, limit) => this.getPostsByAuthor(author, offset, limit),
+    });
+  }
+
+  /**
+   * Iterate every follower of `user`, transparently walking pages behind the
+   * opaque cursor (issue #1358).
+   */
+  async *iterateFollowers(
+    user: string,
+    opts?: PaginationOptions
+  ): AsyncGenerator<string, void, unknown> {
+    yield* paginateList<string>({
+      ...opts,
+      cursor: opts?.cursor,
+      fetchPage: (offset, limit) => this.getFollowers(user, offset, limit),
+    });
+  }
+
+  /** Iterate every account `user` follows, transparently walking pages. */
+  async *iterateFollowing(
+    user: string,
+    opts?: PaginationOptions
+  ): AsyncGenerator<string, void, unknown> {
+    yield* paginateList<string>({
+      ...opts,
+      cursor: opts?.cursor,
+      fetchPage: (offset, limit) => this.getFollowing(user, offset, limit),
+    });
+  }
+
+  /** Iterate every post ID authored by `author`, transparently walking pages. */
+  async *iteratePostsByAuthor(
+    author: string,
+    opts?: PaginationOptions
+  ): AsyncGenerator<bigint, void, unknown> {
+    yield* paginateList<bigint>({
+      ...opts,
+      cursor: opts?.cursor,
+      fetchPage: (offset, limit) => this.getPostsByAuthor(author, offset, limit),
+    });
+  }
+
+  // ── Fee-bump / bump-sequence support (issue #1346) ───────────────────────
+
+  /**
+   * Wrap an existing signed transaction into a fee-bump transaction so it can
+   * be resubmitted with a higher fee (e.g. when stuck in the mempool).
+   *
+   * @param innerTx A signed `Transaction` or its base-64 XDR envelope.
+   * @param feePayer The `Keypair` (or public key) of the account paying the
+   * higher fee.
+   * @param fee The higher fee in stroops; must exceed the inner transaction's
+   * fee.
+   * @returns The fee-bump transaction, ready for the fee payer's signature and
+   * submission via `submitTransaction`.
+   * @throws {InvalidInputError} When fee-bumping is not possible: the inner
+   * transaction is unsigned, already a fee bump, malformed, or the fee is not
+   * a positive stroop amount.
+   *
+   * @example
+   * ```ts
+   * const bumped = client.feeBumpTransaction(signedTxXdr, feePayerKeypair, "1000");
+   * bumped.sign(feePayerKeypair);
+   * await client.submitTransaction(bumped.toEnvelope().toXDR("base64"), { signer });
+   * ```
+   */
+  feeBumpTransaction(
+    innerTx: Transaction | string,
+    feePayer: Keypair | string,
+    fee: string
+  ): FeeBumpTransaction {
+    return buildFeeBumpTransaction(innerTx, feePayer, fee, this._networkPassphrase);
+  }
+
+  /**
+   * Build a standalone `bump_sequence` transaction for the account, to escape
+   * a stuck sequence number: submit it first, then rebuild the original
+   * transaction at the new sequence.
+   *
+   * @param source The Stellar public key of the account whose sequence to bump.
+   * @param bumpTo The sequence number to bump the account to (must exceed the
+   * current sequence).
+   * @param horizonUrl Optional Horizon URL for fetching the account.
+   * @param fee Transaction fee in stroops (default `"100"`).
+   * @returns The unsigned transaction; sign it with the source account's
+   * signer and submit.
+   * @throws {InvalidInputError} When `bumpTo` is not a positive integer.
+   */
+  async bumpSequence(
+    source: string,
+    bumpTo: string | number | bigint,
+    horizonUrl?: string,
+    fee: string = "100"
+  ): Promise<Transaction> {
+    ensureAddress(source, "source");
+    const sourceAccount = await this.getAccountForTx(source, horizonUrl);
+    return buildBumpSequenceTransaction(sourceAccount, bumpTo, this._networkPassphrase, fee);
+  }
+
   private async simulateCallOnContract(
     contractId: string,
     method: string,
     ...args: xdr.ScVal[]
   ): Promise<xdr.ScVal | null> {
-    const server = this.createRpcServer();
+    const server = this._rpcServer;
     const contract = new Contract(contractId);
     const op = contract.call(method, ...args);
 

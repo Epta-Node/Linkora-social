@@ -1,5 +1,6 @@
 import { scValToNative, xdr } from "@stellar/stellar-base";
 import type { GovParameter } from "../generated/types.js";
+import * as Gen from "../generated/events.js";
 
 export interface SorobanEvent {
   type?: string;
@@ -22,7 +23,14 @@ export interface LinkoraEventMeta {
   id?: string;
   pagingToken?: string;
   txHash?: string;
+  /** Contract that emitted the event. Kept typed for multi-contract clients. */
+  source: EventSource;
   raw: SorobanEvent;
+}
+
+export interface EventSource {
+  contractId?: string;
+  kind: "linkora" | "token-factory" | "unknown";
 }
 
 interface BaseLinkoraEvent {
@@ -38,138 +46,60 @@ export interface RentPaidEvent extends BaseLinkoraEvent {
   extended_to_ledger: number;
 }
 
-export interface ProfileSetEvent extends BaseLinkoraEvent {
-  type: "profile_set";
-  user: string;
-  username: string;
-}
+export type ProfileSetEvent = BaseLinkoraEvent &
+  Omit<Gen.ProfileSetEvent, "type"> & { type: "profile_set" };
 
-export interface FollowEvent extends BaseLinkoraEvent {
-  type: "follow";
-  follower: string;
-  followee: string;
-}
+export type FollowEvent = BaseLinkoraEvent & Omit<Gen.FollowEvent, "type"> & { type: "follow" };
 
-export interface UnfollowEvent extends BaseLinkoraEvent {
-  type: "unfollow";
-  follower: string;
-  followee: string;
-}
+export type UnfollowEvent = BaseLinkoraEvent &
+  Omit<Gen.UnfollowEvent, "type"> & { type: "unfollow" };
 
-export interface BlockEvent extends BaseLinkoraEvent {
-  type: "block";
-  blocker: string;
-  blocked: string;
-}
+export type BlockEvent = BaseLinkoraEvent & Omit<Gen.BlockEvent, "type"> & { type: "block" };
 
-export interface UnblockEvent extends BaseLinkoraEvent {
-  type: "unblock";
-  blocker: string;
-  blocked: string;
-}
+export type UnblockEvent = BaseLinkoraEvent & Omit<Gen.UnblockEvent, "type"> & { type: "unblock" };
 
-export interface PostCreatedEvent extends BaseLinkoraEvent {
-  type: "post_created";
-  id: number;
-  author: string;
-}
+export type PostCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.PostCreatedEvent, "type"> & { type: "post_created" };
 
-export interface TipEvent extends BaseLinkoraEvent {
-  type: "tip";
-  tipper: string;
-  post_id: number;
-  amount: bigint;
-  fee: bigint;
-}
+export type TipEvent = BaseLinkoraEvent & Omit<Gen.TipEvent, "type"> & { type: "tip" };
 
-export interface PoolDepositEvent extends BaseLinkoraEvent {
-  type: "pool_deposit";
-  depositor: string;
-  pool_id: string;
-  amount: bigint;
-}
+export type PoolDepositEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolDepositEvent, "type"> & { type: "pool_deposit" };
 
-export interface PoolWithdrawEvent extends BaseLinkoraEvent {
-  type: "pool_withdraw";
-  recipient: string;
-  pool_id: string;
-  amount: bigint;
-}
+export type PoolWithdrawEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolWithdrawEvent, "type"> & { type: "pool_withdraw" };
 
-export interface PoolCreatedEvent extends BaseLinkoraEvent {
-  type: "pool_created";
-  pool_id: string;
-  token: string;
-  admins: string[];
-  threshold: number;
-}
+export type PoolCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolCreatedEvent, "type"> & { type: "pool_created" };
 
-export interface LikePostEvent extends BaseLinkoraEvent {
-  type: "like";
-  user: string;
-  post_id: number;
-}
+export type LikePostEvent = BaseLinkoraEvent & Omit<Gen.LikePostEvent, "type"> & { type: "like" };
 
-export interface ContractUpgradedEvent extends BaseLinkoraEvent {
-  type: "contract_upgraded";
-  new_wasm_hash: string;
-}
+export type ContractUpgradedEvent = BaseLinkoraEvent &
+  Omit<Gen.ContractUpgraded, "type"> & { type: "contract_upgraded" };
 
-export interface PostDeletedEvent extends BaseLinkoraEvent {
-  type: "post_deleted";
-  post_id: number;
-  author: string;
-}
+export type PostDeletedEvent = BaseLinkoraEvent &
+  Omit<Gen.PostDeleted, "type"> & { type: "post_deleted" };
 
-export interface ProposalCreatedEvent extends BaseLinkoraEvent {
-  type: "proposal_created";
-  pool_id: string;
-  proposal_id: number;
-  proposer: string;
-  amount: bigint;
-  recipient: string;
-}
+export type ProposalCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.ProposalCreatedEvent, "type"> & { type: "proposal_created" };
 
-export interface ProposalSignedEvent extends BaseLinkoraEvent {
-  type: "proposal_signed";
-  pool_id: string;
-  proposal_id: number;
-  signer: string;
-}
+export type ProposalSignedEvent = BaseLinkoraEvent &
+  Omit<Gen.ProposalSignedEvent, "type"> & { type: "proposal_signed" };
 
-export interface ProposalExecutedEvent extends BaseLinkoraEvent {
-  type: "proposal_executed";
-  pool_id: string;
-  proposal_id: number;
-  amount: bigint;
-  recipient: string;
-}
+export type ProposalExecutedEvent = BaseLinkoraEvent &
+  Omit<Gen.ProposalExecutedEvent, "type"> & { type: "proposal_executed" };
 
-export interface PoolAdminAddedEvent extends BaseLinkoraEvent {
-  type: "pool_admin_added";
-  pool_id: string;
-  new_admin: string;
-}
+export type PoolAdminAddedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolAdminAddedEvent, "type"> & { type: "pool_admin_added" };
 
-export interface PoolAdminRemovedEvent extends BaseLinkoraEvent {
-  type: "pool_admin_removed";
-  pool_id: string;
-  admin: string;
-}
+export type PoolAdminRemovedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolAdminRemovedEvent, "type"> & { type: "pool_admin_removed" };
 
-export interface PoolThresholdUpdatedEvent extends BaseLinkoraEvent {
-  type: "pool_threshold_updated";
-  pool_id: string;
-  old_threshold: number;
-  new_threshold: number;
-}
+export type PoolThresholdUpdatedEvent = BaseLinkoraEvent &
+  Omit<Gen.PoolThresholdUpdatedEvent, "type"> & { type: "pool_threshold_updated" };
 
-export interface DmKeyPublishedEvent extends BaseLinkoraEvent {
-  type: "dm_key_published";
-  user: string;
-  public_key: string;
-  key: string;
-}
+export type DmKeyPublishedEvent = BaseLinkoraEvent &
+  Omit<Gen.DmKeyPublishedEvent, "type"> & { type: "dm_key_published" };
 
 export interface CredentialRootUpdatedEvent extends BaseLinkoraEvent {
   type: "credential_root_updated";
@@ -183,51 +113,25 @@ export interface CredentialVerifiedEvent extends BaseLinkoraEvent {
   nullifier: string;
 }
 
-export interface FeeUpdatedEvent extends BaseLinkoraEvent {
-  type: "fee_updated";
-  name: string;
-  old_fee_bps: number;
-  new_fee_bps: number;
-}
+export type FeeUpdatedEvent = BaseLinkoraEvent &
+  Omit<Gen.FeeUpdatedEvent, "type"> & { type: "fee_updated" };
 
-export interface TreasuryUpdatedEvent extends BaseLinkoraEvent {
-  type: "treasury_updated";
-  name: string;
-  old_treasury: string;
-  new_treasury: string;
-}
+export type TreasuryUpdatedEvent = BaseLinkoraEvent &
+  Omit<Gen.TreasuryUpdatedEvent, "type"> & { type: "treasury_updated" };
 
-export interface GovProposalCreatedEvent extends BaseLinkoraEvent {
-  type: "gov_proposal_created";
-  proposal_id: number;
-  proposer: string;
-  parameter: GovParameter;
-  new_value: number;
-}
+export type GovProposalCreatedEvent = BaseLinkoraEvent &
+  Omit<Gen.GovProposalCreatedEvent, "type"> & { type: "gov_proposal_created" };
 
-export interface GovVoteEvent extends BaseLinkoraEvent {
-  type: "gov_vote";
-  proposal_id: number;
-  voter: string;
-  support: boolean;
-}
+export type GovVoteEvent = BaseLinkoraEvent & Omit<Gen.GovVoteEvent, "type"> & { type: "gov_vote" };
 
-export interface GovProposalExecutedEvent extends BaseLinkoraEvent {
-  type: "gov_proposal_executed";
-  proposal_id: number;
-  parameter: GovParameter;
-  new_value: number;
-}
+export type GovProposalExecutedEvent = BaseLinkoraEvent &
+  Omit<Gen.GovProposalExecutedEvent, "type"> & { type: "gov_proposal_executed" };
 
-export interface GovProposalVetoedEvent extends BaseLinkoraEvent {
-  type: "gov_proposal_vetoed";
-  proposal_id: number;
-}
+export type GovProposalVetoedEvent = BaseLinkoraEvent &
+  Omit<Gen.GovProposalVetoedEvent, "type"> & { type: "gov_proposal_vetoed" };
 
-export interface EmergencyBypassEvent extends BaseLinkoraEvent {
-  type: "emergency_bypass";
-  action: string;
-}
+export type EmergencyBypassEvent = BaseLinkoraEvent &
+  Omit<Gen.EmergencyBypassEvent, "type"> & { type: "emergency_bypass" };
 
 export interface AttestationVerifiedEvent extends BaseLinkoraEvent {
   type: "attestation_verified";
@@ -240,20 +144,20 @@ export interface AttestationVerifiedEvent extends BaseLinkoraEvent {
 
 export interface PostReportedEvent extends BaseLinkoraEvent {
   type: "post_reported";
-  post_id: number;
+  post_id: bigint;
   reporter: string;
   stake_amount: bigint;
 }
 
 export interface PostRemovedByModerationEvent extends BaseLinkoraEvent {
   type: "post_removed_by_moderation";
-  post_id: number;
+  post_id: bigint;
   reporter: string;
 }
 
 export interface ReportDismissedEvent extends BaseLinkoraEvent {
   type: "report_dismissed";
-  post_id: number;
+  post_id: bigint;
   reporter: string;
 }
 
@@ -404,7 +308,15 @@ function payloadFrom(topics: unknown[], data: Record<string, unknown>): Record<s
   return payload;
 }
 
-function meta(raw: SorobanEvent): LinkoraEventMeta {
+export function eventSource(raw: SorobanEvent, tokenFactoryId?: string): EventSource {
+  if (!raw.contractId) return { kind: "unknown" };
+  if (tokenFactoryId && raw.contractId === tokenFactoryId) {
+    return { contractId: raw.contractId, kind: "token-factory" };
+  }
+  return { contractId: raw.contractId, kind: "linkora" };
+}
+
+function meta(raw: SorobanEvent, tokenFactoryId?: string): LinkoraEventMeta {
   return {
     ledger: raw.ledger,
     ledgerClosedAt: raw.ledgerClosedAt,
@@ -412,6 +324,7 @@ function meta(raw: SorobanEvent): LinkoraEventMeta {
     id: raw.id,
     pagingToken: raw.pagingToken,
     txHash: raw.txHash,
+    source: eventSource(raw, tokenFactoryId),
     raw,
   };
 }
@@ -456,14 +369,14 @@ function strArray(value: unknown): string[] {
  * }
  * ```
  */
-export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
+export function parseContractEvent(raw: SorobanEvent, tokenFactoryId?: string): LinkoraEvent | null {
   try {
     const topics = decodeMany(raw.topics ?? raw.topic);
     const eventType = findEventType(topics);
     if (!eventType) return null;
 
     const payload = payloadFrom(topics, decodeData(raw.data ?? raw.value));
-    const eventMeta = meta(raw);
+    const eventMeta = meta(raw, tokenFactoryId);
 
     switch (eventType) {
       case "rent_paid":
@@ -514,14 +427,14 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "post_created":
         return {
           type: eventType,
-          id: num(payload.id),
+          id: big(payload.id),
           author: str(payload.author),
           meta: eventMeta,
         };
       case "post_deleted":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           author: str(payload.author),
           meta: eventMeta,
         };
@@ -529,14 +442,14 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
         return {
           type: eventType,
           user: str(payload.user),
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           meta: eventMeta,
         };
       case "tip":
         return {
           type: eventType,
           tipper: str(payload.tipper),
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           amount: big(payload.amount),
           fee: big(payload.fee),
           meta: eventMeta,
@@ -567,12 +480,16 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           meta: eventMeta,
         };
       case "contract_upgraded":
-        return { type: eventType, new_wasm_hash: str(payload.new_wasm_hash), meta: eventMeta };
+        return {
+          type: eventType,
+          new_wasm_hash: payload.new_wasm_hash as Uint8Array,
+          meta: eventMeta,
+        };
       case "proposal_created":
         return {
           type: eventType,
           pool_id: str(payload.pool_id),
-          proposal_id: num(payload.proposal_id),
+          proposal_id: big(payload.proposal_id),
           proposer: str(payload.proposer),
           amount: big(payload.amount),
           recipient: str(payload.recipient),
@@ -582,7 +499,7 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
         return {
           type: eventType,
           pool_id: str(payload.pool_id),
-          proposal_id: num(payload.proposal_id),
+          proposal_id: big(payload.proposal_id),
           signer: str(payload.signer),
           meta: eventMeta,
         };
@@ -590,7 +507,7 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
         return {
           type: eventType,
           pool_id: str(payload.pool_id),
-          proposal_id: num(payload.proposal_id),
+          proposal_id: big(payload.proposal_id),
           amount: big(payload.amount),
           recipient: str(payload.recipient),
           meta: eventMeta,
@@ -618,12 +535,10 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
           meta: eventMeta,
         };
       case "dm_key_published": {
-        const publicKey = str(payload.public_key ?? payload.key);
         return {
           type: eventType,
           user: str(payload.user),
-          public_key: publicKey,
-          key: publicKey,
+          public_key: (payload.public_key ?? payload.key) as Uint8Array,
           meta: eventMeta,
         };
       }
@@ -660,16 +575,16 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "gov_proposal_created":
         return {
           type: eventType,
-          proposal_id: num(payload.proposal_id),
+          proposal_id: big(payload.proposal_id),
           proposer: str(payload.proposer),
           parameter: str(payload.parameter) as GovParameter,
-          new_value: num(payload.new_value),
+          new_value: big(payload.new_value),
           meta: eventMeta,
         };
       case "gov_vote":
         return {
           type: eventType,
-          proposal_id: num(payload.proposal_id),
+          proposal_id: big(payload.proposal_id),
           voter: str(payload.voter),
           support: Boolean(payload.support),
           meta: eventMeta,
@@ -677,13 +592,13 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "gov_proposal_executed":
         return {
           type: eventType,
-          proposal_id: num(payload.proposal_id),
+          proposal_id: big(payload.proposal_id),
           parameter: str(payload.parameter) as GovParameter,
-          new_value: num(payload.new_value),
+          new_value: big(payload.new_value),
           meta: eventMeta,
         };
       case "gov_proposal_vetoed":
-        return { type: eventType, proposal_id: num(payload.proposal_id), meta: eventMeta };
+        return { type: eventType, proposal_id: big(payload.proposal_id), meta: eventMeta };
       case "emergency_bypass":
         return { type: eventType, action: str(payload.action), meta: eventMeta };
       case "attestation_verified":
@@ -699,7 +614,7 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "post_reported":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           reporter: str(payload.reporter),
           stake_amount: big(payload.stake_amount),
           meta: eventMeta,
@@ -707,14 +622,14 @@ export function parseContractEvent(raw: SorobanEvent): LinkoraEvent | null {
       case "post_removed_by_moderation":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           reporter: str(payload.reporter),
           meta: eventMeta,
         };
       case "report_dismissed":
         return {
           type: eventType,
-          post_id: num(payload.post_id),
+          post_id: big(payload.post_id),
           reporter: str(payload.reporter),
           meta: eventMeta,
         };

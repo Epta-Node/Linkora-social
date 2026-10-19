@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useWalletContext } from "@/components/WalletProvider";
+import { getHorizonUrl } from "@/config/networks";
 
 // Re-export the context hook as the canonical useWallet for simple consumers
 // (nav bar, header, etc.) that only need { address, connected, network,
@@ -25,11 +26,13 @@ export interface WalletInfo {
   balance: string | null;
 }
 
-const HORIZON_TESTNET = "https://horizon-testnet.stellar.org";
-
-async function fetchXlmBalance(address: string): Promise<string> {
+export async function fetchXlmBalance(
+  address: string,
+  network?: string | null
+): Promise<string> {
   try {
-    const res = await fetch(`${HORIZON_TESTNET}/accounts/${address}`);
+    const horizonUrl = getHorizonUrl(network);
+    const res = await fetch(`${horizonUrl}/accounts/${address}`);
     if (!res.ok) return "0";
     const data = await res.json();
     const native = (
@@ -71,7 +74,7 @@ export function useOnboardingWallet() {
         return;
       }
 
-      const bal = await fetchXlmBalance(address);
+      const bal = await fetchXlmBalance(address, network);
       setBalance(bal);
 
       // TODO: replace with actual contract call to get_profile(address)
@@ -79,7 +82,7 @@ export function useOnboardingWallet() {
     } catch {
       setState("not_connected");
     }
-  }, [address, connected]);
+  }, [address, connected, network]);
 
   useEffect(() => {
     detectState();

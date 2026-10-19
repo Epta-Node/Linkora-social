@@ -1,14 +1,19 @@
 import pino from "pino";
 
-const isDev = process.env.NODE_ENV !== "production";
+/**
+ * Unified logging conventions for dm-relay service (Issue #1660).
+ * - Consistent field naming (service, timestamp, level, message)
+ * - Structured JSON output with ISO timestamps
+ * - Optional pretty-printing in development
+ * - Same configuration across all services (indexer, analytics-oracle, dm-relay)
+ */
+
+const isDev = process.env.NODE_ENV !== "production" && process.env.NODE_ENV !== "test";
 
 /**
- * Resolve pino transport options for the current environment.
- *
- * In development we attempt to use pino-pretty for human-readable output.
- * pino-pretty is a devDependency and will not be present in the production
- * image, so we fall back to plain JSON logging if the module cannot be
- * resolved (covers production and any environment where it is not installed).
+ * Resolve pino transport for the current environment.
+ * Development: attempt pino-pretty for human-readable output
+ * Production/Test: structured JSON logging
  */
 function resolveTransport(): pino.TransportSingleOptions | undefined {
   if (!isDev) return undefined;
@@ -20,7 +25,6 @@ function resolveTransport(): pino.TransportSingleOptions | undefined {
       options: { colorize: true, ignore: "pid,hostname", translateTime: "SYS:standard" },
     };
   } catch {
-    // pino-pretty is unavailable — fall back to structured JSON logging
     return undefined;
   }
 }

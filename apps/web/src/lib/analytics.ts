@@ -89,22 +89,33 @@ export function dateRangeToLedgerRange(days: number): number {
   return (days * 24 * 60 * 60) / 5;
 }
 
+const MAX_PAGES = 50;
+
 export async function fetchPosts(address: string): Promise<IndexerPost[]> {
   const allPosts: IndexerPost[] = [];
   let offset = 0;
   const limit = 100;
   let hasMore = true;
+  let pageCount = 0;
 
   while (hasMore) {
     const res = await fetch(
       `${INDEXER_URL}/api/posts?author=${address}&limit=${limit}&offset=${offset}`
     );
-    if (!res.ok) break;
+    if (!res.ok) {
+      throw new Error(`Indexer error: ${res.status} ${res.statusText}`);
+    }
     const data = await res.json();
     const posts: IndexerPost[] = data.posts ?? [];
     allPosts.push(...posts);
     hasMore = data.has_more ?? false;
     offset += limit;
+    pageCount++;
+
+    // Stop if page returned fewer items than requested or hit cap
+    if (posts.length < limit || pageCount >= MAX_PAGES) {
+      break;
+    }
   }
 
   return allPosts;
@@ -160,12 +171,15 @@ export function computeAnalytics(
     posts: data.posts,
   }));
 
-  let cumulative = 0;
-  const followerGrowth: FollowerPoint[] = sortedDates.map(([date, data]) => {
-    cumulative += data.posts;
-    return { date, followers: cumulative };
-  });
+  // Follower growth: use attestation followerDelta if available,
+  // otherwise return empty series (no fabricated data from post counts).
+  // See issue #1515.
+  const followerGrowth: FollowerPoint[] = attestation
+    ? [{ date: sortedDates[0]?.[0] ?? "", followers: Number(attestation.report.followerDelta) }]
+    : [];
 
+  // Tip earnings: aggregate by post creation date (each post's tip_total
+  // is a lifetime value bucketed by creation date). See issue #1516.
   const tipEarnings: TipEarningPoint[] = sortedDates.map(([date, data]) => ({
     date,
     earnings: data.tips,

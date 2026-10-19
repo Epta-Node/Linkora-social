@@ -1,6 +1,32 @@
 /**
- * Cryptographic functions for end-to-end encrypted direct messages.
- * 
+ * Cryptographic functions for end-to-end encrypted direct messages (Issue #1657).
+ *
+ * ## Threat Model & Security Properties
+ *
+ * ### Confidentiality
+ * - **Message Content**: Protected by ChaCha20-Poly1305 AEAD encryption with ephemeral keys derived from X25519
+ * - **Conversation Participants**: Not encrypted; senders/receivers are visible in metadata
+ * - **Message Timestamps**: Not encrypted; temporal patterns are visible to network observers
+ *
+ * ### Integrity & Authenticity
+ * - **Message Authentication**: Provided by ChaCha20-Poly1305 Poly1305 MAC; tampering is detected
+ * - **Key Derivation**: HKDF-based derivation ensures derived keys are unique per conversation
+ * - **Replay Protection**: Nonce derivation includes message index; reordering/replaying is detected
+ *
+ * ### Out-of-Scope Threats
+ * - **Network-level metadata**: TLS/HTTPS required to protect IP addresses and timing patterns
+ * - **Key compromise**: If DM keypair is compromised, all message history is at risk
+ *   (Use key rotation and grace-period decryption to mitigate)
+ * - **Forward secrecy**: Not provided; compromised long-term keys reveal all past conversations
+ *   (Future sessions can use fresh key rotation)
+ * - **Multidevice synchronization**: Client must manage key consistency across devices
+ *
+ * ### Attacker Capabilities & Mitigations
+ * - **Passive network eavesdropper**: Cannot decrypt messages (AEAD encryption)
+ * - **Active MitM without key compromise**: Cannot impersonate (X25519 key agreement)
+ * - **Ledger-level attacker**: Cannot decrypt stored ciphertexts (client-side encryption only)
+ * - **Compromised DM private key**: Can decrypt all historical messages; use key rotation
+ *
  * Uses X25519 Diffie-Hellman key agreement, HKDF key derivation, and ChaCha20-Poly1305 AEAD.
  * This provides secure end-to-end encryption without relying on central key servers.
  */
@@ -164,4 +190,119 @@ export function decryptDirectMessage(
   const conversationId = createConversationId(myAddress, theirAddress);
   
   return decryptMessage(sharedSecret, ciphertext, conversationId, messageIndex);
+}
+
+// ── Key Rotation & Grace-Period Decryption (Issue #1352) ─────────────────────
+
+export interface OutboxItem {
+  id: string;
+  plaintext: string;
+  messageIndex: number;
+}
+
+export interface RotatedOutboxItem {
+  id: string;
+  ciphertext: Uint8Array;
+  messageIndex: number;
+}
+
+export interface KeyRotationOptions {
+  /** Outbox items to re-encrypt under the newly derived key pair. */
+  pendingOutbox?: OutboxItem[];
+  /** Optional custom new keypair (if omitted, a cryptographically secure random keypair is generated). */
+  newKeyPair?: DmKeyPair;
+}
+
+export interface KeyRotationEvent {
+  oldPublicKey: Uint8Array;
+  newPublicKey: Uint8Array;
+  rotatedAt: number;
+  reEncryptedOutbox: RotatedOutboxItem[];
+}
+
+export interface KeyMap {
+  currentKey: Uint8Array;
+  historicalKeys?: Uint8Array[];
+}
+
+/**
+ * Perform a first-class DM key rotation.
+ * Generates/accepts a new keypair, re-encrypts pending outbox messages, and returns rotation details.
+ */
+export function rotateConversationKey(
+  currentPrivateKey: Uint8Array,
+  theirPublicKey: Uint8Array,
+  myAddress: string,
+  theirAddress: string,
+  options: KeyRotationOptions = {}
+): { newKeyPair: DmKeyPair; rotationEvent: KeyRotationEvent } {
+  const newKeyPair = options.newKeyPair ?? generateDmKeypair();
+  const oldPublicKey = x25519.getPublicKey(currentPrivateKey);
+  const rotatedAt = Date.now();
+
+  const reEncryptedOutbox: RotatedOutboxItem[] = (options.pendingOutbox ?? []).map((item) => {
+    const ciphertext = encryptDirectMessage(
+      newKeyPair.privateKey,
+      theirPublicKey,
+      myAddress,
+      theirAddress,
+      item.plaintext,
+      item.messageIndex
+    );
+    return {
+      id: item.id,
+      ciphertext,
+      messageIndex: item.messageIndex,
+    };
+  });
+
+  const rotationEvent: KeyRotationEvent = {
+    oldPublicKey,
+    newPublicKey: newKeyPair.publicKey,
+    rotatedAt,
+    reEncryptedOutbox,
+  };
+
+  return {
+    newKeyPair,
+    rotationEvent,
+  };
+}
+
+/**
+ * Decrypt a message attempting the current key first, falling back to historical keys during grace period.
+ */
+export function decryptDirectMessageWithGracePeriod(
+  myPrivateKeyMap: KeyMap,
+  theirPublicKeyMap: KeyMap,
+  myAddress: string,
+  theirAddress: string,
+  ciphertext: Uint8Array,
+  messageIndex: number
+): string {
+  const myKeys = [myPrivateKeyMap.currentKey, ...(myPrivateKeyMap.historicalKeys ?? [])];
+  const theirKeys = [theirPublicKeyMap.currentKey, ...(theirPublicKeyMap.historicalKeys ?? [])];
+
+  let lastError: unknown = null;
+
+  for (const myPriv of myKeys) {
+    for (const theirPub of theirKeys) {
+      try {
+        return decryptDirectMessage(
+          myPriv,
+          theirPub,
+          myAddress,
+          theirAddress,
+          ciphertext,
+          messageIndex
+        );
+      } catch (err) {
+        lastError = err;
+      }
+    }
+  }
+
+  throw lastError instanceof DecryptionError
+    ? lastError
+    : new DecryptionError(`Failed to decrypt message with active or historical keys: ${String(lastError)}`);
 }

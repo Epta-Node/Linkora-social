@@ -12,7 +12,7 @@
  */
 
 import type { DmKeyPair } from "linkora-sdk";
-import { bytesToBase64, base64ToBytes } from "./crypto";
+import { bytesToBase64, base64ToBytes, deriveWrappingKey, encryptAesGcm, decryptAesGcm } from "./crypto";
 
 const PREFIX = "linkora_dm_";
 
@@ -42,19 +42,62 @@ export function hasDmKeypair(address: string): boolean {
   );
 }
 
-export function storeDmKeypair(address: string, keypair: DmKeyPair): void {
+/**
+ * Store the DM keypair. The private key is encrypted at rest using
+ * AES-GCM with a key derived from the user's Stellar address via
+ * PBKDF2 (see crypto.ts deriveWrappingKey). The public key remains
+ * in plaintext since it is non-secret.
+ */
+export async function storeDmKeypair(address: string, keypair: DmKeyPair): Promise<void> {
   localStorage.setItem(pubKey(address), bytesToBase64(keypair.publicKey));
-  localStorage.setItem(privKey(address), bytesToBase64(keypair.privateKey));
+  const wrappingKey = await deriveWrappingKey(address);
+  const encrypted = await encryptAesGcm(wrappingKey, keypair.privateKey);
+  localStorage.setItem(privKey(address), encrypted);
 }
 
-export function loadDmKeypair(address: string): DmKeyPair | null {
+/**
+ * Load the DM keypair. Decrypts the private key using the per-user
+ * wrapping key derived from PBKDF2. Falls back to loading plaintext
+ * for keys stored before encryption was introduced (migration path).
+ */
+export async function loadDmKeypair(address: string): Promise<DmKeyPair | null> {
   const pub = localStorage.getItem(pubKey(address));
   const priv = localStorage.getItem(privKey(address));
   if (!pub || !priv) return null;
-  return {
-    publicKey: base64ToBytes(pub),
-    privateKey: base64ToBytes(priv),
-  };
+
+  const publicKey = base64ToBytes(pub);
+
+  // Try decrypting with the wrapping key (new encrypted format)
+  try {
+    const wrappingKey = await deriveWrappingKey(address);
+    const privateKey = await decryptAesGcm(wrappingKey, priv);
+    if (privateKey.length === 32) {
+      // Migration: encrypt the old plaintext key for next time
+      const encrypted = await encryptAesGcm(wrappingKey, privateKey);
+      if (encrypted !== priv) {
+        localStorage.setItem(privKey(address), encrypted);
+      }
+      return { publicKey, privateKey };
+    }
+  } catch {
+    // Decryption failed — fall through to legacy plaintext path
+  }
+
+  // Legacy: private key stored as plaintext base64 (pre-encryption)
+  const privateKey = base64ToBytes(priv);
+  if (privateKey.length === 32) {
+    // Migrate to encrypted storage
+    try {
+      const wrappingKey = await deriveWrappingKey(address);
+      const encrypted = await encryptAesGcm(wrappingKey, privateKey);
+      localStorage.setItem(privKey(address), encrypted);
+    } catch {
+      // Best-effort migration; leave as-is if it fails
+    }
+    return { publicKey, privateKey };
+  }
+
+  return null;
 }
 
 export function clearDmKeypair(address: string): void {

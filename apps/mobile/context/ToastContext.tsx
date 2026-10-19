@@ -6,12 +6,24 @@ import { useTheme } from "../theme/useTheme";
 
 export type ToastKind = TxToastKind;
 
+/** Default auto-dismiss duration for informational toasts (ms). */
+export const DEFAULT_DURATION_MS = 4000;
+/** Default auto-dismiss duration for errors / in-flight transactions (ms). */
+export const LONG_DURATION_MS = 8000;
+
+/** Kinds that should persist longer than informational toasts by default. */
+const LONG_KINDS: ReadonlySet<ToastKind> = new Set(["error", "pending"]);
+
 export interface ToastState {
   id: number;
   kind: ToastKind;
   title: string;
   message?: string;
   txHash?: string;
+  /** Override the auto-dismiss duration in ms. Defaults to a kind-based default. */
+  durationMs?: number;
+  /** When true the toast is never auto-dismissed and requires manual dismissal. */
+  persistent?: boolean;
 }
 
 interface ToastContextValue {
@@ -27,13 +39,16 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 export function ToastProvider({ children }: { children: React.ReactNode }): JSX.Element {
   const { theme } = useTheme();
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [paused, setPaused] = useState(false);
 
   const dismissToast = useCallback(() => {
     setToast(null);
+    setPaused(false);
   }, []);
 
   const showToast = useCallback((nextToast: Omit<ToastState, "id">) => {
     setToast({ ...nextToast, id: Date.now() });
+    setPaused(false);
   }, []);
 
   const showPending = useCallback(() => {
@@ -68,12 +83,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }): JSX.
   );
 
   useEffect(() => {
-    if (!toast) return undefined;
+    if (!toast || toast.persistent) return undefined;
+    const durationMs =
+      toast.durationMs ?? (LONG_KINDS.has(toast.kind) ? LONG_DURATION_MS : DEFAULT_DURATION_MS);
     const timer = setTimeout(() => {
-      dismissToast();
-    }, 4000);
+      if (!paused) dismissToast();
+    }, durationMs);
     return () => clearTimeout(timer);
-  }, [dismissToast, toast]);
+  }, [dismissToast, paused, toast]);
 
   const value = useMemo<ToastContextValue>(
     () => ({ showToast, dismissToast, showPending, showSuccess, showError }),
@@ -85,7 +102,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }): JSX.
       {children}
       {toast ? (
         <View pointerEvents="box-none" style={styles.overlay}>
-          <TxToast toast={toast} onDismiss={dismissToast} theme={theme} />
+          <TxToast toast={toast} onDismiss={dismissToast} onPauseChange={setPaused} theme={theme} />
         </View>
       ) : null}
     </ToastContext.Provider>

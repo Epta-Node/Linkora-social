@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import type { LinkoraClient, QueueSigner, RpcClient } from "linkora-sdk";
 import { parseTokenAmount } from "./usePools";
+import { config } from "@/config";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -15,7 +17,7 @@ export type TxStatus =
 
 export interface TxResult {
   hash: string;
-  ledger: number;
+  ledger?: number;
 }
 
 // ── Error classifier ──────────────────────────────────────────────────────────
@@ -33,51 +35,121 @@ export function classifyError(err: unknown): string {
   return msg || "Transaction failed";
 }
 
-// ── Mock contract calls ───────────────────────────────────────────────────────
-// Replace with real SDK calls once the generated client is available.
+// ── Real contract calls via the shared sign + submit flow ─────────────────────
+// These use the SDK's LinkoraClient to build transactions, sign them through the
+// wallet, and submit / confirm them on chain through the TransactionQueue.
 
+let poolClient: LinkoraClient | null = null;
+
+async function getPoolClient(): Promise<LinkoraClient> {
+  if (!poolClient) {
+    const { LinkoraClient } = await import("linkora-sdk");
+    poolClient = new LinkoraClient({
+      contractId: config.contractId,
+      rpcUrl: config.sorobanRpcUrl,
+      networkPassphrase: config.networkPassphrase,
+    });
+  }
+  return poolClient;
+}
+
+function makeFreighterSigner(networkPassphrase: string): QueueSigner {
+  return {
+    async signTransaction(xdr: string): Promise<string> {
+      const { signTransaction } = await import("@stellar/freighter-api");
+      return signTransaction(xdr, { networkPassphrase });
+    },
+  };
+}
+
+/**
+ * Submit a prepared transaction through the SDK's TransactionQueue, forwarding
+ * the queue's real `submitted` status so callers can reflect the actual
+ * on-chain broadcast state. Resolves with the confirmed transaction hash.
+ */
+async function submitToNetwork(
+  client: LinkoraClient,
+  xdr: string,
+  networkPassphrase: string,
+  onBroadcast?: () => void
+): Promise<string> {
+  const { TransactionQueue } = await import("linkora-sdk");
+  const queue = new TransactionQueue({
+    signer: makeFreighterSigner(networkPassphrase),
+    // The SDK's `createRpcServer` satisfies the queue's `RpcClient` contract at
+    // runtime (the `submit.ts` shared flow relies on the same pairing).
+    rpc: client.createRpcServer() as unknown as RpcClient,
+  });
+
+  queue.on("status", (event) => {
+    if ((event.status === "submitted" || event.status === "pending") && onBroadcast) {
+      onBroadcast();
+    }
+  });
+
+  queue.enqueue(xdr);
+  await queue.run();
+
+  const hashes = queue.submittedHashes;
+  if (hashes.length === 0) {
+    throw new Error("Transaction was not submitted successfully.");
+  }
+  return hashes[0];
+}
+
+/**
+ * SEP-41 `increase_allowance` pre-approval: authorize the pool contract to spend
+ * the depositor's tokens during `pool_deposit`.
+ */
 async function callIncreaseAllowance(
-  _depositor: string,
-  _token: string,
-  _amount: bigint,
-  _spender: string
+  depositor: string,
+  token: string,
+  amount: bigint,
+  spender: string
 ): Promise<void> {
-  // TODO: token::Client.increase_allowance(depositor, spender, amount)
-  await new Promise((r) => setTimeout(r, 900));
+  const client = await getPoolClient();
+  const xdr = await client.prepareIncreaseAllowanceTx(depositor, token, spender, amount);
+  await submitToNetwork(client, xdr, config.networkPassphrase);
 }
 
 async function callPoolDeposit(
-  _depositor: string,
-  _poolId: string,
-  _token: string,
-  _amount: bigint
+  depositor: string,
+  poolId: string,
+  token: string,
+  amount: bigint,
+  onBroadcast?: () => void
 ): Promise<TxResult> {
-  // TODO: client.pool_deposit({ depositor, pool_id, token, amount })
-  await new Promise((r) => setTimeout(r, 1200));
-  return { hash: "abc123def456", ledger: 12345678 };
+  const client = await getPoolClient();
+  const xdr = await client.preparePoolDepositTx(depositor, poolId, token, amount);
+  const hash = await submitToNetwork(client, xdr, config.networkPassphrase, onBroadcast);
+  return { hash };
 }
 
 async function callPoolWithdraw(
-  _signers: string[],
-  _poolId: string,
-  _amount: bigint,
-  _recipient: string
+  signers: string[],
+  poolId: string,
+  amount: bigint,
+  recipient: string,
+  onBroadcast?: () => void
 ): Promise<TxResult> {
-  // TODO: client.pool_withdraw({ signers, pool_id, amount, recipient })
-  await new Promise((r) => setTimeout(r, 1200));
-  return { hash: "xyz789uvw012", ledger: 12345679 };
+  const client = await getPoolClient();
+  const xdr = await client.preparePoolWithdrawTx(signers, poolId, amount, recipient);
+  const hash = await submitToNetwork(client, xdr, config.networkPassphrase, onBroadcast);
+  return { hash };
 }
 
 async function callCreatePool(
-  _admin: string,
-  _poolId: string,
-  _token: string,
-  _initialAdmins: string[],
-  _threshold: number
+  admin: string,
+  poolId: string,
+  token: string,
+  initialAdmins: string[],
+  threshold: number,
+  onBroadcast?: () => void
 ): Promise<TxResult> {
-  // TODO: client.create_pool({ admin, pool_id, token, initial_admins, threshold })
-  await new Promise((r) => setTimeout(r, 1400));
-  return { hash: "pool_create_hash", ledger: 12345680 };
+  const client = await getPoolClient();
+  const xdr = await client.prepareCreatePoolTx(admin, poolId, token, initialAdmins, threshold);
+  const hash = await submitToNetwork(client, xdr, config.networkPassphrase, onBroadcast);
+  return { hash };
 }
 
 // ── useDeposit ────────────────────────────────────────────────────────────────
@@ -108,10 +180,9 @@ export function useDeposit() {
 
         // Step 2: pool_deposit
         setStatus("awaiting_sig");
-        await new Promise((r) => setTimeout(r, 300)); // brief pause for UX
-        setStatus("submitting");
-
-        const tx = await callPoolDeposit(depositor, poolId, token, amount);
+        const tx = await callPoolDeposit(depositor, poolId, token, amount, () =>
+          setStatus("submitting")
+        );
         setResult(tx);
         setStatus("success");
       } catch (err) {
@@ -152,9 +223,9 @@ export function useWithdraw() {
 
       try {
         const amount = parseTokenAmount(amountRaw, decimals);
-
-        setStatus("submitting");
-        const tx = await callPoolWithdraw(signers, poolId, amount, recipient);
+        const tx = await callPoolWithdraw(signers, poolId, amount, recipient, () =>
+          setStatus("submitting")
+        );
         setResult(tx);
         setStatus("success");
       } catch (err) {
@@ -194,8 +265,9 @@ export function useCreatePool() {
       setResult(null);
 
       try {
-        setStatus("submitting");
-        const tx = await callCreatePool(admin, poolId, token, initialAdmins, threshold);
+        const tx = await callCreatePool(admin, poolId, token, initialAdmins, threshold, () =>
+          setStatus("submitting")
+        );
         setResult(tx);
         setStatus("success");
       } catch (err) {

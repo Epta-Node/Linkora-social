@@ -1,7 +1,17 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useId } from "react";
+import { stellarAssetContractId } from "linkora-sdk";
 import { useTip } from "@/hooks/useTip";
+import { useTokenBalances, type TokenWithPrice } from "@/hooks/useTokenBalances";
+import { useWalletContext } from "@/components/WalletProvider";
+import { config } from "@/config";
+import {
+  CLASSIC_ASSET_DECIMALS,
+  toBaseUnits,
+  trimAmount as trimBalance,
+  validateTipAmount,
+} from "@/lib/tipValidation";
 
 interface TipModalProps {
   postId: number;
@@ -9,37 +19,71 @@ interface TipModalProps {
   onClose: () => void;
 }
 
-const SUPPORTED_TOKENS = [
-  {
-    symbol: "XLM",
-    name: "Stellar Lumens",
-    address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5",
-    decimals: 7,
-    icon: "🪙",
-  },
-  {
-    symbol: "USDC",
-    name: "USD Coin",
-    address: "GDQOE23CFSUMSVQK4Y5JHPPYK73VYCNHZHA7ENKCV37P6SUEO6XQBKPP",
-    decimals: 7,
-    icon: "💵",
-  },
-];
+/** A wallet balance the contract's `tip` can be called with. */
+export interface TipToken {
+  /** Stable key: `XLM` or `CODE:ISSUER`. */
+  key: string;
+  symbol: string;
+  issuer: string | null;
+  /** Stellar Asset Contract address passed to `tip`. */
+  contractId: string;
+  balance: string;
+  decimals: number;
+}
+
+/** Maps Horizon balances to tippable tokens, skipping assets without a SAC. */
+export function toTipTokens(tokens: TokenWithPrice[], networkPassphrase: string): TipToken[] {
+  return tokens.flatMap((t) => {
+    const contractId = stellarAssetContractId(t, networkPassphrase);
+    if (!contractId) return [];
+    const symbol = t.asset_type === "native" ? "XLM" : (t.asset_code ?? "");
+    return [
+      {
+        key: t.asset_type === "native" ? "XLM" : `${t.asset_code}:${t.asset_issuer}`,
+        symbol,
+        issuer: t.asset_type === "native" ? null : (t.asset_issuer ?? null),
+        contractId,
+        balance: t.balance,
+        decimals: CLASSIC_ASSET_DECIMALS,
+      },
+    ];
+  });
+}
+
+function shortIssuer(issuer: string): string {
+  return `${issuer.slice(0, 4)}…${issuer.slice(-4)}`;
+}
 
 export function TipModal({ postId, authorName, onClose }: TipModalProps) {
+  const { address } = useWalletContext();
+  const { tokens: balances, isLoading, error: balancesError, refresh } = useTokenBalances(address);
   const [amount, setAmount] = useState("");
-  const [tokenIndex, setTokenIndex] = useState(0);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [touched, setTouched] = useState(false);
+  const [tokenKey, setTokenKey] = useState<string | null>(null);
   const { status, result, error, tip, reset } = useTip();
+  const amountId = useId();
+  const amountErrorId = useId();
 
-  const selectedToken = SUPPORTED_TOKENS[tokenIndex];
+  const tokens = useMemo(() => toTipTokens(balances, config.networkPassphrase), [balances]);
+  const selectedToken = tokens.find((t) => t.key === tokenKey) ?? null;
 
-  // Protocol fee logic (1.0% = 100 BPS)
-  const PROTOCOL_FEE_BPS = 100;
-  const protocolFeePercent = PROTOCOL_FEE_BPS / 100;
-  const amountNum = parseFloat(amount) || 0;
-  const feeAmount = amountNum * (protocolFeePercent / 100);
-  const authorAmount = Math.max(0, amountNum - feeAmount);
+  // Default to the first token once balances load (or if the selection disappears).
+  useEffect(() => {
+    if (tokens.length > 0 && !tokens.some((t) => t.key === tokenKey)) setTokenKey(tokens[0].key);
+  }, [tokens, tokenKey]);
+
+  const amountError = validateTipAmount(amount, selectedToken);
+  const showAmountError = Boolean(amountError) && (touched || amount !== "");
+  const busy = status !== "idle" && status !== "error";
+  const canSubmit = !amountError && !busy && Boolean(address);
+
+  // Protocol fee logic (1.0% = 100 BPS), computed in base units.
+  const PROTOCOL_FEE_BPS = 100n;
+  const protocolFeePercent = Number(PROTOCOL_FEE_BPS) / 100;
+  const decimals = selectedToken?.decimals ?? CLASSIC_ASSET_DECIMALS;
+  const amountUnits = (!amountError && toBaseUnits(amount, decimals)) || 0n;
+  const feeUnits = (amountUnits * PROTOCOL_FEE_BPS) / 10_000n;
+  const formatUnits = (units: bigint) => (Number(units) / 10 ** decimals).toFixed(4);
 
   useEffect(() => {
     // Lock body scrolling when modal is open
@@ -51,20 +95,15 @@ export function TipModal({ postId, authorName, onClose }: TipModalProps) {
 
   const handleConfirm = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!amount || isNaN(amountNum) || amountNum <= 0) {
-      setErrorMsg("Please enter a valid positive amount.");
-      return;
-    }
-    setErrorMsg("");
-
-    // Execute transaction via custom hook
+    setTouched(true);
+    if (!canSubmit || !selectedToken || !address) return;
     await tip(
-      "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN", // Mock user wallet address
+      address,
       BigInt(postId),
-      selectedToken.address,
-      amount,
+      selectedToken.contractId,
+      amount.trim(),
       selectedToken.decimals,
-      "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD7Q" // Mock contract address
+      config.contractId
     );
   };
 
@@ -72,6 +111,8 @@ export function TipModal({ postId, authorName, onClose }: TipModalProps) {
     reset();
     onClose();
   };
+
+  const symbol = selectedToken?.symbol ?? "";
 
   return (
     <div style={styles.overlay} role="dialog" aria-modal="true" aria-label="Send a Tip">
@@ -91,7 +132,7 @@ export function TipModal({ postId, authorName, onClose }: TipModalProps) {
               <div style={styles.successBadge}>✓</div>
               <h3 style={styles.successTitle}>Transaction Successful!</h3>
               <p style={styles.successDesc}>
-                You have tipped <strong>@{authorName}</strong> {amount} {selectedToken.symbol}.
+                You have tipped <strong>@{authorName}</strong> {amount} {symbol}.
               </p>
               <div style={styles.txBox}>
                 <div style={styles.txRow}>
@@ -107,56 +148,119 @@ export function TipModal({ postId, authorName, onClose }: TipModalProps) {
                 Done
               </button>
             </div>
+          ) : !address ? (
+            <p style={styles.emptyState} role="status">
+              Connect your wallet to send a tip.
+            </p>
           ) : (
-            <form onSubmit={handleConfirm} style={styles.form}>
+            <form onSubmit={handleConfirm} style={styles.form} noValidate>
               <div style={styles.recipientBadge}>
                 Tipping <strong style={styles.recipientName}>@{authorName}</strong> for Post #
                 {postId}
               </div>
 
               {/* Token Selection */}
-              <div style={styles.fieldGroup}>
-                <label style={styles.fieldLabel}>Select Token</label>
-                <div style={styles.tokenGrid}>
-                  {SUPPORTED_TOKENS.map((token, idx) => (
-                    <button
-                      key={token.symbol}
-                      type="button"
-                      onClick={() => setTokenIndex(idx)}
-                      style={{
-                        ...styles.tokenTab,
-                        ...(tokenIndex === idx ? styles.activeTokenTab : {}),
-                      }}
-                    >
-                      <span style={styles.tokenIcon}>{token.icon}</span>
-                      <span style={styles.tokenSymbol}>{token.symbol}</span>
+              <fieldset style={styles.fieldset} disabled={busy}>
+                <legend style={styles.fieldLabel}>Token</legend>
+                {isLoading && tokens.length === 0 ? (
+                  <p style={styles.hint} role="status">
+                    Loading your balances…
+                  </p>
+                ) : balancesError && tokens.length === 0 ? (
+                  <div style={styles.inlineAlert} role="alert">
+                    <span>Could not load your balances: {balancesError}</span>
+                    <button type="button" onClick={() => void refresh()} style={styles.linkButton}>
+                      Retry
                     </button>
-                  ))}
-                </div>
-              </div>
+                  </div>
+                ) : tokens.length === 0 ? (
+                  <p style={styles.hint} role="status">
+                    No tippable tokens in this wallet. Fund it with XLM or add a trustline to tip.
+                  </p>
+                ) : (
+                  <div role="radiogroup" aria-label="Token" style={styles.tokenList}>
+                    {tokens.map((token) => {
+                      const checked = token.key === tokenKey;
+                      return (
+                        <label
+                          key={token.key}
+                          style={{
+                            ...styles.tokenOption,
+                            ...(checked ? styles.activeTokenTab : {}),
+                          }}
+                        >
+                          <input
+                            type="radio"
+                            name="tip-token"
+                            value={token.key}
+                            checked={checked}
+                            onChange={() => setTokenKey(token.key)}
+                            style={styles.radio}
+                          />
+                          <span style={styles.tokenSymbol}>{token.symbol}</span>
+                          {token.issuer && (
+                            <span style={styles.tokenIssuer} title={token.issuer}>
+                              {shortIssuer(token.issuer)}
+                            </span>
+                          )}
+                          <span style={styles.tokenBalance}>
+                            {trimBalance(token.balance)} available
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </fieldset>
 
               {/* Amount Input */}
               <div style={styles.fieldGroup}>
-                <label htmlFor="tip-amount" style={styles.fieldLabel}>
+                <label htmlFor={amountId} style={styles.fieldLabel}>
                   Amount
                 </label>
                 <div style={styles.inputWrapper}>
                   <input
-                    id="tip-amount"
-                    type="number"
-                    min="0.00001"
-                    step="any"
+                    id={amountId}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
                     value={amount}
                     onChange={(e) => setAmount(e.target.value)}
+                    onBlur={() => setTouched(true)}
                     placeholder="0.00"
-                    disabled={status !== "idle" && status !== "error"}
-                    style={styles.textInput}
-                    required
+                    disabled={busy || !selectedToken}
+                    aria-invalid={showAmountError}
+                    aria-describedby={showAmountError ? amountErrorId : undefined}
+                    style={{
+                      ...styles.textInput,
+                      ...(showAmountError ? styles.textInputError : {}),
+                    }}
                   />
-                  <span style={styles.tokenSuffix}>{selectedToken.symbol}</span>
+                  <span style={styles.tokenSuffix}>{symbol}</span>
                 </div>
-                {errorMsg && <p style={styles.errorMessage}>{errorMsg}</p>}
-                {error && <p style={styles.errorMessage}>{error}</p>}
+                {selectedToken && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAmount(trimBalance(selectedToken.balance));
+                      setTouched(true);
+                    }}
+                    disabled={busy}
+                    style={styles.linkButton}
+                  >
+                    Max: {trimBalance(selectedToken.balance)} {selectedToken.symbol}
+                  </button>
+                )}
+                {showAmountError && (
+                  <p id={amountErrorId} style={styles.errorMessage} role="alert">
+                    {amountError}
+                  </p>
+                )}
+                {error && (
+                  <p style={styles.errorMessage} role="alert">
+                    {error}
+                  </p>
+                )}
               </div>
 
               {/* Fee Breakdown Breakdown */}
@@ -164,13 +268,13 @@ export function TipModal({ postId, authorName, onClose }: TipModalProps) {
                 <div style={styles.breakdownRow}>
                   <span>Protocol Fee ({protocolFeePercent.toFixed(1)}%)</span>
                   <span>
-                    {feeAmount.toFixed(4)} {selectedToken.symbol}
+                    {formatUnits(feeUnits)} {symbol}
                   </span>
                 </div>
                 <div style={{ ...styles.breakdownRow, ...styles.authorPayoutRow }}>
                   <span>Creator Payout</span>
                   <span style={styles.payoutValue}>
-                    {authorAmount.toFixed(4)} {selectedToken.symbol}
+                    {formatUnits(amountUnits - feeUnits)} {symbol}
                   </span>
                 </div>
               </div>
@@ -203,7 +307,14 @@ export function TipModal({ postId, authorName, onClose }: TipModalProps) {
                   <button type="button" onClick={handleClose} style={styles.secondaryButton}>
                     Cancel
                   </button>
-                  <button type="submit" style={styles.primaryButton}>
+                  <button
+                    type="submit"
+                    disabled={!canSubmit}
+                    style={{
+                      ...styles.primaryButton,
+                      ...(!canSubmit ? styles.disabledButton : {}),
+                    }}
+                  >
                     Confirm Tip
                   </button>
                 </div>
@@ -299,31 +410,82 @@ const styles: Record<string, React.CSSProperties> = {
     textTransform: "uppercase",
     letterSpacing: "0.05em",
   },
-  tokenGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "12px",
+  fieldset: {
+    border: "none",
+    margin: 0,
+    padding: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
   },
-  tokenTab: {
+  tokenList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+  },
+  tokenOption: {
     background: "#0f172a",
     border: "1px solid rgba(255, 255, 255, 0.05)",
     borderRadius: "12px",
-    padding: "12px",
+    padding: "10px 12px",
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
+    gap: "10px",
     cursor: "pointer",
     minHeight: "44px",
-    transition: "all 0.2s",
+  },
+  radio: {
+    accentColor: "#7c3aed",
+  },
+  tokenIssuer: {
+    fontFamily: "monospace",
+    fontSize: "0.75rem",
+    color: "#64748b",
+  },
+  tokenBalance: {
+    marginLeft: "auto",
+    fontSize: "0.85rem",
+    color: "#94a3b8",
+  },
+  hint: {
+    margin: 0,
+    fontSize: "0.85rem",
+    color: "#94a3b8",
+  },
+  emptyState: {
+    margin: 0,
+    textAlign: "center",
+    color: "#94a3b8",
+  },
+  inlineAlert: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    fontSize: "0.85rem",
+    color: "#f87171",
+  },
+  linkButton: {
+    alignSelf: "flex-start",
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    color: "#a78bfa",
+    fontSize: "0.8rem",
+    cursor: "pointer",
+    textDecoration: "underline",
+  },
+  textInputError: {
+    borderColor: "#f87171",
+  },
+  disabledButton: {
+    opacity: 0.5,
+    cursor: "not-allowed",
   },
   activeTokenTab: {
     background: "rgba(124, 58, 237, 0.2)",
     borderColor: "#7c3aed",
     boxShadow: "0 0 12px rgba(124, 58, 237, 0.25)",
-  },
-  tokenIcon: {
-    fontSize: "1.2rem",
   },
   tokenSymbol: {
     fontWeight: 700,

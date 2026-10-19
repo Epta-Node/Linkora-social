@@ -92,8 +92,12 @@ export function useProfile(address: string, currentUserAddress?: string | null) 
 
       try {
         const [followersRes, followingRes] = await Promise.all([
-          fetch(`${indexerUrl}/api/follows/${address}/followers?limit=1`),
-          fetch(`${indexerUrl}/api/follows/${address}/following?limit=1`),
+          fetch(`${indexerUrl}/api/follows/${address}/followers?limit=1`, {
+            signal: AbortSignal.timeout(1000),
+          }),
+          fetch(`${indexerUrl}/api/follows/${address}/following?limit=1`, {
+            signal: AbortSignal.timeout(1000),
+          }),
         ]);
 
         if (followersRes.ok) {
@@ -108,7 +112,8 @@ export function useProfile(address: string, currentUserAddress?: string | null) 
         // Determine whether the current user follows this profile
         if (currentUserAddress && currentUserAddress !== address) {
           const myFollowingRes = await fetch(
-            `${indexerUrl}/api/follows/${currentUserAddress}/following?limit=100`
+            `${indexerUrl}/api/follows/${currentUserAddress}/following?limit=100`,
+            { signal: AbortSignal.timeout(1000) }
           );
           if (myFollowingRes.ok) {
             const data = await myFollowingRes.json();
@@ -128,7 +133,8 @@ export function useProfile(address: string, currentUserAddress?: string | null) 
 
       try {
         const postsRes = await fetch(
-          `${indexerUrl}/api/posts?author=${address}&limit=${POSTS_PAGE_SIZE}&offset=0`
+          `${indexerUrl}/api/posts?author=${address}&limit=${POSTS_PAGE_SIZE}&offset=0`,
+          { signal: AbortSignal.timeout(1000) }
         );
         if (postsRes.ok) {
           const data = await postsRes.json();

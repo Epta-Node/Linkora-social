@@ -11,6 +11,16 @@
  * ALLOW_IN_MEMORY_RATE_LIMIT  — Explicit opt-out allowing the in-memory store
  *                               in production. Only safe for single-replica
  *                               deployments.
+ *
+ * Connection pool settings (issue #888)
+ * ──────────────────────────────────────
+ * DB_POOL_MAX                  — Maximum PostgreSQL pool connections (default 20).
+ * DB_POOL_IDLE_TIMEOUT_MS      — Milliseconds an idle connection is kept before
+ *                               being closed (default 10000).
+ * DB_POOL_CONNECTION_TIMEOUT_MS — Milliseconds to wait for a connection before
+ *                               failing (default 5000).
+ * DB_POOL_STATS_INTERVAL_MS    — How often to log pool utilisation (active,
+ *                               idle, waiting). 0 (default) disables it.
  */
 
 import { resolveRateLimitEnv } from "@linkora/types/src/rate-limit-env.js";
@@ -23,6 +33,14 @@ export interface OracleRateLimitConfig {
   maxEntries: number;
   /** How often the in-memory store sweeps expired entries (ms). */
   cleanupIntervalMs: number;
+}
+
+export interface DbPoolConfig {
+  max: number;
+  idleTimeoutMillis: number;
+  connectionTimeoutMillis: number;
+  /** 0 disables periodic pool-stats logging. */
+  statsIntervalMs: number;
 }
 
 export interface OracleCacheConfig {
@@ -54,6 +72,13 @@ export const oracleRateLimitConfig: OracleRateLimitConfig = {
 export const oracleCacheConfig: OracleCacheConfig = {
   maxSize: parseInt(process.env["ATTESTATION_CACHE_MAX_SIZE"] ?? "10000", 10),
   ttlMs: parseInt(process.env["ATTESTATION_CACHE_TTL_MS"] ?? "3600000", 10),
+};
+
+export const dbPoolConfig: DbPoolConfig = {
+  max: parseInt(process.env["DB_POOL_MAX"] ?? "20", 10),
+  idleTimeoutMillis: parseInt(process.env["DB_POOL_IDLE_TIMEOUT_MS"] ?? "10000", 10),
+  connectionTimeoutMillis: parseInt(process.env["DB_POOL_CONNECTION_TIMEOUT_MS"] ?? "5000", 10),
+  statsIntervalMs: parseInt(process.env["DB_POOL_STATS_INTERVAL_MS"] ?? "0", 10),
 };
 
 /**

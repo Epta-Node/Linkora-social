@@ -129,7 +129,8 @@ export function FollowList({ address, type }: FollowListProps) {
 
   const handleToggleFollow = async (targetUser: FollowUser) => {
     if (!currentUser) {
-      alert("Please connect your wallet to follow users.");
+      // Surface the error inline — no window.alert
+      setError("Please connect your wallet to follow users.");
       return;
     }
 
@@ -143,15 +144,16 @@ export function FollowList({ address, type }: FollowListProps) {
       const isMockAddress = targetAddress.includes("XXXX") || currentUser.includes("XXXX");
       if (client.current && !isMockAddress) {
         if (isFollowing) {
-          client.current.unfollow(currentUser, targetAddress);
+          await client.current.unfollow(currentUser, targetAddress);
         } else {
-          client.current.follow(currentUser, targetAddress);
+          await client.current.follow(currentUser, targetAddress);
         }
       }
       await new Promise((r) => setTimeout(r, 600));
     } catch (err) {
       OptimisticStore.setFollowing(targetAddress, isFollowing);
-      alert(err instanceof Error ? err.message : "Action failed");
+      // Surface the error inline — no window.alert
+      setError(err instanceof Error ? err.message : "Action failed. Please try again.");
     } finally {
       OptimisticStore.setPending(targetAddress, { isPending: false });
     }
@@ -173,11 +175,11 @@ export function FollowList({ address, type }: FollowListProps) {
       <header className="flex flex-col gap-2 mb-6">
         <Link
           href={`/profile/${address}`}
-          className="text-sm text-indigo-600 hover:text-indigo-800 font-semibold mb-2 inline-block self-start"
+          className="text-sm font-semibold mb-2 inline-block self-start text-[var(--accent)] hover:opacity-80"
         >
           &larr; Back to Profile
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">
+        <h1 className="text-2xl font-bold text-[var(--foreground)]">
           {type === "followers" ? "Followers" : "Following"}
         </h1>
       </header>
@@ -188,19 +190,23 @@ export function FollowList({ address, type }: FollowListProps) {
           placeholder="Filter by username..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-4 py-2.5 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-900 shadow-sm"
+          className="w-full px-4 py-2.5 rounded-xl shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)] border border-[var(--border)] bg-[var(--background)] text-[var(--foreground)] placeholder:text-[var(--text-muted)]"
           aria-label="Filter users by username"
         />
       </div>
 
       {visibleUsers.length === 0 && !loading && (
-        <div className="text-center p-8 bg-gray-50 border border-gray-200 rounded-2xl">
-          <p className="text-gray-500">No accounts found.</p>
+        <div className="text-center p-8 rounded-2xl border border-[var(--border)] bg-[var(--muted)]">
+          <p className="text-[var(--text-muted)]">No accounts found.</p>
         </div>
       )}
 
+      {/* role="alert" ensures screen readers announce errors as they appear */}
       {error && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-[var(--color-error)] bg-[var(--color-error-light)] p-3 text-sm text-[var(--color-error)]"
+        >
           {error}
         </div>
       )}
@@ -218,38 +224,35 @@ export function FollowList({ address, type }: FollowListProps) {
           const isMe = currentUser?.toLowerCase() === user.address.toLowerCase();
 
           return (
+            // The <li> is a layout container, not an interactive element.
+            // Navigation is handled by the inner <Link>; no tabIndex or
+            // keyboard handler belongs here.
             <li
               key={user.address}
               role="listitem"
-              tabIndex={0}
-              className={`animated-list-item flex items-center gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer ${
+              className={`animated-list-item flex items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--background)] p-4 shadow-sm transition-colors hover:border-[var(--accent)] ${
                 state === "entering"
                   ? "animated-list-item--entering"
                   : state === "exiting"
                     ? "animated-list-item--exiting"
                     : ""
               }`}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  window.location.href = `/profile/${user.address}`;
-                }
-              }}
             >
               <div className="flex w-full items-center gap-3">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={getBlockieSvg(user.address)}
                   alt={`${user.username}'s avatar`}
-                  className="h-10 w-10 flex-shrink-0 rounded-full border border-gray-200"
+                  className="h-10 w-10 flex-shrink-0 rounded-full border border-[var(--border)]"
                 />
                 <div className="min-w-0 flex-1">
                   <Link
                     href={`/profile/${user.address}`}
-                    className="block truncate font-semibold text-gray-900 hover:text-indigo-600"
+                    className="block truncate font-semibold text-[var(--foreground)] hover:text-[var(--accent)]"
                   >
                     @{user.username}
                   </Link>
-                  <span className="block truncate font-mono text-xs text-gray-500">
+                  <span className="block truncate font-mono text-xs text-[var(--text-muted)]">
                     {formatAddress(user.address)}
                   </span>
                 </div>
@@ -263,8 +266,8 @@ export function FollowList({ address, type }: FollowListProps) {
                     disabled={isPending}
                     className={`flex h-[36px] w-full flex-shrink-0 items-center justify-center rounded-lg px-4 py-1.5 text-sm font-semibold transition-all sm:w-auto ${
                       isFollowing
-                        ? "border border-gray-200 bg-gray-100 text-gray-700 hover:bg-gray-250"
-                        : "bg-indigo-600 text-white hover:bg-indigo-700"
+                        ? "border border-[var(--border)] bg-[var(--muted)] text-[var(--foreground)] hover:opacity-80"
+                        : "bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)]"
                     } ${isPending ? "cursor-not-allowed opacity-55" : "cursor-pointer"}`}
                     aria-label={
                       isFollowing ? `Unfollow ${user.username}` : `Follow ${user.username}`
@@ -281,8 +284,8 @@ export function FollowList({ address, type }: FollowListProps) {
 
       {loading && (
         <div className="flex items-center justify-center gap-2 p-6" aria-live="polite">
-          <div className="w-5 h-5 border-2 border-gray-300 border-t-indigo-600 rounded-full animate-spin" />
-          <p className="text-sm text-gray-500">Loading users...</p>
+          <div className="w-5 h-5 border-2 border-[var(--border)] border-t-[var(--accent)] rounded-full animate-spin" />
+          <p className="text-sm text-[var(--text-muted)]">Loading users...</p>
         </div>
       )}
 
@@ -295,18 +298,18 @@ export function FollowList({ address, type }: FollowListProps) {
             type="button"
             onClick={goToPreviousPage}
             disabled={loading || page === 0}
-            className="min-w-[88px] rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-w-[88px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Prev
           </button>
-          <span className="text-sm font-semibold text-gray-700" aria-live="polite">
+          <span className="text-sm font-semibold text-[var(--foreground)]" aria-live="polite">
             Page {page + 1}
           </span>
           <button
             type="button"
             onClick={goToNextPage}
             disabled={loading || !hasMore}
-            className="min-w-[88px] rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            className="min-w-[88px] rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--muted)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             Next
           </button>

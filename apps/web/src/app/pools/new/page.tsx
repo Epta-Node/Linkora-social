@@ -7,7 +7,7 @@ import { useWallet } from "@/components/WalletProvider";
 import { useCreatePool } from "@/hooks/usePoolContract";
 import { TxStatusBanner } from "@/components/pools/TxStatusBanner";
 import { ThresholdBadge } from "@/components/pools/ThresholdBadge";
-import { STELLAR_KEY_RE } from "@/hooks/usePools";
+import { STELLAR_KEY_RE, STELLAR_CONTRACT_RE } from "@/hooks/usePools";
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ function validatePoolId(val: string): string | null {
 
 function validateToken(val: string): string | null {
   if (!val.trim()) return "Token address is required";
-  if (!STELLAR_KEY_RE.test(val.trim())) return "Invalid Stellar public key";
+  if (!STELLAR_CONTRACT_RE.test(val.trim())) return "Invalid contract address (C + 55 base32 chars)";
   return null;
 }
 

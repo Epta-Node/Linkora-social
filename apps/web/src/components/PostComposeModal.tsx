@@ -14,6 +14,7 @@ import {
 } from "@stellar/stellar-sdk";
 import { signTransaction } from "@stellar/freighter-api";
 import { RichTextComposer } from "./RichTextComposer";
+import { useDraft } from "@/hooks/useDraft";
 
 const MAX_CONTENT_LENGTH = 280;
 const AMBER_THRESHOLD = 50;
@@ -42,6 +43,9 @@ interface PublishState {
 
 export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModalProps) {
   const router = useRouter();
+  const { draft, lastSaved, saveDraft, clearDraft } = useDraft();
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [publishState, setPublishState] = useState<PublishState>({
     status: "idle",
     errorMsg: "",
@@ -69,6 +73,30 @@ export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModa
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [isOpen, onClose, publishState.status]);
+
+  const handleDraftChange = useCallback((content: string, linkUrl?: string) => {
+    saveDraft(content, linkUrl);
+    setAutoSaveStatus("saving");
+
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      setAutoSaveStatus("saved");
+      autoSaveTimeoutRef.current = setTimeout(() => {
+        setAutoSaveStatus("idle");
+      }, 2000);
+    }, 500);
+  }, [saveDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = useCallback(
     async (content: string, attachments?: File[], poll?: any[]) => {
@@ -163,6 +191,11 @@ export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModa
     setPublishState({ status: "idle", errorMsg: "", postId: null, txHash: null });
   };
 
+  const handleModalClose = () => {
+    clearDraft();
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -172,7 +205,7 @@ export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModa
         <header className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 border-b border-[var(--border)]">
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleModalClose}
             disabled={
               publishState.status === "awaiting_signature" || publishState.status === "submitting"
             }
@@ -181,7 +214,25 @@ export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModa
           >
             ✕
           </button>
-          <h2 className="text-lg font-bold text-white">Compose Post</h2>
+          <div className="flex flex-col items-center flex-1">
+            <h2 className="text-lg font-bold text-white">Compose Post</h2>
+            {autoSaveStatus !== "idle" && (
+              <div className="text-xs text-[var(--text-muted)] mt-1 flex items-center gap-1">
+                {autoSaveStatus === "saving" && (
+                  <>
+                    <span className="animate-pulse" aria-hidden="true">⏳</span>
+                    <span>Saving draft...</span>
+                  </>
+                )}
+                {autoSaveStatus === "saved" && (
+                  <>
+                    <span aria-hidden="true">✓</span>
+                    <span>Draft saved</span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
           <div className="w-6" />
         </header>
 
@@ -200,10 +251,12 @@ export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModa
           {/* Rich Text Composer */}
           <RichTextComposer
             onSubmit={handleSubmit}
-            onCancel={onClose}
+            onCancel={handleModalClose}
             placeholder="What's happening on-chain?"
             disabled={publishState.status !== "idle" && publishState.status !== "error"}
             users={mockUsers}
+            initialContent={draft?.content}
+            onChange={handleDraftChange}
           />
 
           {/* Status Messages */}

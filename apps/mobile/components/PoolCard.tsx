@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { StyleSheet, View, Text, TouchableOpacity } from "react-native";
+import { StyleSheet, View, Text } from "react-native";
 
 import { useTheme } from "../theme/useTheme";
 import { PoolCardSkeleton } from "./skeletons/PoolCardSkeleton";
@@ -69,9 +69,15 @@ interface PoolCardProps {
   participants: number;
   apy?: string;
   isLoading?: boolean;
-  onPress?: () => void;
 }
 
+/**
+ * #1594 — presentational only. The card used to be its own `TouchableOpacity`
+ * *and* be wrapped in another one by the Pools tab, so one tap registered two
+ * press handlers and `router.push` ran twice. There is now exactly one
+ * interactive element per pool card: the caller's pressable. Don't add an
+ * `onPress` here without removing the caller's wrapper.
+ */
 export const PoolCard: React.FC<PoolCardProps> = ({
   id,
   name,
@@ -80,7 +86,6 @@ export const PoolCard: React.FC<PoolCardProps> = ({
   participants,
   apy,
   isLoading = false,
-  onPress,
 }) => {
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
@@ -90,13 +95,7 @@ export const PoolCard: React.FC<PoolCardProps> = ({
   }
 
   return (
-    <TouchableOpacity
-      style={styles.container}
-      onPress={onPress}
-      testID={`pool-card-${id}`}
-      accessibilityRole="button"
-      accessibilityLabel={`Pool ${name} with balance ${totalValue}`}
-    >
+    <View style={styles.container} testID={`pool-card-${id}`}>
       <View style={styles.header}>
         <Text style={styles.name}>{name}</Text>
         {apy && <Text style={styles.apy}>{apy} APY</Text>}
@@ -112,6 +111,6 @@ export const PoolCard: React.FC<PoolCardProps> = ({
           <Text style={styles.statValue}>{participants}</Text>
         </View>
       </View>
-    </TouchableOpacity>
+    </View>
   );
 };

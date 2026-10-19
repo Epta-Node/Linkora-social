@@ -11,6 +11,16 @@
  * ALLOW_IN_MEMORY_RATE_LIMIT  — Explicit opt-out allowing the in-memory store
  *                               in production. Only safe for single-replica
  *                               deployments.
+ *
+ * Connection pool settings (issue #888)
+ * ──────────────────────────────────────
+ * DB_POOL_MAX                 — Maximum PostgreSQL pool connections (default 20).
+ * DB_POOL_IDLE_TIMEOUT_MS     — Milliseconds an idle connection is kept before
+ *                               being closed (default 30000).
+ * DB_POOL_CONNECTION_TIMEOUT_MS — Milliseconds to wait for a connection before
+ *                               failing (default 2000).
+ * DB_POOL_STATS_INTERVAL_MS   — How often to log pool utilisation (active,
+ *                               idle, waiting). 0 (default) disables it.
  */
 
 import { resolveRateLimitEnv } from "@linkora/types/src/rate-limit-env";
@@ -42,6 +52,7 @@ export function loadConfig() {
     corsOrigin: process.env.CORS_ORIGIN?.split(",") || ["http://localhost:3000"],
     messageTtlDays: optionalInt("MESSAGE_TTL_DAYS", 7),
     maxTimestampSkew: optionalInt("MAX_TIMESTAMP_SKEW", 300),
+    maxMessageBytes: optionalInt("MAX_MESSAGE_BYTES", 64 * 1024),
     stellarNetwork: process.env.STELLAR_NETWORK || "Testnet",
     idempotencyTtlHours: optionalInt("IDEMPOTENCY_TTL_HOURS", 24),
   };

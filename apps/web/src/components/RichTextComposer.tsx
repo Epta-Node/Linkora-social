@@ -18,7 +18,7 @@ interface PollOption {
 }
 
 interface RichTextComposerProps {
-  onSubmit: (content: string, attachments?: File[], poll?: PollOption[]) => void;
+  onSubmit: (content: string, attachments?: File[], poll?: PollOption[]) => Promise<void>;
   onCancel?: () => void;
   placeholder?: string;
   disabled?: boolean;
@@ -221,14 +221,25 @@ export function RichTextComposer({
     [pollOptions.length]
   );
 
-  // Format content with highlights
+  // Escape HTML metacharacters so user-typed text can never be interpreted as
+  // markup when injected via dangerouslySetInnerHTML.
+  const escapeHtml = useCallback((raw: string) =>
+    raw
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#x27;"),
+  []);
+
+  // Format content with highlights — text is escaped first so that mention
+  // and hashtag spans are the only markup ever injected.
   const formatContent = useCallback((text: string) => {
-    // Highlight mentions
-    let formatted = text.replace(/@(\w+)/g, '<span class="mention-highlight">@$1</span>');
-    // Highlight hashtags
+    const escaped = escapeHtml(text);
+    let formatted = escaped.replace(/@(\w+)/g, '<span class="mention-highlight">@$1</span>');
     formatted = formatted.replace(/#(\w+)/g, '<span class="hashtag-highlight">#$1</span>');
     return formatted;
-  }, []);
+  }, [escapeHtml]);
 
   // Handle submit
   const handleSubmit = useCallback(async () => {
@@ -241,8 +252,12 @@ export function RichTextComposer({
         : undefined;
       await onSubmit(content, attachments.length > 0 ? attachments : undefined, pollData);
 
-      // Reset form
+      // Reset form only after submission resolves successfully — keeps the draft
+      // intact if the submission rejects (e.g. network error).
       setContent("");
+      if (editorRef.current) {
+        editorRef.current.innerText = "";
+      }
       setAttachments([]);
       setAttachmentPreviews([]);
       setShowPoll(false);
@@ -251,6 +266,11 @@ export function RichTextComposer({
         { id: "2", text: "" },
       ]);
       setShowPreview(false);
+    } catch (err) {
+      // Surface the error — draft content and attachments are preserved so the
+      // user can retry without losing their work.
+      console.error("[RichTextComposer] submit failed:", err);
+      throw err;
     } finally {
       setIsSubmitting(false);
     }

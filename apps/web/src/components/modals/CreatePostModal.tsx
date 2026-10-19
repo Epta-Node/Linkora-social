@@ -8,6 +8,13 @@ import { PostComposer } from "../post/PostComposer";
 import { useMediaUpload } from "@/hooks/useMediaUpload";
 import { useLinkPreview } from "@/hooks/useLinkPreview";
 import { useDraft } from "@/hooks/useDraft";
+import { LinkoraClient } from "linkora-sdk";
+
+const RPC_URL = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
+const NETWORK_PASSPHRASE =
+  process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015";
+const CONTRACT_ID =
+  process.env.NEXT_PUBLIC_CONTRACT_ID ?? "CDD6V66I7G2K2TCHWGLD4QIPZ4E47W4T3HLY3W7YJ4NGRRYUDRF6QYLR";
 
 export interface CreatePostModalProps {
   isOpen: boolean;
@@ -24,8 +31,19 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [maxContentLen, setMaxContentLen] = useState<number>(280);
+  const [isOverLimit, setIsOverLimit] = useState(false);
 
-  const { images, addImages, removeImage, clearImages, isCompressing } = useMediaUpload();
+  const {
+    images,
+    addImages,
+    removeImage,
+    clearImages,
+    isCompressing,
+    error: mediaError,
+    maxUploadBytes: mediaLimit,
+    hasIncompleteMedia,
+  } = useMediaUpload();
   const {
     url: linkUrl,
     linkPreview,
@@ -35,6 +53,29 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
     isLoading: isLinkLoading,
   } = useLinkPreview();
   const { draft, saveDraft, clearDraft } = useDraft();
+
+  // Fetch the on-chain max post content length once the modal opens.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+    const client = new LinkoraClient({ contractId: CONTRACT_ID, rpcUrl: RPC_URL });
+
+    client
+      .getMaxPostContentLen()
+      .then((len) => {
+        if (!cancelled) {
+          setMaxContentLen(len);
+        }
+      })
+      .catch(() => {
+        // Keep the frontend fallback (280) on network/simulation errors.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   // Load draft if available when opening modal
   useEffect(() => {
@@ -63,11 +104,16 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
   const handleSubmit = useCallback(async () => {
     if ((!content.trim() && images.length === 0) || isSubmitting) return;
 
+    // Never submit media that has not fully uploaded or failed to upload.
+    const hasIncompleteMedia =
+      isCompressing || images.some((img) => img.uploading || img.error || !img.url);
+    if (hasIncompleteMedia) return;
+
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      const imageUrls = images.map((img) => img.previewUrl);
+      const imageUrls = images.map((img) => img.url).filter((url): url is string => !!url);
       if (onSubmit) {
         await onSubmit({
           content,
@@ -93,6 +139,7 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
     images,
     linkUrl,
     isSubmitting,
+    isCompressing,
     onSubmit,
     clearImages,
     clearLinkPreview,
@@ -113,7 +160,12 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, handleSubmit]);
 
-  const isPostDisabled = (!content.trim() && images.length === 0) || isSubmitting || isCompressing;
+  const isPostDisabled =
+    (!content.trim() && images.length === 0) ||
+    isSubmitting ||
+    isCompressing ||
+    hasIncompleteMedia ||
+    isOverLimit;
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -176,11 +228,15 @@ export function CreatePostModal({ isOpen, onClose, onSubmit, author }: CreatePos
                     onAddImages={addImages}
                     onRemoveImage={removeImage}
                     isCompressing={isCompressing}
+                    mediaError={mediaError}
+                    mediaLimit={mediaLimit}
                     linkUrl={linkUrl}
                     onChangeLinkUrl={handleLinkUrlChange}
                     linkPreview={linkPreview}
                     onRemoveLinkPreview={clearLinkPreview}
                     isLinkLoading={isLinkLoading}
+                    characterLimit={maxContentLen}
+                    onLimitExceeded={setIsOverLimit}
                   />
                 </div>
 

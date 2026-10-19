@@ -22,6 +22,14 @@ import {
   dateRangeToLedgerRange,
   type AnalyticsData,
 } from "@/lib/analytics";
+import {
+  CHART_HEIGHT,
+  CHARTS,
+  ChartCard,
+  DashboardSkeleton,
+  SUMMARY_LABELS,
+  SummaryCard,
+} from "@/components/analytics/AnalyticsCards";
 
 type DateRange = 7 | 30 | 90;
 type State =
@@ -144,17 +152,14 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {state.status === "loading" && (
-          <div className="flex items-center justify-center py-24">
-            <div className="animate-pulse flex flex-col items-center gap-4">
-              <div className="h-8 w-48 bg-[var(--bg-tertiary)] rounded" />
-              <div className="h-4 w-64 bg-[var(--bg-tertiary)] rounded" />
-            </div>
-          </div>
-        )}
+        {state.status === "loading" && <DashboardSkeleton />}
 
         {state.status === "error" && (
-          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-12 text-center">
+          <div
+            role="alert"
+            data-testid="analytics-error"
+            className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-12 text-center"
+          >
             <p className="text-[var(--error)] mb-4">{state.message}</p>
             <button
               onClick={loadData}
@@ -186,11 +191,11 @@ function Dashboard({ data }: { data: AnalyticsData }) {
     <div className="space-y-6">
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <SummaryCard label="Total Tips" value={`${summary.totalTipsXlm} XLM`} />
-        <SummaryCard label="Posts" value={String(summary.totalPosts)} />
-        <SummaryCard label="Likes" value={String(summary.totalLikes)} />
-        <SummaryCard label="Followers" value={String(summary.followerCount)} />
-        <SummaryCard label="Unique Tippers" value={String(summary.uniqueTippers)} />
+        <SummaryCard label={SUMMARY_LABELS[0]} value={`${summary.totalTipsXlm} XLM`} />
+        <SummaryCard label={SUMMARY_LABELS[1]} value={String(summary.totalPosts)} />
+        <SummaryCard label={SUMMARY_LABELS[2]} value={String(summary.totalLikes)} />
+        <SummaryCard label={SUMMARY_LABELS[3]} value={String(summary.followerCount)} />
+        <SummaryCard label={SUMMARY_LABELS[4]} value={String(summary.uniqueTippers)} />
       </div>
 
       {/* Attestation badge */}
@@ -215,8 +220,8 @@ function Dashboard({ data }: { data: AnalyticsData }) {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Engagement over time */}
-        <ChartCard title="Engagement Over Time" subtitle="Likes per day">
-          <ResponsiveContainer width="100%" height={300}>
+        <ChartCard {...CHARTS.engagement}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
             <LineChart data={engagementOverTime}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
@@ -242,8 +247,8 @@ function Dashboard({ data }: { data: AnalyticsData }) {
         </ChartCard>
 
         {/* Follower growth */}
-        <ChartCard title="Follower Growth" subtitle="Cumulative over time">
-          <ResponsiveContainer width="100%" height={300}>
+        <ChartCard {...CHARTS.followers}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
             <LineChart data={followerGrowth}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
@@ -269,8 +274,8 @@ function Dashboard({ data }: { data: AnalyticsData }) {
         </ChartCard>
 
         {/* Tip earnings */}
-        <ChartCard title="Tip Earnings" subtitle="Tips per day (stroops)">
-          <ResponsiveContainer width="100%" height={300}>
+        <ChartCard {...CHARTS.tips}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
             <BarChart data={tipEarnings}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
@@ -289,7 +294,7 @@ function Dashboard({ data }: { data: AnalyticsData }) {
         </ChartCard>
 
         {/* Top posts */}
-        <ChartCard title="Top Performing Posts" subtitle="Ranked by likes + tips">
+        <ChartCard {...CHARTS.topPosts}>
           {topPosts.length === 0 ? (
             <p className="text-[var(--text-muted)] text-sm p-4">No posts yet.</p>
           ) : (
@@ -370,33 +375,6 @@ function Dashboard({ data }: { data: AnalyticsData }) {
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-4">
-      <p className="text-xs text-[var(--text-muted)] mb-1">{label}</p>
-      <p className="text-xl font-bold text-[var(--text-primary)] truncate">{value}</p>
-    </div>
-  );
-}
-
-function ChartCard({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-6">
-      <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{title}</h3>
-      <p className="text-sm text-[var(--text-muted)] mb-4">{subtitle}</p>
-      {children}
     </div>
   );
 }

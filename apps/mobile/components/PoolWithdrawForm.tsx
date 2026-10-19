@@ -1,12 +1,5 @@
 import React, { useState } from "react";
-import {
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { usePoolWithdraw } from "../hooks/usePoolWithdraw";
 
@@ -21,19 +14,36 @@ export function PoolWithdrawForm({ poolId, onSubmitted }: PoolWithdrawFormProps)
     recipient,
     amount,
     connectedAddress,
+    connectedIsAdmin,
     signerStatuses,
     approvals,
     canSubmit,
     recipientError,
     thresholdStatus,
-    toggleSigner,
+    status,
+    signApproval,
     setRecipient,
     setAmount,
     submit,
     reset,
   } = usePoolWithdraw(poolId);
   const [submitting, setSubmitting] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  const handleSignApproval = async () => {
+    setApproving(true);
+    setMessage(null);
+
+    try {
+      const signed = await signApproval();
+      if (!signed) {
+        setMessage("Approval was not signed by the connected wallet.");
+      }
+    } finally {
+      setApproving(false);
+    }
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -43,11 +53,11 @@ export function PoolWithdrawForm({ poolId, onSubmitted }: PoolWithdrawFormProps)
       const withdrawalId = await submit();
 
       if (!withdrawalId) {
-        setMessage("Collect the required signatures before submitting.");
+        setMessage(status ?? "The required admin signatures were not accepted.");
         return;
       }
 
-      Alert.alert("Withdrawal queued", `Request ${withdrawalId} is ready for processing.`);
+      Alert.alert("Withdrawal submitted", `Request ${withdrawalId} is on-chain.`);
       reset();
       onSubmitted?.();
       setMessage("Withdrawal request submitted successfully.");
@@ -95,26 +105,46 @@ export function PoolWithdrawForm({ poolId, onSubmitted }: PoolWithdrawFormProps)
 
       <View style={styles.signersSection}>
         <View style={styles.signersHeader}>
-          <Text style={styles.label}>Required signers</Text>
-          <Text style={styles.meta}>{approvals.length} approved</Text>
+          <Text style={styles.label}>Admin signatures</Text>
+          <Text style={styles.meta}>{approvals.length} signed</Text>
         </View>
 
-        {signerStatuses.map((signer) => (
-          <Pressable
-            key={signer.address}
-            onPress={() => toggleSigner(signer.address)}
-            style={styles.signerRow}
-            accessibilityRole="button"
-            accessibilityLabel={`Toggle signature for ${signer.address}`}
-          >
-            <Text style={styles.signerAddress}>
-              {signer.address.slice(0, 8)}...{signer.address.slice(-6)}
-            </Text>
-            <Text style={signer.approved ? styles.approved : styles.pending}>
-              {signer.approved ? "Signed" : "Pending"}
-            </Text>
-          </Pressable>
-        ))}
+        {/* #1557 — read-only. An admin is marked "Signed" only once that admin
+            has signed the withdrawal with their own wallet on-chain; there is
+            no way to tick another admin's row. */}
+        {signerStatuses.length === 0 ? (
+          <Text style={styles.meta}>Pool admins have not been loaded from the chain yet.</Text>
+        ) : (
+          signerStatuses.map((signer) => (
+            <View key={signer.address} style={styles.signerRow}>
+              <Text style={styles.signerAddress}>
+                {signer.address.slice(0, 8)}...{signer.address.slice(-6)}
+              </Text>
+              <Text style={signer.approved ? styles.approved : styles.pending}>
+                {signer.approved ? "Signed" : "Pending"}
+              </Text>
+            </View>
+          ))
+        )}
+
+        <Pressable
+          style={[
+            styles.secondaryButton,
+            (!connectedIsAdmin || approving) && styles.buttonDisabled,
+          ]}
+          onPress={handleSignApproval}
+          disabled={!connectedIsAdmin || approving}
+          accessibilityRole="button"
+          accessibilityLabel="Sign withdrawal approval with connected wallet"
+        >
+          <Text style={styles.secondaryButtonText}>
+            {approving
+              ? "Waiting for signature..."
+              : connectedIsAdmin
+                ? "Sign with connected admin wallet"
+                : "Connected wallet is not a pool admin"}
+          </Text>
+        </Pressable>
       </View>
 
       <View style={styles.actions}>

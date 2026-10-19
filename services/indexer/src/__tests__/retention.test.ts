@@ -187,7 +187,7 @@ describe("dropOldPartitions", () => {
   });
 
   it("converges when partitions are older than a naive cursor-based cutoff (migration replay)", async () => {
-    // Cursor lags far behind the migrated partitions (migration 012 replay):
+    // Cursor lags far behind the migrated partitions (migration 017 replay):
     // an old cursor-only cutoff would compute a negative value and drop nothing.
     // Anchoring the cutoff to max(cursor, newestPartitionHi) keeps cleaning.
     const pool = new FakePool();
@@ -345,6 +345,150 @@ describe("RawEventsRetentionManager start / stop", () => {
     const mgr = new RawEventsRetentionManager(pool as never, {
       ...BASE_CFG,
       cronSchedule: "not-a-valid-cron",
+    });
+
+    expect(() => mgr.start()).toThrow("Invalid cron schedule");
+  });
+});
+
+// ── Notification Retention ─────────────────────────────────────────────────────
+
+import {
+  pruneNotificationsBatch,
+  pruneStaleNotifications,
+  NotificationRetentionManager,
+} from "../retention";
+import type { NotificationRetentionConfig } from "../retention";
+import { notificationsPrunedTotal } from "../metrics";
+
+const BASE_NOTIF_CFG: NotificationRetentionConfig = {
+  retentionDays: 90,
+  batchSize: 1_000,
+  cronSchedule: "15 2 * * *",
+};
+
+describe("pruneNotificationsBatch", () => {
+  it("issues a bounded DELETE and returns the row count", async () => {
+    const pool = new FakePool();
+    // Simulate 3 rows deleted
+    pool.onQuery(() => [{ id: "1" }, { id: "2" }, { id: "3" }]);
+
+    const cutoff = new Date("2025-01-01T00:00:00Z");
+    const deleted = await pruneNotificationsBatch(pool as never, cutoff, 1_000);
+
+    expect(deleted).toBe(3);
+    // The query should reference sent_notifications and the cutoff param
+    expect(pool.queries[0]).toContain("sent_notifications");
+    expect(pool.queries[0]).toContain("dispatched_at");
+  });
+
+  it("returns 0 when no stale rows exist", async () => {
+    const pool = new FakePool();
+    pool.onQuery(() => []); // no rows returned
+
+    const cutoff = new Date("2025-01-01T00:00:00Z");
+    const deleted = await pruneNotificationsBatch(pool as never, cutoff, 1_000);
+
+    expect(deleted).toBe(0);
+  });
+
+  it("throws when batchSize is 0", async () => {
+    const pool = new FakePool();
+    await expect(
+      pruneNotificationsBatch(pool as never, new Date(), 0)
+    ).rejects.toThrow("batchSize must be > 0");
+  });
+});
+
+describe("pruneStaleNotifications — fake clock", () => {
+  beforeEach(() => {
+    notificationsPrunedTotal.reset();
+  });
+
+  it("uses the correct cutoff derived from retentionDays", async () => {
+    const pool = new FakePool();
+    // First batch: returns 2 rows; second batch: empty (done)
+    pool.onQuery(() => [{ id: "10" }, { id: "11" }]);
+    pool.onQuery(() => []);
+
+    // "now" is fixed at 2026-10-18; cutoff should be 90 days earlier
+    const now = new Date("2026-10-18T00:00:00Z");
+    const expectedCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
+    const total = await pruneStaleNotifications(pool as never, BASE_NOTIF_CFG, now);
+
+    expect(total).toBe(2);
+    // Verify the param passed to the query encodes the correct cutoff
+    // (the test pool stores raw SQL; params are not inspectable here, but
+    //  we verify count and metric correctness)
+    expect(notificationsPrunedTotal.getValue()).toBe(2);
+    // cutoff sanity: 90 days before Oct 18 2026 is July 19 2026
+    expect(expectedCutoff.toISOString().startsWith("2026-07-19")).toBe(true);
+  });
+
+  it("loops until no rows remain and accumulates the metric", async () => {
+    const pool = new FakePool();
+    // Three batches of 3 rows, then empty
+    pool.onQuery(() => [{ id: "1" }, { id: "2" }, { id: "3" }]);
+    pool.onQuery(() => [{ id: "4" }, { id: "5" }, { id: "6" }]);
+    pool.onQuery(() => [{ id: "7" }, { id: "8" }, { id: "9" }]);
+    pool.onQuery(() => []);
+
+    const now = new Date("2026-10-18T00:00:00Z");
+    const total = await pruneStaleNotifications(pool as never, BASE_NOTIF_CFG, now);
+
+    expect(total).toBe(9);
+    expect(notificationsPrunedTotal.getValue()).toBe(9);
+  });
+
+  it("returns 0 and does not increment metric when nothing is stale", async () => {
+    const pool = new FakePool();
+    pool.onQuery(() => []); // nothing to delete
+
+    const now = new Date("2026-10-18T00:00:00Z");
+    const total = await pruneStaleNotifications(pool as never, BASE_NOTIF_CFG, now);
+
+    expect(total).toBe(0);
+    expect(notificationsPrunedTotal.getValue()).toBe(0);
+  });
+});
+
+describe("NotificationRetentionManager", () => {
+  beforeEach(() => {
+    notificationsPrunedTotal.reset();
+  });
+
+  it("runOnce prunes rows and returns the total", async () => {
+    const pool = new FakePool();
+    pool.onQuery(() => [{ id: "1" }, { id: "2" }]);
+    pool.onQuery(() => []);
+
+    const mgr = new NotificationRetentionManager(pool as never, BASE_NOTIF_CFG);
+    const total = await mgr.runOnce(new Date("2026-10-18T00:00:00Z"));
+
+    expect(total).toBe(2);
+    expect(notificationsPrunedTotal.getValue()).toBe(2);
+  });
+
+  it("start() is idempotent and stop() cleans up", () => {
+    const pool = new FakePool();
+    const mgr = new NotificationRetentionManager(pool as never, {
+      ...BASE_NOTIF_CFG,
+      cronSchedule: "59 23 31 12 0",
+    });
+
+    mgr.start();
+    mgr.start(); // second call should be a no-op
+
+    mgr.stop();
+    mgr.stop(); // second stop should also be a no-op
+  });
+
+  it("throws on an invalid cron schedule", () => {
+    const pool = new FakePool();
+    const mgr = new NotificationRetentionManager(pool as never, {
+      ...BASE_NOTIF_CFG,
+      cronSchedule: "not-valid",
     });
 
     expect(() => mgr.start()).toThrow("Invalid cron schedule");

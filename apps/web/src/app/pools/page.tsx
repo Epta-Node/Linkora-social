@@ -17,7 +17,7 @@ function PoolCardWithMeta({ pool }: { pool: PoolData }) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PoolsPage() {
-  const { pools, state, error, refresh } = useAllPools();
+  const { pools, state, error, isStale, refresh } = useAllPools();
 
   return (
     <main style={styles.main}>
@@ -54,8 +54,19 @@ export default function PoolsPage() {
         </div>
       )}
 
+      {/* Stale data indicator */}
+      {isStale && pools.length > 0 && (
+        <div style={styles.staleWarning} role="status">
+          <span aria-hidden="true">⚠️</span>
+          <span>Showing cached data. Unable to reach indexer.</span>
+          <button onClick={refresh} style={styles.retryBtn} aria-label="Retry loading fresh data">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Loading skeletons */}
-      {state === "loading" && (
+      {state === "loading" && pools.length === 0 && (
         <div style={styles.grid} aria-busy="true" aria-label="Loading pools">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <PoolCardSkeleton key={i} />
@@ -67,10 +78,11 @@ export default function PoolsPage() {
       {state === "success" && pools.length === 0 && <PoolEmptyState variant="no-pools" />}
 
       {/* Pool grid */}
-      {state === "success" && pools.length > 0 && (
+      {pools.length > 0 && (
         <>
           <p style={styles.count} aria-live="polite" role="status">
             {pools.length} pool{pools.length !== 1 ? "s" : ""} found
+            {isStale && " (cached)"}
           </p>
           <div style={styles.grid}>
             {pools.map((pool) => (
@@ -157,6 +169,19 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid var(--color-error)",
     borderRadius: "var(--radius-lg)",
     color: "#991b1b",
+    fontSize: "var(--text-sm)",
+  },
+  staleWarning: {
+    maxWidth: "1100px",
+    margin: "0 auto var(--space-6)",
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--space-3)",
+    padding: "var(--space-4)",
+    background: "#fef3c7",
+    border: "1px solid #f59e0b",
+    borderRadius: "var(--radius-lg)",
+    color: "#92400e",
     fontSize: "var(--text-sm)",
   },
   retryBtn: {

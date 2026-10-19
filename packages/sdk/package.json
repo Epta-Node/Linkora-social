@@ -47,8 +47,10 @@
     "typecheck": "tsc --noEmit",
     "docs": "typedoc --out docs src/index.ts --tsconfig tsconfig.json",
     "test": "jest",
-    "test:e2e": "jest --config jest.e2e.config.js"
+    "test:e2e": "jest --config jest.e2e.config.js",
+    "check:bundle": "jest --testPathPattern bundle-size"
   },
+  "sideEffects": false,
   "dependencies": {
     "@noble/ciphers": "^0.5.3",
     "@noble/curves": "^1.9.7",

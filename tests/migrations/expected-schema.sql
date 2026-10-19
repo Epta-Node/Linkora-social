@@ -10,6 +10,32 @@ CREATE FUNCTION public.add_pool_admin(p_pool_id text, p_admin text, p_ledger int
            updated_ledger = p_ledger
     WHERE  pool_id = p_pool_id;
 $$;
+CREATE FUNCTION public.reconcile_follow_counts() RETURNS integer
+    LANGUAGE plpgsql
+    AS $$
+DECLARE drifted INTEGER;
+BEGIN
+        SELECT COUNT(*) INTO drifted
+        FROM follow_counts c
+        FULL OUTER JOIN (
+            SELECT address AS user_address,
+                         (SELECT COUNT(*) FROM follows WHERE follower = address)::int AS following_count,
+                         (SELECT COUNT(*) FROM follows WHERE followee = address)::int AS followers_count
+            FROM profiles
+        ) e USING (user_address)
+        WHERE COALESCE(c.followers_count, 0) <> COALESCE(e.followers_count, 0)
+             OR COALESCE(c.following_count, 0) <> COALESCE(e.following_count, 0);
+        INSERT INTO follow_counts (user_address, followers_count, following_count)
+        SELECT address,
+                     (SELECT COUNT(*) FROM follows WHERE followee = address),
+                     (SELECT COUNT(*) FROM follows WHERE follower = address)
+        FROM profiles
+        ON CONFLICT (user_address) DO UPDATE SET
+            followers_count = EXCLUDED.followers_count,
+            following_count = EXCLUDED.following_count;
+        RETURN drifted;
+END;
+$$;
 CREATE FUNCTION public.remove_pool_admin(p_pool_id text, p_admin text, p_ledger integer) RETURNS void
     LANGUAGE sql
     AS $$
@@ -62,6 +88,23 @@ CREATE TABLE public.blocks (
     blocker text NOT NULL,
     blocked text NOT NULL
 );
+CREATE TABLE public.dead_letter_events (
+    id bigint NOT NULL,
+    ledger_sequence bigint NOT NULL,
+    event_index integer NOT NULL,
+    contract_id text NOT NULL,
+    topic text[] NOT NULL,
+    data jsonb NOT NULL,
+    error_message text,
+    failed_at timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE SEQUENCE public.dead_letter_events_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+ALTER SEQUENCE public.dead_letter_events_id_seq OWNED BY public.dead_letter_events.id;
 CREATE TABLE public.device_tokens (
     id integer NOT NULL,
     address text NOT NULL,
@@ -147,6 +190,11 @@ CREATE TABLE public.notification_preferences (
     governance_updates boolean DEFAULT true NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+CREATE TABLE public.notification_read_state (
+    address text NOT NULL,
+    read_through timestamp with time zone NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
 CREATE TABLE public.pools (
     pool_id text NOT NULL,
     token text NOT NULL,
@@ -166,12 +214,14 @@ CREATE TABLE public.posts (
     like_count bigint DEFAULT 0 NOT NULL,
     created_at timestamp without time zone NOT NULL,
     deleted_at timestamp without time zone,
-    content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, COALESCE(content, ''::text))) STORED
+    content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, COALESCE(content, ''::text))) STORED,
+    tags text[] DEFAULT '{}'::text[]
 );
 CREATE MATERIALIZED VIEW public.post_scores AS
  SELECT id,
     author,
     content,
+    tags,
     tip_total,
     like_count,
     created_at,
@@ -353,6 +403,17 @@ CREATE SEQUENCE public.sent_notifications_id_seq
     NO MAXVALUE
     CACHE 1;
 ALTER SEQUENCE public.sent_notifications_id_seq OWNED BY public.sent_notifications.id;
+CREATE TABLE public.state_root_accumulators (
+    table_name text NOT NULL,
+    accumulator text DEFAULT repeat('0'::text, 64) NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+CREATE TABLE public.state_root_row_hashes (
+    table_name text NOT NULL,
+    row_key text NOT NULL,
+    row_hash text NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
 CREATE TABLE public.tips (
     id integer NOT NULL,
     post_id bigint NOT NULL,
@@ -381,6 +442,7 @@ ALTER TABLE ONLY public.raw_events ATTACH PARTITION public.raw_events_p6000000_7
 ALTER TABLE ONLY public.raw_events ATTACH PARTITION public.raw_events_p7000000_8000000 FOR VALUES FROM ('7000000') TO ('8000000');
 ALTER TABLE ONLY public.raw_events ATTACH PARTITION public.raw_events_p8000000_9000000 FOR VALUES FROM ('8000000') TO ('9000000');
 ALTER TABLE ONLY public.raw_events ATTACH PARTITION public.raw_events_p9000000_10000000 FOR VALUES FROM ('9000000') TO ('10000000');
+ALTER TABLE ONLY public.dead_letter_events ALTER COLUMN id SET DEFAULT nextval('public.dead_letter_events_id_seq'::regclass);
 ALTER TABLE ONLY public.device_tokens ALTER COLUMN id SET DEFAULT nextval('public.device_tokens_id_seq'::regclass);
 ALTER TABLE ONLY public.likes ALTER COLUMN id SET DEFAULT nextval('public.likes_id_seq'::regclass);
 ALTER TABLE ONLY public.raw_events ALTER COLUMN id SET DEFAULT nextval('public.raw_events_id_seq1'::regclass);
@@ -390,6 +452,10 @@ ALTER TABLE ONLY public.sent_notifications ALTER COLUMN id SET DEFAULT nextval('
 ALTER TABLE ONLY public.tips ALTER COLUMN id SET DEFAULT nextval('public.tips_id_seq'::regclass);
 ALTER TABLE ONLY public.blocks
     ADD CONSTRAINT blocks_pkey PRIMARY KEY (blocker, blocked);
+ALTER TABLE ONLY public.dead_letter_events
+    ADD CONSTRAINT dead_letter_events_ledger_sequence_event_index_key UNIQUE (ledger_sequence, event_index);
+ALTER TABLE ONLY public.dead_letter_events
+    ADD CONSTRAINT dead_letter_events_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY public.device_tokens
     ADD CONSTRAINT device_tokens_address_token_key UNIQUE (address, token);
 ALTER TABLE ONLY public.device_tokens
@@ -416,6 +482,8 @@ ALTER TABLE ONLY public.likes
     ADD CONSTRAINT likes_tx_hash_key UNIQUE (tx_hash);
 ALTER TABLE ONLY public.notification_preferences
     ADD CONSTRAINT notification_preferences_pkey PRIMARY KEY (address);
+ALTER TABLE ONLY public.notification_read_state
+    ADD CONSTRAINT notification_read_state_pkey PRIMARY KEY (address);
 ALTER TABLE ONLY public.pools
     ADD CONSTRAINT pools_pkey PRIMARY KEY (pool_id);
 ALTER TABLE ONLY public.posts
@@ -454,12 +522,18 @@ ALTER TABLE ONLY public.sent_notifications
     ADD CONSTRAINT sent_notifications_dispatch_key_key UNIQUE (dispatch_key);
 ALTER TABLE ONLY public.sent_notifications
     ADD CONSTRAINT sent_notifications_pkey PRIMARY KEY (id);
+ALTER TABLE ONLY public.state_root_accumulators
+    ADD CONSTRAINT state_root_accumulators_pkey PRIMARY KEY (table_name);
+ALTER TABLE ONLY public.state_root_row_hashes
+    ADD CONSTRAINT state_root_row_hashes_pkey PRIMARY KEY (table_name, row_key);
 ALTER TABLE ONLY public.tips
     ADD CONSTRAINT tips_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY public.tips
     ADD CONSTRAINT tips_tx_hash_key UNIQUE (tx_hash);
 CREATE INDEX idx_blocks_blocked ON public.blocks USING btree (blocked);
 CREATE INDEX idx_blocks_blocker ON public.blocks USING btree (blocker);
+CREATE INDEX idx_dead_letter_failed_at ON public.dead_letter_events USING btree (failed_at DESC);
+CREATE INDEX idx_dead_letter_ledger ON public.dead_letter_events USING btree (ledger_sequence);
 CREATE INDEX idx_device_tokens_address_updated ON public.device_tokens USING btree (address, updated_at DESC);
 CREATE INDEX idx_follows_followee ON public.follows USING btree (followee);
 CREATE INDEX idx_follows_follower ON public.follows USING btree (follower);
@@ -473,11 +547,13 @@ CREATE INDEX idx_pools_token ON public.pools USING btree (token);
 CREATE INDEX idx_post_scores_author ON public.post_scores USING btree (author, created_at DESC);
 CREATE UNIQUE INDEX idx_post_scores_id ON public.post_scores USING btree (id);
 CREATE INDEX idx_post_scores_score ON public.post_scores USING btree (score DESC);
+CREATE INDEX idx_post_scores_tags ON public.post_scores USING gin (tags);
 CREATE INDEX idx_posts_active ON public.posts USING btree (created_at DESC) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_posts_author ON public.posts USING btree (author);
 CREATE INDEX idx_posts_content_fts ON public.posts USING gin (content_tsv);
 CREATE INDEX idx_posts_created_at ON public.posts USING btree (created_at DESC);
 CREATE INDEX idx_posts_deleted_at ON public.posts USING btree (deleted_at);
+CREATE INDEX idx_posts_tags ON public.posts USING gin (tags);
 CREATE INDEX idx_profiles_username ON public.profiles USING btree (username);
 CREATE INDEX idx_raw_events_contract_id ON public.raw_events_legacy USING btree (contract_id);
 CREATE INDEX idx_raw_events_contract_id1 ON ONLY public.raw_events USING btree (contract_id);
@@ -491,6 +567,7 @@ CREATE INDEX idx_reports_post_id ON public.reports USING btree (post_id);
 CREATE INDEX idx_reports_reporter ON public.reports USING btree (reporter_address);
 CREATE INDEX idx_reports_status ON public.reports USING btree (status);
 CREATE INDEX idx_sent_notifications_recipient ON public.sent_notifications USING btree (recipient, dispatched_at DESC);
+CREATE INDEX idx_state_root_row_hashes_table ON public.state_root_row_hashes USING btree (table_name);
 CREATE INDEX idx_tips_created_at ON public.tips USING btree (created_at DESC);
 CREATE INDEX idx_tips_post_id ON public.tips USING btree (post_id);
 CREATE INDEX idx_tips_tipper ON public.tips USING btree (tipper);

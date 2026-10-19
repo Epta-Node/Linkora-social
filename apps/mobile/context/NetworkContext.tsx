@@ -73,6 +73,39 @@ function normalizeRpcUrl(rpcUrl: string): string {
   return rpcUrl.trim();
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost") return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
+  return host === "::1" || host === "0:0:0:0:0:0:0:1";
+}
+
+/**
+ * Return an error message when the URL is an insecure `http://` endpoint that
+ * cannot be safely used, or `null` when the URL is acceptable.
+ *
+ * Plaintext HTTP is only permitted for local (loopback) development RPCs.
+ * Remote (non-loopback) `http://` endpoints are rejected to avoid sensitive
+ * transaction/XDR data transiting in the clear.
+ */
+function insecureRpcError(rpcUrl: string): string | null {
+  if (!rpcUrl.startsWith("http://")) {
+    return null;
+  }
+  let hostname = "";
+  try {
+    hostname = new URL(rpcUrl).hostname;
+  } catch {
+    return "Enter a valid https:// RPC URL.";
+  }
+  if (isLoopbackHost(hostname)) {
+    // Local development over plaintext HTTP is acceptable; callers opt in via
+    // `allowHttp` when constructing the SDK client.
+    return null;
+  }
+  return "Insecure http:// RPC URLs are not allowed outside local development. Use an https:// RPC endpoint.";
+}
+
 export function NetworkProvider({ children }: { children: ReactNode }): JSX.Element {
   const [settings, setSettingsState] = useState<NetworkSettings>(DEFAULT_SETTINGS);
   const [ready, setReady] = useState(false);
@@ -91,8 +124,7 @@ export function NetworkProvider({ children }: { children: ReactNode }): JSX.Elem
         if (saved?.selectedNetwork && NETWORK_PRESETS[saved.selectedNetwork]) {
           setSettingsState({
             selectedNetwork: saved.selectedNetwork,
-            rpcUrl:
-              normalizeRpcUrl(saved.rpcUrl) || NETWORK_PRESETS[saved.selectedNetwork].rpcUrl,
+            rpcUrl: normalizeRpcUrl(saved.rpcUrl) || NETWORK_PRESETS[saved.selectedNetwork].rpcUrl,
           });
         }
       } finally {
@@ -127,7 +159,12 @@ export function NetworkProvider({ children }: { children: ReactNode }): JSX.Elem
 
   const setRpcUrl = useCallback(
     async (rpcUrl: string) => {
-      const next = normalizeRpcUrl(rpcUrl) || NETWORK_PRESETS[settings.selectedNetwork].rpcUrl;
+      const trimmed = normalizeRpcUrl(rpcUrl);
+      const rejected = insecureRpcError(trimmed);
+      if (trimmed && rejected) {
+        throw new Error(rejected);
+      }
+      const next = trimmed || NETWORK_PRESETS[settings.selectedNetwork].rpcUrl;
       await persist({
         ...settings,
         rpcUrl: next,
@@ -165,16 +202,7 @@ export function NetworkProvider({ children }: { children: ReactNode }): JSX.Elem
       resetRpcUrl,
       resetSettings,
     }),
-    [
-      network,
-      ready,
-      resetRpcUrl,
-      resetSettings,
-      setRpcUrl,
-      setSelectedNetwork,
-      settings,
-      warning,
-    ]
+    [network, ready, resetRpcUrl, resetSettings, setRpcUrl, setSelectedNetwork, settings, warning]
   );
 
   return <NetworkContext.Provider value={value}>{children}</NetworkContext.Provider>;

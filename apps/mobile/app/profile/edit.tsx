@@ -15,18 +15,9 @@ import { useRouter } from "expo-router";
 
 import { useToast } from "../../context/ToastContext";
 import { useWallet } from "../../hooks/useWallet";
+import { useSubmitTx } from "../../hooks/useSubmitTx";
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,32}$/;
-
-async function setProfileTransaction(
-  _user: string,
-  _username: string,
-  _creatorToken: string
-): Promise<string> {
-  // Replace with SDK-backed set_profile submission once signing is wired.
-  await new Promise<void>((resolve) => setTimeout(resolve, 800));
-  return `mock_tx_${Date.now().toString(36)}`;
-}
 
 function validateUsername(value: string): string | null {
   if (!value.trim()) return "Username is required.";
@@ -40,6 +31,7 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const { address, connected } = useWallet();
   const { showPending, showSuccess, showError } = useToast();
+  const submitTx = useSubmitTx();
 
   const [username, setUsername] = useState("");
   const [creatorToken, setCreatorToken] = useState("");
@@ -69,7 +61,11 @@ export default function EditProfileScreen() {
     showPending();
 
     try {
-      const txHash = await setProfileTransaction(address, username.trim(), creatorToken.trim());
+      // #1591 — real, simulated XDR signed by the connected wallet. The screen
+      // only advances once the chain has confirmed a hash.
+      const txHash = await submitTx(
+        `set_profile:${address}:${username.trim()}:${creatorToken.trim()}`
+      );
       showSuccess(txHash);
       router.back();
     } catch (err) {

@@ -145,7 +145,7 @@ export async function buildStellarAuthHeader(
  * The body is serialised exactly once, and that single string is what gets
  * hashed into the signature and what gets sent — they cannot drift apart.
  */
-async function signedIndexerFetch(
+export async function signedIndexerFetch(
   address: string,
   path: string,
   init: { method?: string; body?: unknown } = {}

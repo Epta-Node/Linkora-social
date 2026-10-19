@@ -14,7 +14,7 @@
  *     still NULL the partition is left in place even if its ledger range has
  *     passed the retention threshold.
  *
- * Partition naming convention (set by migration 012):
+ * Partition naming convention (set by migration 017):
  *   raw_events_p<lo>_<hi>   e.g.  raw_events_p0_1000000
  *
  * Configuration (IndexerConfig.retention):
@@ -37,6 +37,7 @@
 import cron from "node-cron";
 import { Pool } from "pg";
 import { logger } from "./logger";
+import { notificationsPrunedTotal } from "./metrics";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -196,7 +197,7 @@ export async function ensureNextPartition(
  * partition actually present on disk (`max(currentLedger, newestPartitionHi)`),
  * and the partition list is re-read fresh every cycle.  Anchoring the cutoff
  * to a single pre-loop value taken only from the cursor starves retention
- * when the cursor lags behind migrated partitions (migration 012 replay) or
+ * when the cursor lags behind migrated partitions (migration 017 replay) or
  * when no new partition has been created yet.
  *
  * @param currentLedger  The indexer's current processed ledger cursor.
@@ -301,7 +302,7 @@ export class RawEventsRetentionManager {
    * @param currentLedger  Current processed ledger cursor from indexer_cursor.
    */
   async runOnce(currentLedger: bigint): Promise<void> {
-    // Skip if raw_events is not yet partitioned (e.g. migration 012 not run).
+    // Skip if raw_events is not yet partitioned (e.g. migration 017 not run).
     const isPartitioned = await this.pool
       .query<{ is_partitioned: boolean }>(
         `SELECT relkind = 'p' AS is_partitioned
@@ -376,6 +377,184 @@ export class RawEventsRetentionManager {
       this.task.stop();
       this.task = null;
       logger.info("raw_events: retention manager stopped");
+    }
+  }
+}
+
+// ── Notification Retention ─────────────────────────────────────────────────────
+
+/**
+ * Configuration for the notification retention job.
+ *
+ * Environment variables:
+ *   NOTIFICATIONS_RETENTION_DAYS   — rows older than this many days are pruned
+ *                                    (default 90).
+ *   NOTIFICATIONS_RETENTION_BATCH  — max rows deleted per iteration to avoid
+ *                                    long-held locks (default 1 000).
+ *   NOTIFICATIONS_RETENTION_CRON   — node-cron schedule (default "15 2 * * *",
+ *                                    i.e. every day at 02:15).
+ */
+export interface NotificationRetentionConfig {
+  /**
+   * Number of days to retain sent_notifications rows.
+   * Default: 90 days.
+   */
+  retentionDays: number;
+
+  /**
+   * Maximum rows removed per DELETE batch.
+   * Keeping this small prevents long-held locks on busy tables.
+   * Default: 1 000.
+   */
+  batchSize: number;
+
+  /**
+   * node-cron schedule for the job.
+   * Default: "15 2 * * *" — daily at 02:15.
+   */
+  cronSchedule: string;
+}
+
+const DEFAULT_NOTIFICATION_RETENTION_CONFIG: NotificationRetentionConfig = {
+  retentionDays: 90,
+  batchSize: 1_000,
+  cronSchedule: "15 2 * * *",
+};
+
+/**
+ * Delete up to `batchSize` sent_notifications rows older than `cutoff` in a
+ * single transaction.  Returns the number of rows removed.
+ *
+ * Uses a CTE so the DELETE is always bounded to `batchSize` rows and the
+ * query planner can use the `dispatched_at` index without a full-table scan.
+ */
+export async function pruneNotificationsBatch(
+  pool: Pool,
+  cutoff: Date,
+  batchSize: number
+): Promise<number> {
+  if (batchSize <= 0) throw new Error("batchSize must be > 0");
+
+  const res = await pool.query<{ deleted: string }>(
+    `WITH stale AS (
+       SELECT id FROM sent_notifications
+       WHERE dispatched_at < $1
+       ORDER BY dispatched_at
+       LIMIT $2
+     )
+     DELETE FROM sent_notifications
+     WHERE id IN (SELECT id FROM stale)
+     RETURNING id`,
+    [cutoff.toISOString(), batchSize]
+  );
+
+  return res.rows.length;
+}
+
+/**
+ * Run batched deletes until no rows older than the retention window remain.
+ * Tracks the total via the `notificationsPrunedTotal` counter.
+ *
+ * @param pool      PG connection pool
+ * @param cfg       Notification retention config
+ * @param now       Current wall-clock time (injectable for tests)
+ * @returns         Total rows pruned in this run
+ */
+export async function pruneStaleNotifications(
+  pool: Pool,
+  cfg: NotificationRetentionConfig,
+  now: Date = new Date()
+): Promise<number> {
+  const cutoff = new Date(now.getTime() - cfg.retentionDays * 24 * 60 * 60 * 1000);
+  let totalPruned = 0;
+
+  while (true) {
+    const deleted = await pruneNotificationsBatch(pool, cutoff, cfg.batchSize);
+    if (deleted === 0) break;
+
+    totalPruned += deleted;
+    notificationsPrunedTotal.inc(deleted);
+  }
+
+  if (totalPruned > 0) {
+    logger.info(
+      { totalPruned, retentionDays: cfg.retentionDays, cutoff: cutoff.toISOString() },
+      "notifications: retention cycle complete"
+    );
+  } else {
+    logger.debug("notifications: retention cycle — nothing to prune");
+  }
+
+  return totalPruned;
+}
+
+/**
+ * Scheduler that runs `pruneStaleNotifications` on a configurable cron
+ * schedule.  Mirrors the shape of `RawEventsRetentionManager` so both can be
+ * started/stopped together in the indexer boot sequence.
+ *
+ * @example
+ * ```ts
+ * const notifRetention = new NotificationRetentionManager(pool, {
+ *   retentionDays: 90,
+ *   batchSize: 1_000,
+ *   cronSchedule: "15 2 * * *",
+ * });
+ * notifRetention.start();
+ * // on shutdown:
+ * notifRetention.stop();
+ * ```
+ */
+export class NotificationRetentionManager {
+  private readonly pool: Pool;
+  private readonly cfg: NotificationRetentionConfig;
+  private task: ReturnType<typeof cron.schedule> | null = null;
+
+  constructor(pool: Pool, cfg: Partial<NotificationRetentionConfig> = {}) {
+    this.pool = pool;
+    this.cfg = { ...DEFAULT_NOTIFICATION_RETENTION_CONFIG, ...cfg };
+  }
+
+  /** Run one pruning cycle immediately.  Useful for tests and CLI. */
+  async runOnce(now: Date = new Date()): Promise<number> {
+    try {
+      return await pruneStaleNotifications(this.pool, this.cfg, now);
+    } catch (err) {
+      logger.error({ err }, "notifications: retention cycle failed");
+      return 0;
+    }
+  }
+
+  /** Start the cron job.  Safe to call multiple times (no-op if already running). */
+  start(): void {
+    if (this.task) return;
+
+    if (!cron.validate(this.cfg.cronSchedule)) {
+      throw new Error(
+        `Invalid cron schedule for NotificationRetentionManager: "${this.cfg.cronSchedule}"`
+      );
+    }
+
+    this.task = cron.schedule(this.cfg.cronSchedule, () => {
+      void this.runOnce();
+    });
+
+    logger.info(
+      {
+        schedule: this.cfg.cronSchedule,
+        retentionDays: this.cfg.retentionDays,
+        batchSize: this.cfg.batchSize,
+      },
+      "notifications: retention manager started"
+    );
+  }
+
+  /** Stop the cron job. */
+  stop(): void {
+    if (this.task) {
+      this.task.stop();
+      this.task = null;
+      logger.info("notifications: retention manager stopped");
     }
   }
 }

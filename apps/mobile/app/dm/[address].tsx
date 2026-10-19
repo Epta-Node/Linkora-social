@@ -1,18 +1,34 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { View, Text, TextInput, TouchableOpacity, FlatList, Alert, StyleSheet } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useWalletContext } from "../../context/WalletContext";
 import { useToast } from "../../context/ToastContext";
-import { DmService, type ConversationMessage } from "../../utils/mockDm";
+import { useNetwork } from "../../hooks/useNetwork";
+import { DmService } from "../../utils/mockDm";
 import { EmptyState, ErrorState } from "../../components/states";
+import { DmMessage, getDmMessages, initDatabase, setDmLastRead } from "../../utils/db";
+import {
+  reconcileDmThread,
+  sendDmMessageWithOutbox,
+  UnknownRecipientKeyError,
+} from "../../utils/sync";
+
+/**
+ * Local partition key for this device's DM cache. Purely local (never sent
+ * to the relay), so it only needs to be stable and symmetric per pair.
+ */
+function conversationKey(a: string, b: string): string {
+  return [a, b].sort().join(":");
+}
 
 export default function DirectMessageScreen() {
   const router = useRouter();
   const { address } = useLocalSearchParams<{ address: string }>();
   const { wallet } = useWalletContext();
   const { showToast } = useToast();
+  const { isOffline } = useNetwork();
 
-  const [messages, setMessages] = useState<Array<ConversationMessage & { content: string }>>([]);
+  const [messages, setMessages] = useState<DmMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,24 +37,62 @@ export default function DirectMessageScreen() {
   const [isTyping, setIsTyping] = useState(false);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastTypingSentRef = useRef<number>(0);
+  const wasOfflineRef = useRef(isOffline);
 
-  const loadMessagesForService = useCallback(
-    async (service: DmService) => {
-      if (!address) return;
-      try {
-        const msgs = await service.getMessages(address);
-        setMessages(msgs);
-      } catch (err) {
-        setError(`Failed to load messages: ${err}`);
-      }
+  const conversationId = useMemo(
+    () => (wallet?.address && address ? conversationKey(wallet.address, address) : null),
+    [wallet?.address, address]
+  );
+
+  /**
+   * Advances the read watermark from the freshly loaded, post-reconciliation
+   * state only — never from a stale snapshot — so messages that arrived on
+   * another device while this one was offline can't be skipped as "already
+   * read" before they've actually been merged in.
+   */
+  const advanceLastRead = useCallback(
+    async (msgs: DmMessage[]) => {
+      if (!conversationId) return;
+      const syncedTimestamps = msgs
+        .filter((m) => m.syncStatus === "synced")
+        .map((m) => m.timestamp);
+      if (syncedTimestamps.length === 0) return;
+      await setDmLastRead(conversationId, Math.max(...syncedTimestamps));
     },
-    [address]
+    [conversationId]
+  );
+
+  const loadLocalMessages = useCallback(async () => {
+    if (!conversationId) return;
+    const msgs = await getDmMessages(conversationId);
+    setMessages(msgs);
+    return msgs;
+  }, [conversationId]);
+
+  /**
+   * Reconciles deltas from the relay/mock into the local cache, then reloads
+   * from local storage so the thread reflects the merged state — including
+   * messages sent from another device while this one was offline.
+   */
+  const syncAndLoad = useCallback(
+    async (service: DmService) => {
+      if (!address || !conversationId) return;
+      try {
+        await reconcileDmThread(service, conversationId, address);
+      } catch (err) {
+        // Reconciliation failures shouldn't block showing what's already local.
+        console.error(`Failed to reconcile DM thread ${conversationId}:`, err);
+      }
+      const msgs = await loadLocalMessages();
+      if (msgs) await advanceLastRead(msgs);
+    },
+    [address, conversationId, loadLocalMessages, advanceLastRead]
   );
 
   const loadMessages = useCallback(async () => {
     if (!dmService) return;
-    await loadMessagesForService(dmService);
-  }, [dmService, loadMessagesForService]);
+    await syncAndLoad(dmService);
+  }, [dmService, syncAndLoad]);
 
   // Clean up typing timeout
   useEffect(() => {
@@ -49,6 +103,16 @@ export default function DirectMessageScreen() {
     };
   }, []);
 
+  // Reconcile with the relay on reconnect, so messages sent from another
+  // device while this one was offline show up without a manual refresh.
+  useEffect(() => {
+    const wasOffline = wasOfflineRef.current;
+    wasOfflineRef.current = isOffline;
+    if (wasOffline && !isOffline && dmService) {
+      syncAndLoad(dmService);
+    }
+  }, [isOffline, dmService, syncAndLoad]);
+
   // Initialize DM service and check if keys need to be generated
   useEffect(() => {
     if (!wallet || !address) return;
@@ -56,6 +120,7 @@ export default function DirectMessageScreen() {
     const initializeDm = async () => {
       try {
         setLoading(true);
+        await initDatabase();
         const service = new DmService(wallet, "https://dm-relay.linkora.app");
 
         // Check if user has DM keys, if not prompt to generate
@@ -80,7 +145,7 @@ export default function DirectMessageScreen() {
                     service.connectRealTime();
                     service.onRealTimeEvent((payload: Record<string, unknown>) => {
                       if (payload.type === "new_message" && payload.sender === address) {
-                        loadMessagesForService(service);
+                        syncAndLoad(service);
                       } else if (payload.type === "typing_status" && payload.sender === address) {
                         setIsTyping(true);
                         if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -103,7 +168,7 @@ export default function DirectMessageScreen() {
         service.connectRealTime();
         service.onRealTimeEvent((payload: Record<string, unknown>) => {
           if (payload.type === "new_message" && payload.sender === address) {
-            loadMessagesForService(service);
+            syncAndLoad(service);
           } else if (payload.type === "typing_status" && payload.sender === address) {
             setIsTyping(true);
             if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -112,7 +177,7 @@ export default function DirectMessageScreen() {
             }, 5000);
           }
         });
-        await loadMessagesForService(service);
+        await syncAndLoad(service);
       } catch (err) {
         setError(`Failed to initialize messaging: ${err}`);
       } finally {
@@ -121,24 +186,48 @@ export default function DirectMessageScreen() {
     };
 
     initializeDm();
-  }, [wallet, address, router, showToast, loadMessagesForService]);
+  }, [wallet, address, router, showToast, syncAndLoad]);
 
   const sendMessage = useCallback(async () => {
-    if (!dmService || !newMessage.trim() || !address) return;
+    if (!dmService || !newMessage.trim() || !address || !wallet?.address || !conversationId) return;
+
+    const content = newMessage.trim();
+    setNewMessage("");
 
     try {
       setLoading(true);
-      await dmService.sendMessage(address, newMessage.trim());
-      setNewMessage("");
+      const sent = await sendDmMessageWithOutbox(
+        dmService,
+        conversationId,
+        wallet.address,
+        address,
+        content
+      );
       await loadMessages();
-      showToast({ kind: "success", title: "Message sent" });
+
+      if (sent.syncStatus === "failed") {
+        showToast({ kind: "error", title: sent.errorMessage || "Message rejected by relay" });
+      } else {
+        showToast({ kind: "success", title: "Message sent" });
+      }
     } catch (err) {
-      setError(`Failed to send message: ${err}`);
-      showToast({ kind: "error", title: "Failed to send message" });
+      if (err instanceof UnknownRecipientKeyError) {
+        // #1561 — recipient has no verified key: restore the draft (nothing
+        // was sent or stored) and surface this distinctly from a generic
+        // network/relay failure.
+        setNewMessage(content);
+        showToast({
+          kind: "error",
+          title: `${address?.slice(0, 8)}... hasn't set up encrypted messaging yet`,
+        });
+      } else {
+        setError(`Failed to send message: ${err}`);
+        showToast({ kind: "error", title: "Failed to send message" });
+      }
     } finally {
       setLoading(false);
     }
-  }, [dmService, newMessage, address, loadMessages, showToast]);
+  }, [dmService, newMessage, address, wallet?.address, conversationId, loadMessages, showToast]);
 
   const handleTextChange = (text: string) => {
     setNewMessage(text);
@@ -151,7 +240,7 @@ export default function DirectMessageScreen() {
     }
   };
 
-  const renderMessage = ({ item }: { item: ConversationMessage & { content: string } }) => {
+  const renderMessage = ({ item }: { item: DmMessage }) => {
     const isMyMessage = item.sender === wallet?.address;
 
     return (
@@ -162,6 +251,12 @@ export default function DirectMessageScreen() {
           {item.content}
         </Text>
         <Text style={styles.timestamp}>{new Date(item.timestamp * 1000).toLocaleTimeString()}</Text>
+        {item.syncStatus === "pending" && <Text style={styles.pendingBadge}>⏳ Sending...</Text>}
+        {item.syncStatus === "failed" && (
+          <Text style={styles.failedBadge}>
+            ⚠️ Failed to send{item.errorMessage ? `: ${item.errorMessage}` : ""}
+          </Text>
+        )}
       </View>
     );
   };
@@ -311,6 +406,17 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#65676b",
     marginTop: 4,
+  },
+  pendingBadge: {
+    fontSize: 11,
+    color: "#65676b",
+    marginTop: 2,
+  },
+  failedBadge: {
+    fontSize: 11,
+    color: "#EF4444",
+    fontWeight: "700",
+    marginTop: 2,
   },
   inputContainer: {
     flexDirection: "row",

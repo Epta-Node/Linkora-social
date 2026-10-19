@@ -3,7 +3,7 @@
  * deterministic and instant.
  */
 
-import { TokenBucket } from "../ratelimit";
+import { TokenBucket, wsMaxMessageBytesFromEnv, DEFAULT_WS_MAX_MESSAGE_BYTES } from "../ratelimit";
 
 /** Controllable clock + sleep where sleeping advances the clock. */
 function fakeTime() {
@@ -78,5 +78,28 @@ describe("TokenBucket", () => {
 
   it("rejects an invalid rate", () => {
     expect(() => new TokenBucket({ ratePerSec: 0 })).toThrow();
+  });
+});
+
+describe("wsMaxMessageBytesFromEnv", () => {
+  it("returns default when no env var is set", () => {
+    expect(wsMaxMessageBytesFromEnv({})).toBe(DEFAULT_WS_MAX_MESSAGE_BYTES);
+  });
+
+  it("parses WS_MAX_MESSAGE_BYTES from env", () => {
+    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "1024" })).toBe(1024);
+  });
+
+  it("parses WS_MAX_PAYLOAD_BYTES from env fallback", () => {
+    expect(wsMaxMessageBytesFromEnv({ WS_MAX_PAYLOAD_BYTES: "2048" })).toBe(2048);
+  });
+
+  it("falls back to default for invalid number", () => {
+    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "abc" })).toBe(
+      DEFAULT_WS_MAX_MESSAGE_BYTES
+    );
+    expect(wsMaxMessageBytesFromEnv({ WS_MAX_MESSAGE_BYTES: "-10" })).toBe(
+      DEFAULT_WS_MAX_MESSAGE_BYTES
+    );
   });
 });

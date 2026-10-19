@@ -1,8 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { LinkoraClient } from "linkora-sdk";
 import { validateStellarAddress } from "@/lib/validate";
+import {
+  BLOCKED_EVENT,
+  readBlockedList,
+  writeBlockedList,
+  subscribeToBlockedListChanges,
+} from "@/lib/blockedStore";
 
 interface BlockListSectionProps {
   address: string;
@@ -24,8 +30,6 @@ async function waitForConfirmation(
   throw new Error(`Transaction ${hash} timed out waiting for confirmation.`);
 }
 
-const STORAGE_KEY = "linkora_blocked_accounts";
-
 export function BlockListSection({ address }: BlockListSectionProps) {
   const [blockedList, setBlockedList] = useState<string[]>([]);
   const [newAddress, setNewAddress] = useState("");
@@ -34,20 +38,26 @@ export function BlockListSection({ address }: BlockListSectionProps) {
   const [blockingInProgress, setBlockingInProgress] = useState(false);
   const [unblockingAddress, setUnblockingAddress] = useState<string | null>(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        setBlockedList(JSON.parse(stored));
-      } catch (err) {
-        console.error("Failed to parse blocked accounts", err);
-      }
-    }
+  const syncFromStore = useCallback(() => {
+    setBlockedList(readBlockedList());
   }, []);
 
+  useEffect(() => {
+    syncFromStore();
+    const unsubscribe = subscribeToBlockedListChanges();
+    // Also react to in-app changes (same-tab dispatch) so the list updates
+    // immediately regardless of where the block/unblock originated.
+    const onChanged = () => syncFromStore();
+    window.addEventListener(BLOCKED_EVENT, onChanged);
+    return () => {
+      unsubscribe();
+      window.removeEventListener(BLOCKED_EVENT, onChanged);
+    };
+  }, [syncFromStore]);
+
   function persistBlockedList(list: string[]) {
+    writeBlockedList(list);
     setBlockedList(list);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
   }
 
   async function submitOnChain(

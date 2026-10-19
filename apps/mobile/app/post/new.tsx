@@ -17,8 +17,9 @@ import { useWallet } from "../../hooks/useWallet";
 import { useTheme } from "../../theme/useTheme";
 import { useToast } from "../../context/ToastContext";
 import { useProfile } from "../../hooks/useProfile";
+import { useNetworkContext } from "../../context/NetworkContext";
 import { addOptimisticPost } from "../../utils/db";
-import { syncPendingPosts } from "../../utils/sync";
+import { getSyncPendingPostsOptions, syncPendingPosts } from "../../utils/sync";
 import { notifyFeedUpdate } from "../../hooks/useFeed";
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ export default function CreatePostScreen() {
   const { address, connected } = useWallet();
   const { profile } = useProfile(address ?? "");
   const { showPending, showSuccess, showError, dismissToast } = useToast();
+  const { contractId, rpcUrl, network } = useNetworkContext();
 
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -70,7 +72,7 @@ export default function CreatePostScreen() {
       router.replace("/(tabs)/feed" as Parameters<typeof router.replace>[0]);
 
       // 4. Submit to blockchain in background
-      void syncPendingPosts().then(() => {
+      void syncPendingPosts(getSyncPendingPostsOptions(contractId, rpcUrl, network.id)).then(() => {
         notifyFeedUpdate();
       });
     } catch (err) {
