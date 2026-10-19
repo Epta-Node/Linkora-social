@@ -2986,7 +2986,6 @@ impl LinkoraContract {
     /// Get current delegate for a delegator, if any (Issue #1664)
     pub fn gov_get_delegate(env: Env, delegator: Address) -> Option<Address> {
         let delegation_key = StorageKey::GovDelegation(delegator);
-        env.storage().persistent().get(&delegation_key).ok()
         env.storage().persistent().get(&delegation_key)
     }
 
