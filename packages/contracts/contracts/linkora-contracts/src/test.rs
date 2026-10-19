@@ -6747,11 +6747,7 @@ fn test_register_oracle_different_names_still_allowed() {
         &symbol_short!("alpha"),
         &oracle_pubkey(&env, &key_a),
     );
-    client.register_oracle(
-        &admin,
-        &symbol_short!("beta"),
-        &oracle_pubkey(&env, &key_b),
-    );
+    client.register_oracle(&admin, &symbol_short!("beta"), &oracle_pubkey(&env, &key_b));
 
     let contract_id = client.address.clone();
     env.as_contract(&contract_id, || {
@@ -8631,7 +8627,11 @@ fn test_verify_credential_rejects_proof_deeper_than_maximum() {
     client.set_credential_authority(&admin, &credential_authority_pubkey(&env, &signing_key));
     let user = Address::generate(&env);
     let leaf = BytesN::from_array(&env, &[1u8; 32]);
-    client.update_credential_root(&user, &leaf, &sign_credential_root(&env, &signing_key, &leaf));
+    client.update_credential_root(
+        &user,
+        &leaf,
+        &sign_credential_root(&env, &signing_key, &leaf),
+    );
     let sibling = BytesN::from_array(&env, &[2u8; 32]);
     let mut proof = Vec::new(&env);
     for _ in 0..=MAX_CREDENTIAL_PROOF_DEPTH {
@@ -9089,10 +9089,8 @@ fn batch_create_post_is_atomic_on_invalid_content() {
     let author = Address::generate(&env);
 
     let too_long = String::from_str(&env, &"a".repeat(281));
-    let result = client.try_batch_create_post(
-        &author,
-        &vec![&env, String::from_str(&env, "ok"), too_long],
-    );
+    let result =
+        client.try_batch_create_post(&author, &vec![&env, String::from_str(&env, "ok"), too_long]);
     assert!(result.is_err());
     assert_eq!(client.get_post_count(), 0);
 }

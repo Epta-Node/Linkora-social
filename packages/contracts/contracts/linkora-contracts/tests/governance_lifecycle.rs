@@ -45,7 +45,7 @@ fn test_governance_happy_path_fee_change() {
     // Step 1: Configure governance parameters
     let quorum = 3; // Need 3 votes to pass
     let voting_period = 1000u32; // 1000 ledgers
-    
+
     client.set_gov_quorum(&admin, &quorum);
     client.set_gov_voting_period(&admin, &voting_period);
 

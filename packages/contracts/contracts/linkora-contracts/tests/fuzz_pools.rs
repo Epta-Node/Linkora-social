@@ -15,9 +15,7 @@
 use linkora_contracts::{LinkoraContract, LinkoraContractClient};
 use proptest::prelude::*;
 use soroban_sdk::{
-    testutils::Address as _,
-    token::StellarAssetClient,
-    vec as sdk_vec, Address, Env, Symbol,
+    testutils::Address as _, token::StellarAssetClient, vec as sdk_vec, Address, Env, Symbol,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────

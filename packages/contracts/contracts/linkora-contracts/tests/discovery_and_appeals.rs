@@ -1,8 +1,6 @@
 #![cfg(test)]
 
-use linkora_contracts::{
-    AppealStatus, LinkoraContract, LinkoraContractClient, ReportStatus, Role,
-};
+use linkora_contracts::{AppealStatus, LinkoraContract, LinkoraContractClient, ReportStatus, Role};
 use soroban_sdk::{
     symbol_short,
     testutils::{Address as _, Ledger},
@@ -53,7 +51,13 @@ fn uphold_report(
     let rev_a = Address::generate(env);
     let rev_b = Address::generate(env);
     let pool_admins = vec![env, moderator.clone(), rev_a.clone(), rev_b.clone()];
-    client.create_pool(&moderator, &symbol_short!("mods"), &stake_token, &pool_admins, &2);
+    client.create_pool(
+        &moderator,
+        &symbol_short!("mods"),
+        &stake_token,
+        &pool_admins,
+        &2,
+    );
 
     client.report_post(
         &reporter,
@@ -64,8 +68,17 @@ fn uphold_report(
     );
 
     let signers = vec![env, rev_a.clone(), rev_b.clone()];
-    client.review_report(&moderator, &signers, &post_id, &reporter, &ReportStatus::Upheld);
-    assert!(client.get_post(&post_id).is_none(), "post must be removed after upheld report");
+    client.review_report(
+        &moderator,
+        &signers,
+        &post_id,
+        &reporter,
+        &ReportStatus::Upheld,
+    );
+    assert!(
+        client.get_post(&post_id).is_none(),
+        "post must be removed after upheld report"
+    );
 
     (reporter, rev_a, rev_b, post_id)
 }
@@ -155,13 +168,22 @@ fn appeal_restores_post_after_quorum() {
 
     // A single approval is short of the two-reviewer quorum.
     client.review_appeal(&rev_a, &post_id, &true);
-    assert_eq!(client.get_appeal(&post_id).unwrap().status, AppealStatus::Pending);
+    assert_eq!(
+        client.get_appeal(&post_id).unwrap().status,
+        AppealStatus::Pending
+    );
     assert!(client.get_post(&post_id).is_none());
 
     // The second distinct approval reaches quorum and restores the post.
     client.review_appeal(&rev_b, &post_id, &true);
-    assert_eq!(client.get_appeal(&post_id).unwrap().status, AppealStatus::Approved);
-    assert!(client.get_post(&post_id).is_some(), "post must be restored on approved appeal");
+    assert_eq!(
+        client.get_appeal(&post_id).unwrap().status,
+        AppealStatus::Approved
+    );
+    assert!(
+        client.get_post(&post_id).is_some(),
+        "post must be restored on approved appeal"
+    );
 }
 
 #[test]
@@ -176,7 +198,10 @@ fn rejected_appeal_keeps_post_removed() {
     client.review_appeal(&rev_a, &post_id, &false);
     client.review_appeal(&rev_b, &post_id, &false);
 
-    assert_eq!(client.get_appeal(&post_id).unwrap().status, AppealStatus::Rejected);
+    assert_eq!(
+        client.get_appeal(&post_id).unwrap().status,
+        AppealStatus::Rejected
+    );
     assert!(client.get_post(&post_id).is_none());
 }
 

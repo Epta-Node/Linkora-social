@@ -59,11 +59,7 @@ pub fn validate_non_default_address(env: &Env, label: &str, address: &Address) {
 }
 
 pub fn validate_address_list(env: &Env, label: &str, addresses: &Vec<Address>) {
-    require_with_error!(
-        env,
-        addresses.len() > 0,
-        format!("{label} cannot be empty")
-    );
+    require_with_error!(env, addresses.len() > 0, format!("{label} cannot be empty"));
     for (idx, address) in addresses.iter().enumerate() {
         require_with_error!(
             env,
@@ -76,11 +72,7 @@ pub fn validate_address_list(env: &Env, label: &str, addresses: &Vec<Address>) {
 /// Ensures no duplicate addresses appear in the list. Duplicate signers could
 /// let a subset of admins exceed the M-of-N threshold weight.
 pub fn validate_unique_signers(env: &Env, label: &str, addresses: &Vec<Address>) {
-    require_with_error!(
-        env,
-        addresses.len() > 0,
-        format!("{label} cannot be empty")
-    );
+    require_with_error!(env, addresses.len() > 0, format!("{label} cannot be empty"));
     for i in 0..addresses.len() {
         for j in (i + 1)..addresses.len() {
             require_with_error!(
@@ -165,29 +157,17 @@ pub fn validate_username(env: &Env, username: &String) {
 }
 
 pub fn validate_content(env: &Env, content: &String) {
-    require_with_error!(
-        env,
-        content.len() > 0,
-        "content cannot be empty"
-    );
+    require_with_error!(env, content.len() > 0, "content cannot be empty");
     validate_string_max_len(env, "content", content, MAX_CONTENT_LEN);
 }
 
 pub fn validate_bio(env: &Env, bio: &String) {
-    require_with_error!(
-        env,
-        bio.len() > 0,
-        "bio cannot be empty"
-    );
+    require_with_error!(env, bio.len() > 0, "bio cannot be empty");
     validate_string_max_len(env, "bio", bio, MAX_BIO_LEN);
 }
 
 pub fn validate_amount(env: &Env, label: &str, amount: i128) {
-    require_with_error!(
-        env,
-        amount > 0,
-        format!("{label} must be positive")
-    );
+    require_with_error!(env, amount > 0, format!("{label} must be positive"));
     require_with_error!(
         env,
         amount <= MAX_PROTOCOL_AMOUNT,

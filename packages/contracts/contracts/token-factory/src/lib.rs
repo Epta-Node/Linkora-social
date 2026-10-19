@@ -3,8 +3,8 @@
 mod test;
 
 use soroban_sdk::{
-    contract, contractevent, contractimpl, contracttype, symbol_short, Address, BytesN, Env, String,
-    Symbol, Vec,
+    contract, contractevent, contractimpl, contracttype, symbol_short, Address, BytesN, Env,
+    String, Symbol, Vec,
 };
 
 #[macro_export]

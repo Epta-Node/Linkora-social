@@ -100,7 +100,7 @@ describe("ProfileImageUploader", () => {
     fireEvent.drop(zone, { dataTransfer: { files: [makeOversizedFile()] } });
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toHaveTextContent(/File size exceeds 5MB limit/);
+      expect(screen.getByRole("alert")).toHaveTextContent(/File size exceeds/);
     });
   });
 

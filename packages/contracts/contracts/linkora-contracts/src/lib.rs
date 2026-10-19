@@ -22,14 +22,14 @@ use validation::{
 #[contracttype]
 #[derive(Clone)]
 pub enum StorageKey {
-    Post(u64),                 // persistent: post_id -> Post
-    Profile(Address),          // persistent: user -> Profile
-    Following(Address),        // persistent: user -> Vec<Address> (LEGACY — kept for migration)
-    Followers(Address),        // persistent: user -> Vec<Address> (LEGACY — kept for migration)
-    Pool(Symbol),              // persistent: pool_id -> Pool
-    Like(u64, Address),        // persistent: (post_id, user) -> bool
-    AuthorPosts(Address),      // persistent: author -> Vec<u64> of post IDs
-    Blocks(Address),           // persistent: blocker -> Map<Address, ()>
+    Post(u64),                          // persistent: post_id -> Post
+    Profile(Address),                   // persistent: user -> Profile
+    Following(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
+    Followers(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
+    Pool(Symbol),       // persistent: pool_id -> Pool
+    Like(u64, Address), // persistent: (post_id, user) -> bool
+    AuthorPosts(Address), // persistent: author -> Vec<u64> of post IDs
+    Blocks(Address),    // persistent: blocker -> Map<Address, ()>
     UsernameIndex(String), // persistent: username -> owner Address (reverse index for uniqueness)
     TipCooldown(u64, Address, Address), // temporary: (post_id, tipper, token) -> last-tip ledger sequence number
     // ── Adjacency-set social graph (ADR-001) ──────────────────────────────
@@ -44,13 +44,13 @@ pub enum StorageKey {
     DmPublicKey(Address),           // persistent: user -> X25519 public key for encrypted DMs
     CredentialRoot(Address),        // persistent: user -> credential Merkle root
     NullifierSet(Address, u32, BytesN<32>), // persistent: (user, credential epoch, nullifier)
-    CredentialEpoch(Address), // persistent: user -> credential root epoch
+    CredentialEpoch(Address),       // persistent: user -> credential root epoch
     CredentialAuthority, // persistent: Ed25519 pubkey trusted to sign credential root updates
     // ── Governance ────────────────────────────────────────────────────────
-    GovProposal(u64),      // persistent: proposal_id -> GovProposal
-    GovVote(u64, Address), // persistent: (proposal_id, voter) -> bool (prevents double-voting)
-    GovConfig,             // persistent: governance configuration
-    GovProposalCount,      // persistent: next proposal id counter
+    GovProposal(u64),       // persistent: proposal_id -> GovProposal
+    GovVote(u64, Address),  // persistent: (proposal_id, voter) -> bool (prevents double-voting)
+    GovConfig,              // persistent: governance configuration
+    GovProposalCount,       // persistent: next proposal id counter
     GovDelegation(Address), // persistent: delegator -> delegate Address (Issue #1664)
     // ── Analytics Oracle ──────────────────────────────────────────────────
     OracleKey(Symbol), // persistent: oracle_name -> BytesN<32> Ed25519 pubkey
@@ -72,9 +72,9 @@ pub enum StorageKey {
     PostContentHash(u64), // persistent: post_id -> BytesN<32> off-chain content hash
 
     // ── Moderation appeals ────────────────────────────────────────────────
-    RemovedPost(u64),      // persistent: post_id -> Post snapshot removed by moderation
+    RemovedPost(u64), // persistent: post_id -> Post snapshot removed by moderation
     ModerationRecord(u64), // persistent: post_id -> ModerationRecord (appeal deadline)
-    Appeal(u64),           // persistent: post_id -> Appeal
+    Appeal(u64),      // persistent: post_id -> Appeal
 }
 
 #[contracterror]
@@ -903,13 +903,17 @@ impl LinkoraContract {
             },
         );
 
-        RoleGrantedEvent { version: EVENT_VERSION, role: Role::Admin,
+        RoleGrantedEvent {
+            version: EVENT_VERSION,
+            role: Role::Admin,
             account: admin.clone(),
             sender: admin.clone(),
         }
         .publish(&env);
 
-        RoleGrantedEvent { version: EVENT_VERSION, role: Role::Upgrader,
+        RoleGrantedEvent {
+            version: EVENT_VERSION,
+            role: Role::Upgrader,
             account: admin.clone(),
             sender: admin,
         }
@@ -929,7 +933,9 @@ impl LinkoraContract {
         roles.set(account.clone(), updated);
         env.storage().instance().set(&ROLES, &roles);
 
-        RoleGrantedEvent { version: EVENT_VERSION, role,
+        RoleGrantedEvent {
+            version: EVENT_VERSION,
+            role,
             account,
             sender: admin,
         }
@@ -949,7 +955,9 @@ impl LinkoraContract {
         roles.set(account.clone(), updated);
         env.storage().instance().set(&ROLES, &roles);
 
-        RoleRevokedEvent { version: EVENT_VERSION, role,
+        RoleRevokedEvent {
+            version: EVENT_VERSION,
+            role,
             account,
             sender: admin,
         }
@@ -1038,7 +1046,12 @@ impl LinkoraContract {
         env.storage().persistent().set(&username_index_key, &user);
         Self::bump(&env, &key);
         Self::bump(&env, &username_index_key);
-        ProfileSetEvent { version: EVENT_VERSION, user, username }.publish(&env);
+        ProfileSetEvent {
+            version: EVENT_VERSION,
+            user,
+            username,
+        }
+        .publish(&env);
     }
 
     pub fn get_profile(env: Env, user: Address) -> Option<Profile> {
@@ -1093,7 +1106,9 @@ impl LinkoraContract {
             .get(&key)
             .unwrap_or_else(|| panic!("profile does not exist"));
 
-        ProfileDeletedEvent { version: EVENT_VERSION, user: user.clone(),
+        ProfileDeletedEvent {
+            version: EVENT_VERSION,
+            user: user.clone(),
             username: profile.username.clone(),
         }
         .publish(&env);
@@ -1307,7 +1322,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&epoch_key, &(epoch + 1));
         Self::bump(&env, &epoch_key);
 
-        CredentialRootUpdatedEvent { version: EVENT_VERSION, user,
+        CredentialRootUpdatedEvent {
+            version: EVENT_VERSION,
+            user,
             root: new_root,
         }
         .publish(&env);
@@ -1349,19 +1366,19 @@ impl LinkoraContract {
         Self::bump(&env, &root_key);
         Self::bump(&env, &nullifier_key);
 
-        CredentialVerifiedEvent { version: EVENT_VERSION, user, nullifier }.publish(&env);
+        CredentialVerifiedEvent {
+            version: EVENT_VERSION,
+            user,
+            nullifier,
+        }
+        .publish(&env);
         true
     }
 
     /// Remove nullifiers from a superseded credential epoch. This is safe to
     /// call permissionlessly because a nullifier in an old epoch can never be
     /// accepted against the user's current credential root.
-    pub fn prune_nullifiers(
-        env: Env,
-        user: Address,
-        epoch: u32,
-        nullifiers: Vec<BytesN<32>>,
-    ) {
+    pub fn prune_nullifiers(env: Env, user: Address, epoch: u32, nullifiers: Vec<BytesN<32>>) {
         Self::bump_instance(&env);
         validate_non_default_address(&env, "user", &user);
         let current_epoch: u32 = env
@@ -1369,7 +1386,11 @@ impl LinkoraContract {
             .persistent()
             .get(&StorageKey::CredentialEpoch(user.clone()))
             .unwrap_or(0);
-        require_with_error!(&env, epoch < current_epoch, "credential epoch is still active");
+        require_with_error!(
+            &env,
+            epoch < current_epoch,
+            "credential epoch is still active"
+        );
         require_with_error!(&env, nullifiers.len() <= 50, "too many nullifiers to prune");
         for nullifier in nullifiers.iter() {
             let key = StorageKey::NullifierSet(user.clone(), epoch, nullifier);
@@ -1398,7 +1419,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&key, &x25519_pubkey);
         Self::bump(&env, &key);
 
-        DmKeyPublishedEvent { version: EVENT_VERSION, user,
+        DmKeyPublishedEvent {
+            version: EVENT_VERSION,
+            user,
             public_key: x25519_pubkey,
         }
         .publish(&env);
@@ -1531,7 +1554,12 @@ impl LinkoraContract {
             Self::bump(&env, &StorageKey::FollowersCount(followee.clone()));
         }
 
-        FollowEvent { version: EVENT_VERSION, follower, followee }.publish(&env);
+        FollowEvent {
+            version: EVENT_VERSION,
+            follower,
+            followee,
+        }
+        .publish(&env);
     }
 
     pub fn unfollow(env: Env, follower: Address, followee: Address) {
@@ -1563,7 +1591,12 @@ impl LinkoraContract {
             );
         }
 
-        UnfollowEvent { version: EVENT_VERSION, follower, followee }.publish(&env);
+        UnfollowEvent {
+            version: EVENT_VERSION,
+            follower,
+            followee,
+        }
+        .publish(&env);
     }
 
     pub fn get_following(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
@@ -1588,12 +1621,7 @@ impl LinkoraContract {
     /// user's followees (2-hop), excluding the user and anyone the user already
     /// follows. Paginated; at most `MAX_SUGGEST_SCAN` graph edges are inspected
     /// per call, so a page can come back short on dense graphs.
-    pub fn get_suggested_follows(
-        env: Env,
-        user: Address,
-        offset: u32,
-        limit: u32,
-    ) -> Vec<Address> {
+    pub fn get_suggested_follows(env: Env, user: Address, offset: u32, limit: u32) -> Vec<Address> {
         validate_non_default_address(&env, "user", &user);
         assert!(
             limit > 0 && limit <= MAX_PAGE_LIMIT,
@@ -1822,7 +1850,12 @@ impl LinkoraContract {
         // Clean up like entries between blocker and blocked
         Self::cleanup_likes_on_block(&env, &blocker, &blocked);
 
-        BlockEvent { version: EVENT_VERSION, blocker, blocked }.publish(&env);
+        BlockEvent {
+            version: EVENT_VERSION,
+            blocker,
+            blocked,
+        }
+        .publish(&env);
     }
 
     pub fn unblock_user(env: Env, blocker: Address, blocked: Address) {
@@ -1845,7 +1878,12 @@ impl LinkoraContract {
         blocks.remove(blocked.clone());
         env.storage().persistent().set(&key, &blocks);
         Self::bump(&env, &key);
-        UnblockEvent { version: EVENT_VERSION, blocker, blocked }.publish(&env);
+        UnblockEvent {
+            version: EVENT_VERSION,
+            blocker,
+            blocked,
+        }
+        .publish(&env);
     }
 
     pub fn is_blocked(env: Env, blocker: Address, blocked: Address) -> bool {
@@ -1922,7 +1960,12 @@ impl LinkoraContract {
         env.storage().persistent().set(&author_key, &author_posts);
         Self::bump(env, &author_key);
 
-        PostCreatedEvent { version: EVENT_VERSION, id, author }.publish(env);
+        PostCreatedEvent {
+            version: EVENT_VERSION,
+            id,
+            author,
+        }
+        .publish(env);
         id
     }
 
@@ -1959,17 +2002,26 @@ impl LinkoraContract {
         Self::require_not_paused(&env, PauseModule::Posts);
 
         let post_key = StorageKey::Post(post_id);
-        let post: Post = env.storage().persistent().get(&post_key).unwrap_or_else(|| {
-            panic!("post does not exist: {}", post_id);
-        });
+        let post: Post = env
+            .storage()
+            .persistent()
+            .get(&post_key)
+            .unwrap_or_else(|| {
+                panic!("post does not exist: {}", post_id);
+            });
         assert!(post.author == author, "only author can set content hash");
 
         let hash_key = StorageKey::PostContentHash(post_id);
         env.storage().persistent().set(&hash_key, &content_hash);
         Self::bump(&env, &hash_key);
 
-        PostContentHashSetEvent { version: EVENT_VERSION, post_id, author, content_hash }
-            .publish(&env);
+        PostContentHashSetEvent {
+            version: EVENT_VERSION,
+            post_id,
+            author,
+            content_hash,
+        }
+        .publish(&env);
     }
 
     /// Read the off-chain content hash anchored to a post, if one was set.
@@ -2096,7 +2148,11 @@ impl LinkoraContract {
         while tc_count > 0 && entries_removed < max_entries {
             tc_count -= 1;
             let idx_key = StorageKey::PostTipCooldownsIdx(post_id, tc_count);
-            if let Some((tipper, token)) = env.storage().persistent().get::<_, (Address, Address)>(&idx_key) {
+            if let Some((tipper, token)) = env
+                .storage()
+                .persistent()
+                .get::<_, (Address, Address)>(&idx_key)
+            {
                 env.storage()
                     .temporary()
                     .remove(&StorageKey::TipCooldown(post_id, tipper, token));
@@ -2214,7 +2270,12 @@ impl LinkoraContract {
 
         env.storage().persistent().set(&like_key, &true);
         Self::bump(&env, &like_key);
-        LikePostEvent { version: EVENT_VERSION, user, post_id }.publish(&env);
+        LikePostEvent {
+            version: EVENT_VERSION,
+            user,
+            post_id,
+        }
+        .publish(&env);
     }
 
     pub fn get_like_count(env: Env, post_id: u64) -> u64 {
@@ -2285,7 +2346,9 @@ impl LinkoraContract {
             let tc_count_key = StorageKey::PostTipCooldownsCount(post_id);
             let count: u32 = env.storage().persistent().get(&tc_count_key).unwrap_or(0);
             let tc_idx_key = StorageKey::PostTipCooldownsIdx(post_id, count);
-            env.storage().persistent().set(&tc_idx_key, &(tipper.clone(), token.clone()));
+            env.storage()
+                .persistent()
+                .set(&tc_idx_key, &(tipper.clone(), token.clone()));
             Self::bump(&env, &tc_idx_key);
             env.storage().persistent().set(&tc_count_key, &(count + 1));
             Self::bump(&env, &tc_count_key);
@@ -2311,7 +2374,9 @@ impl LinkoraContract {
         }
         token_client.transfer(&tipper, &post.author, &author_amount);
 
-        TipEvent { version: EVENT_VERSION, tipper,
+        TipEvent {
+            version: EVENT_VERSION,
+            tipper,
             post_id,
             amount,
             fee: fee_amount,
@@ -2358,7 +2423,9 @@ impl LinkoraContract {
         );
         Self::bump(&env, &key);
 
-        PoolCreatedEvent { version: EVENT_VERSION, pool_id,
+        PoolCreatedEvent {
+            version: EVENT_VERSION,
+            pool_id,
             token: token_copy,
             admins: admins_for_event,
             threshold,
@@ -2397,7 +2464,9 @@ impl LinkoraContract {
             &amount,
         );
 
-        PoolDepositEvent { version: EVENT_VERSION, depositor,
+        PoolDepositEvent {
+            version: EVENT_VERSION,
+            depositor,
             pool_id,
             amount,
         }
@@ -2443,7 +2512,9 @@ impl LinkoraContract {
             &amount,
         );
 
-        PoolWithdrawEvent { version: EVENT_VERSION, recipient,
+        PoolWithdrawEvent {
+            version: EVENT_VERSION,
+            recipient,
             pool_id,
             amount,
         }
@@ -2500,7 +2571,12 @@ impl LinkoraContract {
         env.storage().persistent().set(&key, &pool);
         Self::bump(&env, &key);
 
-        PoolAdminAddedEvent { version: EVENT_VERSION, pool_id, new_admin }.publish(&env);
+        PoolAdminAddedEvent {
+            version: EVENT_VERSION,
+            pool_id,
+            new_admin,
+        }
+        .publish(&env);
     }
 
     pub fn remove_pool_admin(env: Env, signers: Vec<Address>, pool_id: Symbol, admin: Address) {
@@ -2542,7 +2618,12 @@ impl LinkoraContract {
         env.storage().persistent().set(&key, &pool);
         Self::bump(&env, &key);
 
-        PoolAdminRemovedEvent { version: EVENT_VERSION, pool_id, admin }.publish(&env);
+        PoolAdminRemovedEvent {
+            version: EVENT_VERSION,
+            pool_id,
+            admin,
+        }
+        .publish(&env);
     }
 
     pub fn update_pool_threshold(env: Env, signers: Vec<Address>, pool_id: Symbol, threshold: u32) {
@@ -2576,7 +2657,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&key, &pool);
         Self::bump(&env, &key);
 
-        PoolThresholdUpdatedEvent { version: EVENT_VERSION, pool_id,
+        PoolThresholdUpdatedEvent {
+            version: EVENT_VERSION,
+            pool_id,
             old_threshold,
             new_threshold: threshold,
         }
@@ -2595,12 +2678,16 @@ impl LinkoraContract {
         assert!(fee_bps <= 10_000, "invalid fee");
         let old_fee_bps = Self::get_fee_bps(env.clone());
         env.storage().instance().set(&FEE_BPS, &fee_bps);
-        FeeUpdatedEvent { version: EVENT_VERSION, name: symbol_short!("fee_upd"),
+        FeeUpdatedEvent {
+            version: EVENT_VERSION,
+            name: symbol_short!("fee_upd"),
             old_fee_bps,
             new_fee_bps: fee_bps,
         }
         .publish(&env);
-        EmergencyBypassEvent { version: EVENT_VERSION, action: symbol_short!("set_fee"),
+        EmergencyBypassEvent {
+            version: EVENT_VERSION,
+            action: symbol_short!("set_fee"),
         }
         .publish(&env);
     }
@@ -2614,12 +2701,16 @@ impl LinkoraContract {
         Self::require_not_paused(&env, PauseModule::Governance);
         let old_treasury = Self::get_treasury(env.clone()).expect("treasury not set");
         env.storage().instance().set(&TREASURY, &treasury);
-        TreasuryUpdatedEvent { version: EVENT_VERSION, name: symbol_short!("treas_upd"),
+        TreasuryUpdatedEvent {
+            version: EVENT_VERSION,
+            name: symbol_short!("treas_upd"),
             old_treasury,
             new_treasury: treasury,
         }
         .publish(&env);
-        EmergencyBypassEvent { version: EVENT_VERSION, action: symbol_short!("set_tres"),
+        EmergencyBypassEvent {
+            version: EVENT_VERSION,
+            action: symbol_short!("set_tres"),
         }
         .publish(&env);
     }
@@ -2804,7 +2895,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&count_key, &id);
         Self::bump(&env, &count_key);
 
-        GovProposalCreatedEvent { version: EVENT_VERSION, proposal_id: id,
+        GovProposalCreatedEvent {
+            version: EVENT_VERSION,
+            proposal_id: id,
             proposer,
             parameter,
             new_value,
@@ -2856,7 +2949,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&proposal_key, &proposal);
         Self::bump(&env, &proposal_key);
 
-        GovVoteEvent { version: EVENT_VERSION, proposal_id,
+        GovVoteEvent {
+            version: EVENT_VERSION,
+            proposal_id,
             voter,
             support,
         }
@@ -2870,11 +2965,7 @@ impl LinkoraContract {
         delegator.require_auth();
         validate_non_default_address(&env, "delegator", &delegator);
         validate_non_default_address(&env, "delegate", &delegate);
-        require_with_error!(
-            &env,
-            delegator != delegate,
-            "cannot delegate to self"
-        );
+        require_with_error!(&env, delegator != delegate, "cannot delegate to self");
 
         let delegation_key = StorageKey::GovDelegation(delegator.clone());
         env.storage().persistent().set(&delegation_key, &delegate);
@@ -2894,10 +2985,7 @@ impl LinkoraContract {
     /// Get current delegate for a delegator, if any (Issue #1664)
     pub fn gov_get_delegate(env: Env, delegator: Address) -> Option<Address> {
         let delegation_key = StorageKey::GovDelegation(delegator);
-        env.storage()
-            .persistent()
-            .get(&delegation_key)
-            .ok()
+        env.storage().persistent().get(&delegation_key).ok()
     }
 
     pub fn effective_quorum(env: Env, proposal_id: u64) -> u32 {
@@ -3032,7 +3120,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&proposal_key, &proposal);
         Self::bump(&env, &proposal_key);
 
-        GovProposalExecutedEvent { version: EVENT_VERSION, proposal_id,
+        GovProposalExecutedEvent {
+            version: EVENT_VERSION,
+            proposal_id,
             parameter: proposal.parameter,
             new_value: proposal.new_value,
         }
@@ -3091,7 +3181,11 @@ impl LinkoraContract {
         env.storage().persistent().set(&proposal_key, &proposal);
         Self::bump(&env, &proposal_key);
 
-        GovProposalVetoedEvent { version: EVENT_VERSION, proposal_id }.publish(&env);
+        GovProposalVetoedEvent {
+            version: EVENT_VERSION,
+            proposal_id,
+        }
+        .publish(&env);
     }
 
     pub fn gov_get_proposal(env: Env, proposal_id: u64) -> GovProposal {
@@ -3169,7 +3263,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&nullifier_key, &true);
         Self::bump(&env, &nullifier_key);
 
-        AttestationVerifiedEvent { version: EVENT_VERSION, oracle_name,
+        AttestationVerifiedEvent {
+            version: EVENT_VERSION,
+            oracle_name,
             report_hash,
             creator,
             window_start,
@@ -3258,7 +3354,9 @@ impl LinkoraContract {
         }
 
         let extended_to_ledger = Self::get_rent_expiry(env.clone(), user.clone());
-        RentPaidEvent { version: EVENT_VERSION, user: user.clone(),
+        RentPaidEvent {
+            version: EVENT_VERSION,
+            user: user.clone(),
             payer: user,
             token,
             amount,
@@ -3329,7 +3427,9 @@ impl LinkoraContract {
         env.storage().persistent().set(&report_key, &report);
         Self::bump(&env, &report_key);
 
-        PostReportedEvent { version: EVENT_VERSION, post_id,
+        PostReportedEvent {
+            version: EVENT_VERSION,
+            post_id,
             reporter,
             stake_amount,
         }
@@ -3639,7 +3739,9 @@ impl LinkoraContract {
                     &report.stake_amount,
                 );
 
-                PostRemovedByModerationEvent { version: EVENT_VERSION, post_id,
+                PostRemovedByModerationEvent {
+                    version: EVENT_VERSION,
+                    post_id,
                     reporter: report.reporter.clone(),
                 }
                 .publish(&env);
@@ -3657,7 +3759,9 @@ impl LinkoraContract {
                     &report.stake_amount,
                 );
 
-                ReportDismissedEvent { version: EVENT_VERSION, post_id,
+                ReportDismissedEvent {
+                    version: EVENT_VERSION,
+                    post_id,
                     reporter: report.reporter.clone(),
                 }
                 .publish(&env);
@@ -3693,12 +3797,7 @@ impl LinkoraContract {
     /// File an appeal against a moderation decision. Only the removed post's
     /// author may appeal, only while the window opened by `review_report` is
     /// still open, and only once per moderation decision.
-    pub fn appeal_moderation(
-        env: Env,
-        appellant: Address,
-        post_id: u64,
-        reason_hash: BytesN<32>,
-    ) {
+    pub fn appeal_moderation(env: Env, appellant: Address, post_id: u64, reason_hash: BytesN<32>) {
         Self::bump_instance(&env);
         appellant.require_auth();
         validate_non_default_address(&env, "appellant", &appellant);
@@ -3743,7 +3842,12 @@ impl LinkoraContract {
         env.storage().persistent().set(&appeal_key, &appeal);
         Self::bump(&env, &appeal_key);
 
-        AppealFiledEvent { version: EVENT_VERSION, post_id, appellant }.publish(&env);
+        AppealFiledEvent {
+            version: EVENT_VERSION,
+            post_id,
+            appellant,
+        }
+        .publish(&env);
     }
 
     /// Record a reviewer's verdict on an open appeal. Reviewers are the `mods`
@@ -3794,10 +3898,20 @@ impl LinkoraContract {
         if appeal.approvers.len() >= pool.threshold {
             Self::restore_moderated_post(&env, post_id);
             appeal.status = AppealStatus::Approved;
-            AppealResolvedEvent { version: EVENT_VERSION, post_id, approved: true }.publish(&env);
+            AppealResolvedEvent {
+                version: EVENT_VERSION,
+                post_id,
+                approved: true,
+            }
+            .publish(&env);
         } else if appeal.rejecters.len() >= pool.threshold {
             appeal.status = AppealStatus::Rejected;
-            AppealResolvedEvent { version: EVENT_VERSION, post_id, approved: false }.publish(&env);
+            AppealResolvedEvent {
+                version: EVENT_VERSION,
+                post_id,
+                approved: false,
+            }
+            .publish(&env);
         }
 
         env.storage().persistent().set(&appeal_key, &appeal);
@@ -3903,7 +4017,11 @@ impl LinkoraContract {
         }
         env.storage().instance().set(&PAUSED, &true);
         let admin: Address = env.current_contract_address();
-        PausedEvent { version: EVENT_VERSION, admin }.publish(&env);
+        PausedEvent {
+            version: EVENT_VERSION,
+            admin,
+        }
+        .publish(&env);
     }
 
     pub fn unpause(env: Env) {
@@ -3913,7 +4031,11 @@ impl LinkoraContract {
         }
         env.storage().instance().set(&PAUSED, &false);
         let admin: Address = env.current_contract_address();
-        UnpausedEvent { version: EVENT_VERSION, admin }.publish(&env);
+        UnpausedEvent {
+            version: EVENT_VERSION,
+            admin,
+        }
+        .publish(&env);
     }
 
     pub fn is_paused(env: Env) -> bool {
@@ -3939,7 +4061,12 @@ impl LinkoraContract {
         let bit = pause_bit(module);
         require_with_error!(&env, (mask & bit) == 0, "module already paused");
         env.storage().instance().set(&PAUSE_MASK, &(mask | bit));
-        ModulePausedEvent { version: EVENT_VERSION, module, admin }.publish(&env);
+        ModulePausedEvent {
+            version: EVENT_VERSION,
+            module,
+            admin,
+        }
+        .publish(&env);
     }
 
     /// Resume a single module. Emits `ModuleUnpausedEvent`.
@@ -3957,7 +4084,12 @@ impl LinkoraContract {
         let bit = pause_bit(module);
         require_with_error!(&env, (mask & bit) != 0, "module not paused");
         env.storage().instance().set(&PAUSE_MASK, &(mask & !bit));
-        ModuleUnpausedEvent { version: EVENT_VERSION, module, admin }.publish(&env);
+        ModuleUnpausedEvent {
+            version: EVENT_VERSION,
+            module,
+            admin,
+        }
+        .publish(&env);
     }
 
     /// Returns true when this module's own flag is set. The global `is_paused`
@@ -4179,7 +4311,11 @@ impl LinkoraContract {
         let tc_count: u32 = env.storage().persistent().get(&tc_count_key).unwrap_or(0);
         for i in 0..tc_count {
             let idx_key = StorageKey::PostTipCooldownsIdx(post_id, i);
-            if let Some((tipper, token)) = env.storage().persistent().get::<_, (Address, Address)>(&idx_key) {
+            if let Some((tipper, token)) = env
+                .storage()
+                .persistent()
+                .get::<_, (Address, Address)>(&idx_key)
+            {
                 env.storage()
                     .temporary()
                     .remove(&StorageKey::TipCooldown(post_id, tipper, token));
