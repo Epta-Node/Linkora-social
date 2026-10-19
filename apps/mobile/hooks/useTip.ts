@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
+import { impact } from "../utils/haptics";
 
 export type TipStatus = "idle" | "pending" | "success" | "error";
 
@@ -95,9 +96,11 @@ export function useTip(): UseTipResult {
         const protocolFee = estimateProtocolFee(amount);
         setResult({ hash, amount, token, protocolFee });
         setStatus("success");
+        await impact("heavy");
         showSuccess(hash);
         return true;
       } catch (err) {
+        await impact("heavy");
         const message = err instanceof Error ? err.message : "Failed to submit tip.";
         setStatus("error");
         setError(message);

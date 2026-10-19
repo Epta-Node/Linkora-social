@@ -230,6 +230,17 @@ pub enum GovStatus {
 
 #[contracttype]
 #[derive(Clone, Debug)]
+pub struct ProposalMetadata {
+    /// Short title of the proposal (max 100 chars)
+    pub title: String,
+    /// Detailed description of the proposal (max 1000 chars)
+    pub description: String,
+    /// Rationale and supporting evidence (max 5000 chars)
+    pub rationale: Option<String>,
+}
+
+#[contracttype]
+#[derive(Clone, Debug)]
 pub struct GovProposal {
     pub id: u64,
     pub proposer: Address,
@@ -246,17 +257,6 @@ pub struct GovProposal {
     pub expiry_ledgers: u32,
     /// Proposal metadata: title, description, and rationale (Issue #1665)
     pub metadata: Option<ProposalMetadata>,
-}
-
-#[contracttype]
-#[derive(Clone, Debug)]
-pub struct ProposalMetadata {
-    /// Short title of the proposal (max 100 chars)
-    pub title: String,
-    /// Detailed description of the proposal (max 1000 chars)
-    pub description: String,
-    /// Rationale and supporting evidence (max 5000 chars)
-    pub rationale: Option<String>,
 }
 
 #[contracttype]
@@ -975,11 +975,6 @@ impl LinkoraContract {
         Self::bump_instance(&env);
         user.require_auth();
         validate_non_default_address(&env, "user", &user);
-        require_with_error!(
-            &env,
-            proof.len() <= MAX_CREDENTIAL_PROOF_DEPTH,
-            "credential proof exceeds the maximum supported depth"
-        );
         validate_non_default_address(&env, "creator_token", &creator_token);
         validate_username(&env, &username);
 
@@ -1339,6 +1334,11 @@ impl LinkoraContract {
     ) -> bool {
         Self::bump_instance(&env);
         validate_non_default_address(&env, "user", &user);
+        require_with_error!(
+            &env,
+            proof.len() <= MAX_CREDENTIAL_PROOF_DEPTH,
+            "credential proof exceeds the maximum supported depth"
+        );
 
         let root_key = StorageKey::CredentialRoot(user.clone());
         let expected_root: Option<BytesN<32>> = env.storage().persistent().get(&root_key);
@@ -2782,6 +2782,7 @@ impl LinkoraContract {
             vote_window_ledgers,
             quorum_decay_rate_bps,
             quorum_floor,
+            proposal_expiry_ledgers: 0,
         };
         let key = StorageKey::GovConfig;
         env.storage().persistent().set(&key, &config);
@@ -2986,6 +2987,7 @@ impl LinkoraContract {
     pub fn gov_get_delegate(env: Env, delegator: Address) -> Option<Address> {
         let delegation_key = StorageKey::GovDelegation(delegator);
         env.storage().persistent().get(&delegation_key).ok()
+        env.storage().persistent().get(&delegation_key)
     }
 
     pub fn effective_quorum(env: Env, proposal_id: u64) -> u32 {
@@ -3051,11 +3053,13 @@ impl LinkoraContract {
 
         // Check proposal expiry window (Issue #1663).
         // Proposals cannot be executed after their expiry window closes.
-        let expiry_deadline = proposal.created_ledger as u64 + proposal.expiry_ledgers as u64;
-        assert!(
-            (current_ledger as u64) < expiry_deadline,
-            "proposal has expired"
-        );
+        if proposal.expiry_ledgers > 0 {
+            let expiry_deadline = proposal.created_ledger as u64 + proposal.expiry_ledgers as u64;
+            assert!(
+                (current_ledger as u64) < expiry_deadline,
+                "proposal has expired"
+            );
+        }
 
         let total_votes = proposal.votes_for + proposal.votes_against;
         assert!(total_votes > 0, "no votes cast");

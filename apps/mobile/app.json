@@ -11,6 +11,6 @@
     "android": {
       "package": "social.linkora.app"
     },
-    "plugins": ["expo-router"]
+    "plugins": ["expo-router", ["expo-camera", { "cameraPermission": "Linkora uses your camera to scan WalletConnect QR codes." }]]
   }
 }

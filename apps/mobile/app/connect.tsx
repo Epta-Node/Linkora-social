@@ -73,6 +73,7 @@ export default function ConnectScreen() {
               state={state}
               variant="secondary"
             />
+            <Text style={styles.scanLink} onPress={() => router.push("/wallet/scan")}>Scan WalletConnect QR code</Text>
           </View>
         )}
 
@@ -158,5 +159,6 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       color: theme.colors.semantic.error,
       fontSize: 13,
     },
+    scanLink: { color: theme.colors.brand.secondary, textAlign: "center", marginTop: 8, fontWeight: "700" },
   });
 }

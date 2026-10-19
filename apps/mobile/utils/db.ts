@@ -57,6 +57,13 @@ export interface DmMergeResult {
   newestTimestamp: number | null;
 }
 
+export interface DmConversationSummary {
+  conversationId: string;
+  otherAddress: string;
+  lastMessage: DmMessage;
+  unreadCount: number;
+}
+
 interface DmMessageRow {
   id: string;
   conversation_id: string;
@@ -597,4 +604,27 @@ export async function setDmLastRead(conversationId: string, timestamp: number): 
        last_read = MAX(last_read, excluded.last_read);`,
     [conversationId, timestamp]
   );
+}
+
+/** Returns local conversations ordered by activity for the DM inbox. */
+export async function getDmConversationSummaries(userAddress: string): Promise<DmConversationSummary[]> {
+  const rows = await db.getAllAsync<DmMessageRow>(
+    `SELECT m.* FROM dm_messages m
+     INNER JOIN (SELECT conversation_id, MAX(timestamp) AS latest FROM dm_messages GROUP BY conversation_id) latest
+       ON latest.conversation_id = m.conversation_id AND latest.latest = m.timestamp
+     ORDER BY m.timestamp DESC`,
+  );
+  const summaries: DmConversationSummary[] = [];
+  for (const row of rows) {
+    const lastMessage = rowToDmMessage(row);
+    if (summaries.some((item) => item.conversationId === lastMessage.conversationId)) continue;
+    const otherAddress = lastMessage.sender === userAddress ? lastMessage.recipient : lastMessage.sender;
+    const lastRead = await getDmLastRead(lastMessage.conversationId);
+    const unreadRow = await db.getFirstAsync<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM dm_messages WHERE conversation_id = ? AND sender != ? AND timestamp > ?`,
+      [lastMessage.conversationId, userAddress, lastRead],
+    );
+    summaries.push({ conversationId: lastMessage.conversationId, otherAddress, lastMessage, unreadCount: Number(unreadRow?.count ?? 0) });
+  }
+  return summaries;
 }

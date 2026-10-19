@@ -1,8 +1,8 @@
 /**
- * The published OpenAPI contract must describe every route `createApp()`
- * mounts.
+ * The published OpenAPI contract must describe every REST API route
+ * `createApp()` mounts.
  *
- * `openapi.yaml` used to document six paths while `createApp()` mounted
+ * `docs/api/indexer.openapi.yaml` used to document six paths while `createApp()` mounted
  * roughly twenty, so SDK authors and mini-app integrators had no contract for
  * the feed, search, notification, governance, moderation and state-root
  * surfaces — and nothing for a client generator to consume.
@@ -150,7 +150,7 @@ function parseOpenApiPaths(yaml: string): Map<string, Set<string>> {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-const OPENAPI_PATH = path.resolve(__dirname, "../../../openapi.yaml");
+const OPENAPI_PATH = path.resolve(__dirname, "../../../../../docs/api/indexer.openapi.yaml");
 
 describe("openapi.yaml ↔ createApp() coverage", () => {
   let yaml = "";

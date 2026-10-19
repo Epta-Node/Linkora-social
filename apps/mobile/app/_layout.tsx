@@ -12,6 +12,7 @@ import { useNetwork } from "../hooks/useNetwork";
 import { useWallet } from "../hooks/useWallet";
 import { parseDeepLink } from "../utils/deepLinks";
 import { HeaderActions } from "./(tabs)/_layout";
+import { ThemeProvider, useTheme } from "../theme/useTheme";
 
 /**
  * Root layout — wraps the entire app in the providers and mounts a Stack
@@ -28,6 +29,7 @@ function RootNavigator() {
   const router = useRouter();
   const { address, connected } = useWallet();
   const { isOffline } = useNetwork();
+  const { theme } = useTheme();
 
   useEffect(() => {
     let isMounted = true;
@@ -85,13 +87,13 @@ function RootNavigator() {
       <Stack
         screenOptions={{
           headerStyle: {
-            backgroundColor: "#0f172a",
+            backgroundColor: theme.colors.surface.surface1,
           },
           headerTitleStyle: {
-            color: "#f8fafc",
+            color: theme.colors.text.primary,
             fontWeight: "700",
           },
-          headerTintColor: "#f8fafc",
+          headerTintColor: theme.colors.text.primary,
           headerRight: () => <HeaderActions />,
         }}
       >
@@ -99,6 +101,8 @@ function RootNavigator() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {/* Detail screens — pushed on top of the tabs, with a back button. */}
         <Stack.Screen name="connect" options={{ title: "Connect Wallet" }} />
+        <Stack.Screen name="wallet/scan" options={{ title: "Scan WalletConnect QR" }} />
+        <Stack.Screen name="wallet/qr" options={{ title: "WalletConnect QR" }} />
         <Stack.Screen name="post/[id]" options={{ title: "Post" }} />
         <Stack.Screen name="mini-app/[id]" options={{ title: "Mini App" }} />
         <Stack.Screen name="mini-app/create-post" options={{ title: "Create Post" }} />
@@ -106,6 +110,7 @@ function RootNavigator() {
         <Stack.Screen name="pool/[id]" options={{ title: "Pool" }} />
         <Stack.Screen name="pools/[id]" options={{ title: "Pool" }} />
         <Stack.Screen name="dm/[address]" options={{ title: "Direct Message" }} />
+        <Stack.Screen name="dm/index" options={{ title: "Messages" }} />
       </Stack>
     </>
   );
@@ -113,13 +118,13 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <NetworkProvider>
-      <WalletProvider>
-        <ToastProvider>
-          <RootNavigator />
-        </ToastProvider>
-      </WalletProvider>
-    </NetworkProvider>
+    <ThemeProvider>
+      <NetworkProvider>
+        <WalletProvider>
+          <ToastProvider><RootNavigator /></ToastProvider>
+        </WalletProvider>
+      </NetworkProvider>
+    </ThemeProvider>
   );
 }
 

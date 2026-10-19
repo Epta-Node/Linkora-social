@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { usePoolWithdraw } from "../hooks/usePoolWithdraw";
+import { notification } from "../utils/haptics";
 
 export interface PoolWithdrawFormProps {
   poolId: string;
@@ -58,6 +59,7 @@ export function PoolWithdrawForm({ poolId, onSubmitted }: PoolWithdrawFormProps)
       }
 
       Alert.alert("Withdrawal submitted", `Request ${withdrawalId} is on-chain.`);
+      await notification("success");
       reset();
       onSubmitted?.();
       setMessage("Withdrawal request submitted successfully.");

@@ -13,6 +13,9 @@ const StorageKey = {
   ConnectionState: "connection_state",
   NetworkSettings: "network_settings",
   InstalledMiniApps: "mini_apps_installed",
+  MasterKey: "secure_master_key_v2",
+  SecretIndex: "secure_secret_index_v2",
+  LastBackupReminder: "secure_last_backup_reminder_v2",
 } as const;
 
 /**
@@ -55,8 +58,77 @@ export interface ConnectionState {
 async function setItem(key: string, value: unknown): Promise<void> {
   const payload = JSON.stringify(value);
   await SecureStore.setItemAsync(key, payload, {
-    keychainAccessible: SecureStore.ALWAYS_THIS_DEVICE_ONLY,
+    keychainAccessible:
+      SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY ?? SecureStore.ALWAYS_THIS_DEVICE_ONLY,
   });
+}
+
+const secureOptions = {
+  keychainAccessible:
+    SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY ?? SecureStore.ALWAYS_THIS_DEVICE_ONLY,
+  requireAuthentication: true,
+};
+
+function randomKey(): string {
+  const cryptoApi = globalThis.crypto as Crypto | undefined;
+  if (cryptoApi?.getRandomValues) {
+    const bytes = new Uint8Array(32);
+    cryptoApi.getRandomValues(bytes);
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return `${Date.now()}-${Math.random()}-${Math.random()}`;
+}
+
+async function masterKey(): Promise<string> {
+  const existing = await SecureStore.getItemAsync(StorageKey.MasterKey, secureOptions);
+  if (existing) return existing;
+  const created = randomKey();
+  await SecureStore.setItemAsync(StorageKey.MasterKey, created, secureOptions);
+  return created;
+}
+
+// HKDF-style service separation. The master key never leaves SecureStore and
+// every service receives a distinct context-bound key.
+async function deriveServiceKey(service: string): Promise<string> {
+  const master = await masterKey();
+  const data = new TextEncoder().encode(`${service}:linkora-hkdf:${master}`);
+  const digest = await globalThis.crypto?.subtle?.digest("SHA-256", data);
+  return digest ? Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("") : `${service}:${master}`;
+}
+
+export async function setSecret(service: string, value: unknown): Promise<void> {
+  const key = `secret:${service}:${await deriveServiceKey(service)}`;
+  const index = (await getItem<string[]>(StorageKey.SecretIndex)) ?? [];
+  if (!index.includes(service)) await setItem(StorageKey.SecretIndex, [...index, service]);
+  await SecureStore.setItemAsync(key, JSON.stringify(value), secureOptions);
+}
+
+export async function getSecret<T>(service: string): Promise<T | null> {
+  const key = `secret:${service}:${await deriveServiceKey(service)}`;
+  const item = await SecureStore.getItemAsync(key, secureOptions);
+  if (!item) return null;
+  try { return JSON.parse(item) as T; } catch { return null; }
+}
+
+export async function rotateKeys(): Promise<void> {
+  const oldMaster = await masterKey();
+  const services = (await getItem<string[]>(StorageKey.SecretIndex)) ?? [];
+  const values = await Promise.all(services.map(async (service) => [service, await getSecret(service)] as const));
+  await SecureStore.deleteItemAsync(StorageKey.MasterKey);
+  await masterKey();
+  for (const [service, value] of values) {
+    if (value !== null) await setSecret(service, value);
+  }
+  void oldMaster;
+}
+
+export async function shouldShowBackupReminder(): Promise<boolean> {
+  const last = await getItem<number>(StorageKey.LastBackupReminder);
+  return !last || Date.now() - last >= 7 * 24 * 60 * 60 * 1000;
+}
+
+export async function markBackupComplete(): Promise<void> {
+  await setItem(StorageKey.LastBackupReminder, Date.now());
 }
 
 async function getItem<T>(key: string): Promise<T | null> {

@@ -1,5 +1,4 @@
-import React, { useMemo } from "react";
-import * as Haptics from "expo-haptics";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   GestureResponderEvent,
   Pressable,
@@ -7,11 +6,14 @@ import {
   Text,
   TouchableOpacity,
   View,
+  AccessibilityInfo,
 } from "react-native";
+import Animated from "react-native-reanimated";
 import { useRouter } from "expo-router";
 
 import { useLike } from "../hooks/useLike";
 import { useTheme } from "../theme/useTheme";
+import { impact } from "../utils/haptics";
 import { PostCardSkeleton as SharedPostCardSkeleton } from "./skeletons/PostCardSkeleton";
 
 export { SharedPostCardSkeleton as PostCardSkeleton };
@@ -94,6 +96,10 @@ export function PostCard(props: PostCardProps) {
   const { theme } = useTheme();
   const router = useRouter();
   const { post, timeLabel } = normalizePost(props);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => undefined);
+  }, []);
   const onPress =
     props.onPress ?? (() => router.push(`/post/${post.id}` as Parameters<typeof router.push>[0]));
   const { liked, likeCount, pending, like } = useLike({
@@ -116,7 +122,7 @@ export function PostCard(props: PostCardProps) {
     if (event && typeof event.stopPropagation === "function") {
       event.stopPropagation();
     }
-    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    void impact("medium");
     void like();
   };
 
@@ -128,11 +134,15 @@ export function PostCard(props: PostCardProps) {
       accessibilityLabel={`Post by ${post.username}`}
     >
       <View style={styles.header}>
-        <View style={styles.avatar}>
+        <Pressable onPress={() => router.push(`/profile/${post.author}` as Parameters<typeof router.push>[0])} accessibilityRole="button" accessibilityLabel={`Open ${post.username}'s profile`}>
+        <Animated.View style={styles.avatar} sharedTransitionTag={reduceMotion ? undefined : `avatar-${post.author}`}>
           <Text style={styles.avatarText}>{post.username.charAt(0).toUpperCase()}</Text>
         </View>
+        </Pressable>
         <View style={styles.meta}>
-          <Text style={styles.username}>{post.username}</Text>
+          <Animated.Text style={styles.username} sharedTransitionTag={reduceMotion ? undefined : `username-${post.author}`}>
+            {post.username}
+          </Animated.Text>
           <Text style={styles.address}>{shortAddress(post.author)}</Text>
         </View>
         <View style={styles.timeContainer}>

@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { recordPoolDeposit } from "../utils/poolStore";
 import { useSubmitTx } from "./useSubmitTx";
+import { notification } from "../utils/haptics";
 
 export interface DepositState {
   pending: boolean;
@@ -57,7 +58,9 @@ export function usePoolDeposit(): UsePoolDepositReturn {
 
         setTxHash(hash);
         setSuccess(true);
+        await notification("success");
       } catch (err) {
+        await notification("error");
         const message =
           err instanceof Error ? err.message : "Deposit failed. Please try again.";
         setError(message);

@@ -1,4 +1,5 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
+import { AccessibilityInfo } from "react-native";
 import { StyleSheet, View } from "react-native";
 import type { DimensionValue, ViewStyle } from "react-native";
 import Animated, {
@@ -22,21 +23,36 @@ interface SkeletonBaseProps {
 function ShimmerOverlay() {
   const { theme } = useTheme();
   const translateX = useSharedValue(-1);
+  const opacity = useSharedValue(0.12);
+  const [reduceMotion, setReduceMotion] = useState(false);
 
   useEffect(() => {
-    translateX.value = withRepeat(
-      withTiming(1, {
-        duration: 1200,
-        easing: Easing.inOut(Easing.ease),
-      }),
-      -1,
-      false
-    );
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (mounted) setReduceMotion(enabled);
+    });
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => {
+      mounted = false;
+      subscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!reduceMotion) {
+      translateX.value = withRepeat(withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }), -1, false);
+      opacity.value = withRepeat(withTiming(0.28, { duration: 700 }), -1, true);
+    } else {
+      cancelAnimation(translateX);
+      cancelAnimation(opacity);
+      translateX.value = 0;
+      opacity.value = 0.18;
+    }
 
     return () => {
       cancelAnimation(translateX);
     };
-  }, [translateX]);
+  }, [opacity, reduceMotion, translateX]);
 
   const shimmerStyle = useAnimatedStyle(
     () => ({
@@ -46,11 +62,12 @@ function ShimmerOverlay() {
         },
       ],
       backgroundColor: theme.colors.surface.surface2,
+      opacity: opacity.value,
     }),
     [theme.colors.surface.surface2]
   );
 
-  return <Animated.View pointerEvents="none" style={[styles.shimmer, shimmerStyle]} />;
+  return <Animated.View pointerEvents="none" accessibilityElementsHidden style={[styles.shimmer, shimmerStyle]} />;
 }
 
 export function SkeletonBase({ children, style, testID }: SkeletonBaseProps) {
@@ -59,6 +76,9 @@ export function SkeletonBase({ children, style, testID }: SkeletonBaseProps) {
   return (
     <View
       testID={testID}
+      accessible
+      accessibilityLabel="Loading"
+      accessibilityRole="progressbar"
       style={[
         styles.container,
         {

@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
+import { impact } from "../utils/haptics";
 
 export const useFollow = (targetAddress: string) => {
   const { address, connected } = useWallet();
@@ -30,6 +31,7 @@ export const useFollow = (targetAddress: string) => {
         : `follow:${address}:${targetAddress}`;
 
       await submitTx(txDescriptor);
+      await impact("light");
       setIsFollowing((prev) => !prev);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Follow action failed"));

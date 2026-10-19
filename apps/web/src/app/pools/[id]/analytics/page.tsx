@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
+  AreaChart,
+  Area,
   BarChart,
   Bar,
   LineChart,
@@ -15,80 +17,45 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
+import { usePoolStats, type TimeRange } from "@/hooks/usePoolStats";
 import { truncateAddress } from "@/hooks/usePools";
 
-const indexerUrl = process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:3001";
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-interface PoolEvent {
-  type: "deposit" | "withdraw";
-  address: string;
-  amount: string;
-  ledger: number;
-  timestamp: string;
-}
+const RANGES: TimeRange[] = ["7d", "30d", "90d"];
 
-interface PoolAnalytics {
-  pool_id: string;
-  token: string;
-  balance: string;
-  admins: string[];
-  threshold: number;
-  created_ledger: number;
-  total_deposited: string;
-  total_withdrawn: string;
-  contributor_count: number;
-  recent_events: PoolEvent[];
-  volume_7d: string;
-  volume_30d: string;
-}
+const CHART_COLORS = {
+  tvl: "#7c3aed",
+  deposits: "#10b981",
+  withdrawals: "#ef4444",
+  members: "#60a5fa",
+} as const;
 
-type AnalyticsState =
-  | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "empty" }
-  | { status: "loaded"; data: PoolAnalytics };
+const TOOLTIP_STYLE = {
+  backgroundColor: "var(--bg-secondary)",
+  border: "1px solid var(--border)",
+  borderRadius: "8px",
+  color: "var(--text-primary)",
+  fontSize: "12px",
+} as const;
+
+const AXIS_TICK = { fontSize: 11, fill: "var(--text-secondary)" } as const;
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function PoolAnalyticsPage() {
   const params = useParams();
   const poolId = typeof params.id === "string" ? params.id : null;
-  const [state, setState] = useState<AnalyticsState>({ status: "loading" });
-  const [dateRange, setDateRange] = useState<"7d" | "30d">("7d");
-
-  const loadAnalytics = useCallback(async () => {
-    if (!poolId) {
-      setState({ status: "error", message: "Invalid pool ID" });
-      return;
-    }
-
-    setState({ status: "loading" });
-    try {
-      const res = await fetch(`${indexerUrl}/api/pools/${poolId}/analytics`);
-      if (res.status === 404) {
-        setState({ status: "empty" });
-        return;
-      }
-      if (!res.ok) throw new Error("Failed to fetch pool analytics");
-      const data: PoolAnalytics = await res.json();
-      setState({ status: "loaded", data });
-    } catch (err) {
-      setState({
-        status: "error",
-        message: err instanceof Error ? err.message : "Failed to load analytics",
-      });
-    }
-  }, [poolId]);
-
-  useEffect(() => {
-    loadAnalytics();
-  }, [loadAnalytics]);
+  const [range, setRange] = useState<TimeRange>("7d");
+  const { state, reload } = usePoolStats(poolId, range);
 
   if (!poolId) {
     return (
       <main className="min-h-screen bg-[var(--bg-primary)]">
         <div className="max-w-6xl mx-auto p-4 md:p-8">
-          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-12 text-center">
-            <h1 className="text-2xl font-bold mb-3">Invalid Pool</h1>
-            <p className="text-[var(--text-muted)] mb-6">No pool ID provided.</p>
+          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border)] p-12 text-center">
+            <h1 className="text-2xl font-bold mb-3 text-[var(--text-primary)]">Invalid Pool</h1>
+            <p className="text-[var(--text-secondary)] mb-6">No pool ID provided.</p>
             <Link href="/pools" className="text-[var(--accent-teal)] hover:underline font-medium">
               Back to Pools
             </Link>
@@ -101,65 +68,77 @@ export default function PoolAnalyticsPage() {
   return (
     <main className="min-h-screen bg-[var(--bg-primary)]">
       <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-sm" aria-label="Breadcrumb">
           <Link href="/pools" className="text-[var(--accent-teal)] hover:underline font-medium">
             Pools
           </Link>
-          <span className="text-[var(--text-muted)]">/</span>
+          <span className="text-[var(--text-secondary)]" aria-hidden="true">/</span>
           <Link
             href={`/pools/${poolId}`}
             className="text-[var(--accent-teal)] hover:underline font-medium"
           >
             {poolId}
           </Link>
-          <span className="text-[var(--text-muted)]">/</span>
-          <span className="text-[var(--text-muted)] font-medium">Analytics</span>
+          <span className="text-[var(--text-secondary)]" aria-hidden="true">/</span>
+          <span className="text-[var(--text-secondary)] font-medium">Analytics</span>
         </nav>
 
-        {/* Header */}
+        {/* Page header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold">Pool Analytics</h1>
-            <p className="text-sm text-[var(--text-muted)] mt-1">
-              Activity insights for pool <span className="font-mono">{poolId}</span>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]">Pool Analytics</h1>
+            <p className="text-sm text-[var(--text-secondary)] mt-1">
+              Activity insights for pool{" "}
+              <span className="font-mono">{truncateAddress(poolId, 8, 6)}</span>
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex rounded-xl border border-[var(--bg-tertiary)] overflow-hidden">
-              {(["7d", "30d"] as const).map((range) => (
+
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Time range toggle */}
+            <div
+              className="flex rounded-xl border border-[var(--border)] overflow-hidden"
+              role="group"
+              aria-label="Time range"
+            >
+              {RANGES.map((r) => (
                 <button
-                  key={range}
-                  onClick={() => setDateRange(range)}
-                  className={`px-4 py-2 text-sm font-medium transition-colors ${
-                    dateRange === range
-                      ? "bg-[var(--accent-coral)] text-white"
-                      : "bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  key={r}
+                  id={`range-${r}`}
+                  onClick={() => setRange(r)}
+                  aria-pressed={range === r}
+                  className={`px-4 py-2 text-sm font-semibold transition-colors ${
+                    range === r
+                      ? "bg-[var(--color-primary)] text-white"
+                      : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
-                  {range}
+                  {r}
                 </button>
               ))}
             </div>
+
             <button
-              onClick={loadAnalytics}
+              onClick={reload}
               disabled={state.status === "loading"}
-              className="px-4 py-2 text-sm font-medium rounded-xl border border-[var(--bg-tertiary)] bg-[var(--bg-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-card)] transition-colors disabled:opacity-50"
+              aria-label="Refresh analytics data"
             >
-              Refresh
+              ↻ Refresh
             </button>
           </div>
         </div>
 
-        {/* Content */}
+        {/* States */}
         {state.status === "loading" && <LoadingSkeleton />}
 
         {state.status === "error" && (
-          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-12 text-center">
-            <p className="text-[var(--error)] mb-4">{state.message}</p>
+          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border)] p-12 text-center">
+            <p className="text-[var(--error)] mb-4 font-medium">{state.message}</p>
             <button
-              onClick={loadAnalytics}
-              className="px-6 py-2 rounded-xl bg-[var(--accent-coral)] text-white font-medium hover:opacity-90 transition-opacity"
+              onClick={reload}
+              className="px-6 py-2 rounded-xl bg-[var(--color-primary)] text-white font-medium hover:opacity-90 transition-opacity"
             >
               Retry
             </button>
@@ -167,208 +146,273 @@ export default function PoolAnalyticsPage() {
         )}
 
         {state.status === "empty" && (
-          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-12 text-center">
-            <p className="text-[var(--text-muted)] mb-2">No analytics data available yet.</p>
-            <p className="text-sm text-[var(--text-muted)]">
+          <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border)] p-12 text-center">
+            <p className="text-4xl mb-4" aria-hidden="true">📊</p>
+            <p className="text-[var(--text-primary)] font-semibold mb-2">No analytics data yet</p>
+            <p className="text-sm text-[var(--text-secondary)]">
               Pool activity will appear here once deposits or withdrawals are made.
             </p>
           </div>
         )}
 
         {state.status === "loaded" && (
-          <AnalyticsDashboard data={state.data} dateRange={dateRange} />
+          <AnalyticsDashboard data={state.data} range={range} />
         )}
       </div>
     </main>
   );
 }
 
-function AnalyticsDashboard({ data, dateRange }: { data: PoolAnalytics; dateRange: "7d" | "30d" }) {
-  const balance = BigInt(data.balance);
-  const deposited = BigInt(data.total_deposited);
-  const withdrawn = BigInt(data.total_withdrawn);
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+import type { PoolStatsResponse } from "@/hooks/usePoolStats";
+
+function AnalyticsDashboard({
+  data,
+  range,
+}: {
+  data: PoolStatsResponse;
+  range: TimeRange;
+}) {
+  const balance = Number(BigInt(data.balance)) / 10_000_000;
+  const deposited = Number(BigInt(data.total_deposited)) / 10_000_000;
+  const withdrawn = Number(BigInt(data.total_withdrawn)) / 10_000_000;
   const netFlow = deposited - withdrawn;
+  const apy = data.estimated_apy ?? 0;
 
-  const volumeData = data.recent_events
-    .filter((e) => {
-      if (dateRange === "7d") return true;
-      return true;
-    })
-    .map((e) => ({
-      date: e.timestamp ? new Date(e.timestamp).toLocaleDateString() : `L${e.ledger}`,
-      deposit: e.type === "deposit" ? Number(e.amount) / 10_000_000 : 0,
-      withdraw: e.type === "withdraw" ? Number(e.amount) / 10_000_000 : 0,
-    }))
-    .reverse();
+  // Filter time-series to selected range
+  const rangeMs =
+    range === "7d" ? 7 * 86_400_000 : range === "30d" ? 30 * 86_400_000 : 90 * 86_400_000;
+  const cutoff = Date.now() - rangeMs;
 
-  const leaderboard = new Map<string, number>();
-  for (const event of data.recent_events) {
-    const current = leaderboard.get(event.address) ?? 0;
-    leaderboard.set(event.address, current + Number(event.amount));
-  }
-  const topContributors = Array.from(leaderboard.entries())
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 10);
+  const tvlSeries = (data.tvl_history ?? []).filter(
+    (p) => !p.date.startsWith("L") && new Date(p.date).getTime() >= cutoff,
+  );
+
+  const activitySeries = (data.activity ?? []).filter(
+    (p) => !p.date.startsWith("L") && new Date(p.date).getTime() >= cutoff,
+  );
+
+  const memberSeries = tvlSeries.map((p) => ({
+    date: p.date,
+    members: p.memberCount,
+  }));
+
+  // Formatted summary strings for screen readers
+  const tvlSummary = `TVL over ${range}: starts at ${fmtNum(tvlSeries[0]?.tvl ?? balance)} tokens and ends at ${fmtNum(tvlSeries[tvlSeries.length - 1]?.tvl ?? balance)} tokens.`;
+  const activitySummary = `Deposit and withdrawal activity over ${range}: ${activitySeries.length} data points.`;
+  const memberSummary = `Member count over ${range}: latest value ${fmtNum(memberSeries[memberSeries.length - 1]?.members ?? data.contributor_count)}.`;
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
+
+      {/* ── Stat cards ── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <SummaryCard label="Total Value Locked" value={`${formatAmount(balance)} tokens`} />
-        <SummaryCard label="Contributors" value={String(data.contributor_count)} />
-        <SummaryCard label="Total Deposited" value={`${formatAmount(deposited)} tokens`} />
-        <SummaryCard
+        <StatCard
+          id="stat-tvl"
+          label="Total Value Locked"
+          value={`${fmtNum(balance)}`}
+          unit="tokens"
+          icon="🏦"
+        />
+        <StatCard
+          id="stat-apy"
+          label="Estimated APY"
+          value={`${apy.toFixed(2)}%`}
+          unit="annualised"
+          icon="📈"
+          highlight={apy > 0}
+        />
+        <StatCard
+          id="stat-members"
+          label="Members"
+          value={String(data.contributor_count)}
+          unit="contributors"
+          icon="👥"
+        />
+        <StatCard
+          id="stat-net-flow"
           label="Net Flow"
-          value={`${netFlow >= 0 ? "+" : ""}${formatAmount(netFlow)} tokens`}
+          value={`${netFlow >= 0 ? "+" : ""}${fmtNum(netFlow)}`}
+          unit="tokens"
+          icon={netFlow >= 0 ? "⬆️" : "⬇️"}
           positive={netFlow >= 0}
         />
       </div>
 
+      {/* ── TVL area chart ── */}
+      <ChartCard
+        title="Total Value Locked"
+        subtitle={`Pool TVL over the last ${range}`}
+        summary={tvlSummary}
+        chartId="chart-tvl"
+      >
+        {tvlSeries.length === 0 ? (
+          <EmptyChart />
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={tvlSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="tvlGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={CHART_COLORS.tvl} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={CHART_COLORS.tvl} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+              <XAxis dataKey="date" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+              <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={60} />
+              <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => [`${fmtNum(v)} tokens`, "TVL"]} />
+              <Area
+                type="monotone"
+                dataKey="tvl"
+                stroke={CHART_COLORS.tvl}
+                strokeWidth={2}
+                fill="url(#tvlGrad)"
+                name="TVL"
+                dot={false}
+                activeDot={{ r: 4 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </ChartCard>
+
+      {/* ── Deposit / withdraw bar chart + Member count line chart ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Volume Chart */}
-        <ChartCard title="Contribution Volume" subtitle={`Deposit vs withdrawal volume`}>
-          {volumeData.length === 0 ? (
-            <p className="text-[var(--text-muted)] text-sm p-4">No volume data yet.</p>
+
+        {/* Deposit / withdrawal activity */}
+        <ChartCard
+          title="Deposit & Withdrawal Activity"
+          subtitle={`Daily volume over the last ${range}`}
+          summary={activitySummary}
+          chartId="chart-activity"
+        >
+          {activitySeries.length === 0 ? (
+            <EmptyChart />
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={volumeData}>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={activitySeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                <XAxis dataKey="date" tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
-                <YAxis tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
+                <XAxis dataKey="date" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+                <YAxis tick={AXIS_TICK} tickLine={false} axisLine={false} width={60} />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: "var(--bg-secondary)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "8px",
-                    color: "var(--text-primary)",
-                  }}
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(v: number, name: string) => [`${fmtNum(v)} tokens`, name]}
                 />
-                <Legend />
-                <Bar dataKey="deposit" fill="#4ECDC4" radius={[4, 4, 0, 0]} name="Deposits" />
-                <Bar dataKey="withdraw" fill="#FF6B5B" radius={[4, 4, 0, 0]} name="Withdrawals" />
+                <Legend wrapperStyle={{ fontSize: 12, color: "var(--text-secondary)" }} />
+                <Bar dataKey="deposits" name="Deposits" fill={CHART_COLORS.deposits} radius={[4, 4, 0, 0]} />
+                <Bar dataKey="withdrawals" name="Withdrawals" fill={CHART_COLORS.withdrawals} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </ChartCard>
 
-        {/* Balance Trend */}
-        <ChartCard title="Balance Trend" subtitle="Pool balance over time">
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={volumeData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="date" tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
-              <YAxis tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--bg-secondary)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  color: "var(--text-primary)",
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="deposit"
-                stroke="#7c3aed"
-                strokeWidth={2}
-                dot={false}
-                name="Deposits"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        {/* Top Contributors */}
-        <ChartCard title="Top Contributors" subtitle="Ranked by total amount">
-          {topContributors.length === 0 ? (
-            <p className="text-[var(--text-muted)] text-sm p-4">No contributors yet.</p>
+        {/* Member count */}
+        <ChartCard
+          title="Member Count"
+          subtitle={`Unique members over the last ${range}`}
+          summary={memberSummary}
+          chartId="chart-members"
+        >
+          {memberSeries.length === 0 ? (
+            <EmptyChart />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-[var(--bg-tertiary)]">
-                    <th className="text-left py-2 px-3 text-[var(--text-muted)] font-medium">#</th>
-                    <th className="text-left py-2 px-3 text-[var(--text-muted)] font-medium">
-                      Address
-                    </th>
-                    <th className="text-right py-2 px-3 text-[var(--text-muted)] font-medium">
-                      Amount
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topContributors.map(([address, amount], i) => (
-                    <tr
-                      key={address}
-                      className="border-b border-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] transition-colors"
-                    >
-                      <td className="py-2 px-3 text-[var(--text-muted)]">{i + 1}</td>
-                      <td className="py-2 px-3 font-mono text-[var(--text-primary)]">
-                        {truncateAddress(address)}
-                      </td>
-                      <td className="py-2 px-3 text-right font-semibold text-[var(--accent-teal)]">
-                        {formatAmount(BigInt(amount))} tokens
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </ChartCard>
-
-        {/* Recent Activity */}
-        <ChartCard title="Recent Activity" subtitle="Latest pool events">
-          {data.recent_events.length === 0 ? (
-            <p className="text-[var(--text-muted)] text-sm p-4">No recent activity.</p>
-          ) : (
-            <div className="space-y-3">
-              {data.recent_events.slice(0, 10).map((event, i) => (
-                <div
-                  key={`${event.ledger}-${i}`}
-                  className="flex items-center justify-between py-2 border-b border-[var(--bg-tertiary)] last:border-0"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded ${
-                        event.type === "deposit"
-                          ? "bg-green-900/30 text-green-400"
-                          : "bg-red-900/30 text-red-400"
-                      }`}
-                    >
-                      {event.type === "deposit" ? "↓ DEPOSIT" : "↑ WITHDRAW"}
-                    </span>
-                    <span className="font-mono text-sm text-[var(--text-primary)]">
-                      {truncateAddress(event.address)}
-                    </span>
-                  </div>
-                  <span className="text-sm font-semibold text-[var(--text-primary)]">
-                    {formatAmount(BigInt(event.amount))} tokens
-                  </span>
-                </div>
-              ))}
-            </div>
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={memberSeries} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                <XAxis dataKey="date" tick={AXIS_TICK} tickLine={false} axisLine={false} />
+                <YAxis
+                  tick={AXIS_TICK}
+                  tickLine={false}
+                  axisLine={false}
+                  width={40}
+                  allowDecimals={false}
+                />
+                <Tooltip
+                  contentStyle={TOOLTIP_STYLE}
+                  formatter={(v: number) => [v, "Members"]}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="members"
+                  stroke={CHART_COLORS.members}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
+                  name="Members"
+                />
+              </LineChart>
+            </ResponsiveContainer>
           )}
         </ChartCard>
       </div>
 
-      {/* Admin & Pool Info */}
-      <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-6">
-        <h3 className="text-lg font-semibold mb-3">Pool Info</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+      {/* ── Recent activity feed ── */}
+      <ChartCard
+        title="Recent Activity"
+        subtitle="Latest pool events"
+        summary={`${data.recent_events.length} recent events.`}
+        chartId="chart-recent"
+        noPad
+      >
+        {data.recent_events.length === 0 ? (
+          <p className="text-[var(--text-secondary)] text-sm p-6">No recent activity.</p>
+        ) : (
+          <div className="divide-y divide-[var(--border)]">
+            {data.recent_events.slice(0, 10).map((event, i) => (
+              <div
+                key={`${event.ledger}-${i}`}
+                className="flex items-center justify-between px-6 py-3 hover:bg-[var(--bg-card)] transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      event.type === "deposit"
+                        ? "bg-emerald-900/30 text-emerald-400"
+                        : "bg-red-900/30 text-red-400"
+                    }`}
+                  >
+                    {event.type === "deposit" ? "↓ DEPOSIT" : "↑ WITHDRAW"}
+                  </span>
+                  <span className="font-mono text-sm text-[var(--text-primary)]">
+                    {truncateAddress(event.address)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-semibold text-[var(--text-primary)]">
+                    {fmtNum(Number(BigInt(event.amount)) / 10_000_000)} tokens
+                  </span>
+                  {event.timestamp && (
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {new Date(event.timestamp).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ChartCard>
+
+      {/* ── Pool info footer ── */}
+      <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border)] p-6">
+        <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Pool Info</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
           <div>
-            <span className="text-[var(--text-muted)]">Token:</span>{" "}
-            <span className="font-mono">{truncateAddress(data.token, 8, 4)}</span>
+            <span className="text-[var(--text-secondary)]">Token: </span>
+            <span className="font-mono text-[var(--text-primary)]">
+              {truncateAddress(data.token, 8, 4)}
+            </span>
           </div>
           <div>
-            <span className="text-[var(--text-muted)]">Threshold:</span>{" "}
-            <span>
+            <span className="text-[var(--text-secondary)]">Threshold: </span>
+            <span className="text-[var(--text-primary)]">
               {data.threshold} / {data.admins.length} admins
             </span>
           </div>
           <div>
-            <span className="text-[var(--text-muted)]">Created:</span>{" "}
-            <span>Ledger {data.created_ledger}</span>
+            <span className="text-[var(--text-secondary)]">Created: </span>
+            <span className="text-[var(--text-primary)]">Ledger {data.created_ledger}</span>
           </div>
         </div>
       </div>
@@ -376,29 +420,47 @@ function AnalyticsDashboard({ data, dateRange }: { data: PoolAnalytics; dateRang
   );
 }
 
-function SummaryCard({
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function StatCard({
+  id,
   label,
   value,
+  unit,
+  icon,
+  highlight,
   positive,
 }: {
+  id: string;
   label: string;
   value: string;
+  unit: string;
+  icon: string;
+  highlight?: boolean;
   positive?: boolean;
 }) {
+  const valueColor =
+    positive === true
+      ? "text-emerald-400"
+      : positive === false
+        ? "text-red-400"
+        : highlight
+          ? "text-[var(--color-primary)]"
+          : "text-[var(--text-primary)]";
+
   return (
-    <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-4">
-      <p className="text-xs text-[var(--text-muted)] mb-1">{label}</p>
-      <p
-        className={`text-lg font-bold truncate ${
-          positive === true
-            ? "text-green-400"
-            : positive === false
-              ? "text-red-400"
-              : "text-[var(--text-primary)]"
-        }`}
-      >
-        {value}
-      </p>
+    <div
+      id={id}
+      className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border)] p-4 flex flex-col gap-2"
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wide">
+          {label}
+        </p>
+        <span className="text-lg" aria-hidden="true">{icon}</span>
+      </div>
+      <p className={`text-2xl font-bold truncate ${valueColor}`}>{value}</p>
+      <p className="text-xs text-[var(--text-secondary)]">{unit}</p>
     </div>
   );
 }
@@ -406,42 +468,78 @@ function SummaryCard({
 function ChartCard({
   title,
   subtitle,
+  summary,
+  chartId,
   children,
+  noPad,
 }: {
   title: string;
   subtitle: string;
+  summary: string;
+  chartId: string;
   children: React.ReactNode;
+  noPad?: boolean;
 }) {
   return (
-    <div className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--bg-tertiary)] p-6">
-      <h3 className="text-lg font-semibold mb-1">{title}</h3>
-      <p className="text-sm text-[var(--text-muted)] mb-4">{subtitle}</p>
-      {children}
+    <section
+      className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border)] overflow-hidden"
+      aria-labelledby={`${chartId}-title`}
+    >
+      <div className="px-6 pt-6 pb-4">
+        <h2
+          id={`${chartId}-title`}
+          className="text-base font-semibold text-[var(--text-primary)]"
+        >
+          {title}
+        </h2>
+        <p className="text-xs text-[var(--text-secondary)] mt-0.5">{subtitle}</p>
+      </div>
+
+      {/* Chart area — role="img" with aria-label for screen readers */}
+      <div
+        role="img"
+        aria-label={`${title} chart. ${summary}`}
+        className={noPad ? "" : "px-2 pb-6"}
+      >
+        {children}
+      </div>
+
+      {/* Visually hidden text summary for screen readers */}
+      <p className="sr-only">{summary}</p>
+    </section>
+  );
+}
+
+function EmptyChart() {
+  return (
+    <div className="flex items-center justify-center h-40 text-[var(--text-secondary)] text-sm">
+      No data available for this range.
     </div>
   );
 }
 
 function LoadingSkeleton() {
   return (
-    <div className="space-y-6">
+    <section className="space-y-6" aria-busy="true" aria-label="Loading analytics">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="animate-pulse bg-[var(--bg-secondary)] rounded-2xl p-4 h-24" />
+          <div key={i} className="animate-pulse bg-[var(--bg-secondary)] rounded-2xl p-4 h-28 border border-[var(--border)]" />
         ))}
       </div>
+      <div className="animate-pulse bg-[var(--bg-secondary)] rounded-2xl h-80 border border-[var(--border)]" />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {[1, 2].map((i) => (
-          <div key={i} className="animate-pulse bg-[var(--bg-secondary)] rounded-2xl p-6 h-80" />
+          <div key={i} className="animate-pulse bg-[var(--bg-secondary)] rounded-2xl h-72 border border-[var(--border)]" />
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
-function formatAmount(value: bigint): string {
-  const divisor = BigInt(10_000_000);
-  const whole = value / divisor;
-  const frac = value % divisor;
-  if (frac === BigInt(0)) return whole.toString();
-  return `${whole}.${frac.toString().padStart(7, "0").replace(/0+$/, "")}`;
+// ── Formatting ─────────────────────────────────────────────────────────────────
+
+function fmtNum(value: number): string {
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toFixed(2)}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toFixed(2)}K`;
+  return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }

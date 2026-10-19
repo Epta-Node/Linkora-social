@@ -7,6 +7,7 @@ import {
   Alert 
 } from 'react-native';
 import { useFollow } from '../hooks/useFollow';
+import { impact } from '../utils/haptics';
 
 interface FollowButtonProps {
   targetAddress: string;
@@ -37,7 +38,10 @@ export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => 
         styles.button, 
         isFollowing ? styles.followingButton : styles.followButton
       ]} 
-      onPress={toggleFollow}
+      onPress={() => {
+        void impact("light");
+        void toggleFollow();
+      }}
       disabled={isLoading}
       activeOpacity={0.7}
     >

@@ -1,11 +1,13 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
   View,
+  Text,
   AppState,
+  ViewToken,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { PostCard, Post } from "../../components/PostCard";
@@ -15,6 +17,7 @@ import { ErrorState } from "../../components/states/ErrorState";
 import { useFeed } from "../../hooks/useFeed";
 import { useTheme } from "../../theme/useTheme";
 import { evictStaleCache } from "../../utils/db";
+import { trackPostViewed } from "../../utils/analytics";
 
 const SKELETON_COUNT = 4;
 
@@ -32,6 +35,27 @@ export default function FeedScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { posts, loading, error, loadMore, refresh } = useFeed();
+  const viewTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const viewed = useRef(new Set<string>());
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+    const visible = new Set(viewableItems.map((token) => String((token.item as Post).id)));
+    visible.forEach((postId) => {
+      if (viewed.current.has(postId) || viewTimers.current.has(postId)) return;
+      viewTimers.current.set(postId, setTimeout(() => {
+        viewed.current.add(postId);
+        viewTimers.current.delete(postId);
+        trackPostViewed({ postId, durationMs: 2000 });
+      }, 2000));
+    });
+    viewTimers.current.forEach((timer, postId) => {
+      if (!visible.has(postId)) {
+        clearTimeout(timer);
+        viewTimers.current.delete(postId);
+      }
+    });
+  }).current;
+
+  useEffect(() => () => viewTimers.current.forEach(clearTimeout), []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
@@ -84,10 +108,16 @@ export default function FeedScreen() {
             color={theme.colors.brand.primary}
             size="small"
           />
-        ) : null
+        ) : !loading && posts.length > 0 ? <View style={styles.end}><Text style={styles.endText}>You are all caught up</Text></View> : null
       }
       onEndReached={loadMore}
       onEndReachedThreshold={0.4}
+      windowSize={11}
+      maxToRenderPerBatch={5}
+      initialNumToRender={5}
+      maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+      viewabilityConfig={{ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }}
+      onViewableItemsChanged={onViewableItemsChanged}
       refreshControl={
         <RefreshControl
           refreshing={loading && posts.length > 0}
@@ -121,4 +151,6 @@ const styles = StyleSheet.create({
   footer: {
     paddingVertical: 16,
   },
+  end: { padding: 20, alignItems: "center" },
+  endText: { color: "#94a3b8" },
 });

@@ -2,47 +2,62 @@ openapi: "3.1.0"
 info:
   title: Linkora Indexer API
   version: "0.1.0"
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit/
   description: |
     REST API for querying indexed on-chain data from the Linkora protocol.
 
     Paths are absolute against the service root (the first server below), so
     `/api/profiles/{address}` is served at `http://localhost:3001/api/profiles/{address}`.
 
-    Every route mounted by `createApp()` in `src/api/index.ts` is documented
-    here. The unit test `src/api/__tests__/openapi.test.ts` walks the mounted
-    Express routes and fails when one has no OpenAPI entry (or an OpenAPI entry
-    has no route), so the two cannot drift apart.
+    Every REST API route mounted by `createApp()` in `src/api/index.ts` is
+    documented here. The development-only `/api/docs` and `/api/openapi.yaml`
+    helper routes are excluded. The unit test
+    `src/api/__tests__/openapi.test.ts` walks the mounted Express routes and
+    fails when a REST route has no OpenAPI entry (or an OpenAPI entry has no
+    route), so the two cannot drift apart.
 
     ## Authentication
 
-    Endpoints tagged **Auth: StellarSig** require the `Authorization` header
-    described under `components.securitySchemes.StellarSig`. All other
-    endpoints are public reads (some of them still subject to rate limiting).
-    `StellarSig` is accepted but not required on `GET` endpoints, where
-    `optionalStellarAuth` populates the caller's address so the rate limiter
-    can select the per-address bucket.
+    Operations declaring `security: StellarSig` require the `Authorization`
+    header described under `components.securitySchemes.StellarSig`. Other
+    endpoints are public (some are still subject to rate limiting).
+    Public API reads accept an optional `StellarSig` header;
+    `optionalStellarAuth` then populates the caller's address so the rate
+    limiter can select the per-address bucket.
 
 servers:
   - url: http://localhost:3001
     description: Local development server (service root)
 
-security:
-  - StellarSig: []
+security: []
 
 tags:
   - name: Health
     description: Liveness, readiness and startup probes plus Prometheus metrics.
   - name: Profiles
+    description: Indexed profile lookups.
   - name: Posts
+    description: Post lookups, reports, and media uploads.
   - name: Feed
+    description: Home, explore, and following feeds.
   - name: Search
+    description: Full-text post search.
   - name: Follows
+    description: Follower and following lists.
   - name: Pools
+    description: Tip pool details and analytics.
   - name: Governance
+    description: Indexed governance proposals.
   - name: Users
+    description: User block lists and published direct-message keys.
   - name: Notifications
+    description: Device registration, preferences, and notification inbox.
   - name: State Root
+    description: Computed ledger state-root records.
   - name: Messages
+    description: Direct-message submission.
 
 paths:
   # ── Health / metrics (mounted outside /api) ─────────────────────────────────
@@ -187,6 +202,9 @@ paths:
       summary: Get profile by address
       operationId: getProfile
       tags: [Profiles]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/address"
       responses:
@@ -207,6 +225,9 @@ paths:
       summary: List posts
       operationId: listPosts
       tags: [Posts]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - name: author
           in: query
@@ -237,6 +258,9 @@ paths:
       summary: Get post by ID
       operationId: getPost
       tags: [Posts]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/postId"
       responses:
@@ -258,6 +282,9 @@ paths:
       summary: List reports filed against a post
       operationId: listPostReports
       tags: [Posts]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/postId"
         - $ref: "#/components/parameters/limit"
@@ -280,7 +307,9 @@ paths:
       summary: Media upload configuration
       operationId: getMediaConfig
       tags: [Posts]
-      security: []
+      security:
+        - StellarSig: []
+        - {}
       responses:
         "200":
           description: Upload limits accepted by this instance.
@@ -301,6 +330,8 @@ paths:
       summary: Upload post media
       operationId: uploadPostMedia
       tags: [Posts]
+      security:
+        - StellarSig: []
       description: Requires a valid `StellarSig` header (write endpoint).
       requestBody:
         required: true
@@ -325,6 +356,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "413":
           description: Upload exceeds `max_upload_bytes`.
           content:
@@ -338,6 +371,9 @@ paths:
       summary: Home feed
       operationId: getFeed
       tags: [Feed]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - name: viewer
           in: query
@@ -373,6 +409,9 @@ paths:
       summary: Explore feed
       operationId: getExploreFeed
       tags: [Feed]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - name: limit
           in: query
@@ -405,6 +444,9 @@ paths:
       summary: Following feed
       operationId: getFollowingFeed
       tags: [Feed]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/address"
         - name: limit
@@ -439,6 +481,9 @@ paths:
       summary: Search posts
       operationId: searchPosts
       tags: [Search]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - name: q
           in: query
@@ -465,6 +510,9 @@ paths:
       summary: Get followers of an address
       operationId: getFollowers
       tags: [Follows]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/address"
         - $ref: "#/components/parameters/limit"
@@ -484,6 +532,9 @@ paths:
       summary: Get accounts followed by an address
       operationId: getFollowing
       tags: [Follows]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/address"
         - $ref: "#/components/parameters/limit"
@@ -504,7 +555,9 @@ paths:
       summary: List pools
       operationId: listPools
       tags: [Pools]
-      security: []
+      security:
+        - StellarSig: []
+        - {}
       responses:
         "200":
           description: All tip pools.
@@ -523,6 +576,9 @@ paths:
       summary: Get pool by ID
       operationId: getPool
       tags: [Pools]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/poolId"
       responses:
@@ -542,6 +598,9 @@ paths:
       summary: Pool analytics
       operationId: getPoolAnalytics
       tags: [Pools]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/poolId"
       responses:
@@ -563,6 +622,9 @@ paths:
       summary: List governance proposals
       operationId: listProposals
       tags: [Governance]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/cursor"
@@ -588,6 +650,9 @@ paths:
       summary: List accounts blocked by an address
       operationId: getBlocked
       tags: [Users]
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/address"
         - name: offset
@@ -612,7 +677,9 @@ paths:
       summary: Get the published X25519 DM key for an address
       operationId: getDmKey
       tags: [Users]
-      security: []
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - $ref: "#/components/parameters/address"
       responses:
@@ -625,10 +692,8 @@ paths:
                 properties:
                   address:
                     type: string
-                  public_key:
+                  x25519_pubkey:
                     type: string
-                  updated_ledger:
-                    type: integer
         "400":
           $ref: "#/components/responses/ValidationError"
         "404":
@@ -640,6 +705,8 @@ paths:
       summary: Register a device push token
       operationId: registerDevice
       tags: [Notifications]
+      security:
+        - StellarSig: []
       description: Requires a valid `StellarSig` header (write endpoint).
       requestBody:
         required: true
@@ -647,33 +714,33 @@ paths:
           application/json:
             schema:
               type: object
-              required: [endpoint, publicKey]
+              required: [address, token, platform]
               properties:
-                endpoint:
+                address:
                   type: string
-                publicKey:
+                  description: Must match the signer address.
+                token:
                   type: string
-                deviceType:
+                platform:
                   type: string
-                  enum: [web, mobile]
+                  enum: [ios, android, web]
       responses:
-        "200":
+        "204":
           description: Token registered.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: true
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /api/notifications/deregister:
     post:
       summary: Remove a device push token
       operationId: deregisterDevice
       tags: [Notifications]
+      security:
+        - StellarSig: []
       description: Requires a valid `StellarSig` header (write endpoint).
       requestBody:
         required: true
@@ -681,28 +748,30 @@ paths:
           application/json:
             schema:
               type: object
-              required: [endpoint]
+              required: [address, token]
               properties:
-                endpoint:
+                address:
+                  type: string
+                  description: Must match the signer address.
+                token:
                   type: string
       responses:
-        "200":
+        "204":
           description: Token removed.
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: true
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /api/notifications/preferences:
     get:
       summary: Get notification preferences
       operationId: getNotificationPreferences
       tags: [Notifications]
+      security:
+        - StellarSig: []
       description: Requires a valid `StellarSig` header (the caller's own preferences).
       responses:
         "200":
@@ -716,10 +785,14 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
     post:
       summary: Update notification preferences
       operationId: updateNotificationPreferences
       tags: [Notifications]
+      security:
+        - StellarSig: []
       description: Requires a valid `StellarSig` header (write endpoint).
       requestBody:
         required: true
@@ -727,7 +800,38 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: true
+              required: [preferences]
+              properties:
+                preferences:
+                  type: object
+                  properties:
+                    browserPushEnabled:
+                      type: boolean
+                      default: false
+                    newFollowers:
+                      type: boolean
+                      default: true
+                    newLikes:
+                      type: boolean
+                      default: true
+                    newComments:
+                      type: boolean
+                      default: true
+                    directMessages:
+                      type: boolean
+                      default: true
+                    poolActivity:
+                      type: boolean
+                      default: true
+                    governanceUpdates:
+                      type: boolean
+                      default: true
+                subscription:
+                  description: Push subscription used when browser push is enabled.
+                  oneOf:
+                    - type: string
+                    - type: object
+                      additionalProperties: true
       responses:
         "200":
           description: Preferences updated.
@@ -740,13 +844,17 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   /api/notifications/inbox/{address}:
     get:
       summary: List a recipient's notifications
       operationId: listNotifications
       tags: [Notifications]
-      security: []
+      security:
+        - StellarSig: []
+        - {}
       description: >-
         Follows of the recipient and likes/tips on their posts, newest first.
         Derived from public on-chain data, so no signature is required. Pages use
@@ -796,15 +904,12 @@ paths:
                         actor:
                           type: string
                         post_id:
-                          type: integer
-                          nullable: true
+                          type: [integer, "null"]
                         amount:
-                          type: string
-                          nullable: true
+                          type: [string, "null"]
                           description: Tip amount in the token's base units.
                         excerpt:
-                          type: string
-                          nullable: true
+                          type: [string, "null"]
                         created_at:
                           type: string
                           format: date-time
@@ -813,8 +918,7 @@ paths:
                   has_more:
                     type: boolean
                   next_cursor:
-                    type: string
-                    nullable: true
+                    type: [string, "null"]
         "400":
           $ref: "#/components/responses/ValidationError"
 
@@ -823,6 +927,8 @@ paths:
       summary: Mark every notification as read
       operationId: markAllNotificationsRead
       tags: [Notifications]
+      security:
+        - StellarSig: []
       description: >-
         Requires a valid `StellarSig` header. Moves the caller's read watermark
         to now; every notification at or before it is reported as read.
@@ -839,6 +945,8 @@ paths:
                     format: date-time
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   # ── State root ──────────────────────────────────────────────────────────────
   /api/state-root:
@@ -846,7 +954,9 @@ paths:
       summary: Get the computed state root for a ledger
       operationId: getStateRoot
       tags: [State Root]
-      security: []
+      security:
+        - StellarSig: []
+        - {}
       parameters:
         - name: ledger
           in: query
@@ -880,9 +990,10 @@ paths:
       summary: Submit a direct message
       operationId: postMessage
       tags: [Messages]
+      security:
+        - StellarSig: []
       description: |
-        Requires a valid `StellarSig` header (write endpoint) **and** the
-        `X-Idempotency-Key` header.
+        Requires a valid `StellarSig` header (write endpoint).
       requestBody:
         required: true
         content:
@@ -914,6 +1025,8 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
 components:
   securitySchemes:
@@ -1027,8 +1140,7 @@ components:
         created_ledger:
           type: integer
         deleted_ledger:
-          type: integer
-          nullable: true
+          type: [integer, "null"]
 
     PostList:
       type: object
@@ -1043,8 +1155,7 @@ components:
         limit:
           type: integer
         cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
         has_more:
           type: boolean
 
@@ -1063,11 +1174,9 @@ components:
         limit:
           type: integer
         cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
 
     FollowingList:
       type: object
@@ -1084,11 +1193,9 @@ components:
         limit:
           type: integer
         cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, "null"]
 
     Pool:
       type: object
@@ -1119,7 +1226,7 @@ components:
       properties:
         code:
           type: string
-          description: Machine-readable error code from the taxonomy (VALIDATION_ERROR, NOT_FOUND, UNAUTHORIZED, FORBIDDEN, CONFLICT, RATE_LIMITED, INTERNAL_ERROR, SERVICE_UNAVAILABLE).
+          description: Machine-readable error code. Includes VALIDATION_ERROR, INVALID_AUTH_HEADER, INVALID_TIMESTAMP, EXPIRED_TIMESTAMP, INVALID_SIGNATURE, REPLAYED_SIGNATURE, NOT_FOUND, UNAUTHORIZED, FORBIDDEN, CONFLICT, RATE_LIMITED, INTERNAL_ERROR, SERVICE_UNAVAILABLE, and SHUTTING_DOWN.
         message:
           type: string
           description: Human-readable error message.
@@ -1171,7 +1278,7 @@ components:
               message: Resource not found
               requestId: abc123
     Unauthorized:
-      description: Missing or invalid authentication
+      description: Signature verification failed.
       content:
         application/json:
           schema:
@@ -1180,6 +1287,17 @@ components:
             error:
               code: UNAUTHORIZED
               message: Invalid signature
+              requestId: abc123
+    Forbidden:
+      description: Signature timestamp is invalid or expired, signature was replayed, or the caller is not allowed to perform the operation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: EXPIRED_TIMESTAMP
+              message: Signature timestamp is outside the accepted window
               requestId: abc123
     InternalError:
       description: Unexpected server error

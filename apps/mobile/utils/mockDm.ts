@@ -141,6 +141,9 @@ export class DmService {
     const keypair = generateDmKeypair();
     await this.persistKeypair(keypair);
     publishedKeys.set(this.userAddress, keypair.publicKey);
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: "publish_key", address: this.userAddress, public_key: toBase64(keypair.publicKey) }));
+    }
   }
 
   /** Whether this device has a verified/published key for `otherAddress` yet. */
@@ -227,6 +230,9 @@ export class DmService {
     for (const listener of messageListeners) {
       listener(relayEvent);
     }
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(relayEvent));
+    }
   }
 
   connectRealTime(): void {
@@ -238,12 +244,24 @@ export class DmService {
     this.ws.onopen = () => {
       if (this.ws) {
         this.ws.send(JSON.stringify({ type: "subscribe", address: this.userAddress }));
+        if (this.keypair) this.ws.send(JSON.stringify({ type: "publish_key", address: this.userAddress, public_key: toBase64(this.keypair.publicKey) }));
       }
     };
 
     this.ws.onmessage = (event: MessageEvent) => {
       try {
         const payload = JSON.parse(event.data as string) as Record<string, unknown>;
+        if (payload.type === "new_message" && payload.recipient === this.userAddress && typeof payload.id === "string") {
+          void this.persistMessage(conversationKey(String(payload.sender), this.userAddress), {
+            id: payload.id,
+            sender: String(payload.sender),
+            recipient: this.userAddress,
+            ciphertext_b64: String(payload.ciphertext_b64 ?? ""),
+            message_index: Number(payload.message_index ?? Date.now()),
+            timestamp: Number(payload.timestamp ?? Math.floor(Date.now() / 1000)),
+            created_at: new Date().toISOString(),
+          });
+        }
         for (const listener of messageListeners) {
           listener(payload);
         }

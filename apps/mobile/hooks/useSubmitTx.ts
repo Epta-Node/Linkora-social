@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useToast } from "../context/ToastContext";
 import { useNetworkContext } from "../context/NetworkContext";
 import { buildTxXdr } from "../utils/txDescriptors";
+import { notification } from "../utils/haptics";
 
 // ---------------------------------------------------------------------------
 // Types for the Soroban RPC responses we care about
@@ -201,6 +202,7 @@ export function useSubmitTx() {
         showSuccess(submission.hash);
         return submission.hash;
       } catch (err) {
+        void notification("error");
         const msg = err instanceof Error ? err.message : "Failed to submit transaction";
         showError(msg);
         throw err;

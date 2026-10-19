@@ -75,6 +75,7 @@ interface WalletConnectLike {
   disconnect: () => Promise<void>;
   getPublicKey?: () => Promise<string>;
   isConnected?: () => Promise<boolean>;
+  connectWithUri?: (uri: string, network: NetworkPreset) => Promise<{ publicKey?: string; address?: string }>;
   signTransaction?: (payload: { txXdr: string }) => Promise<WalletSignResult>;
   signAndSubmitTransaction?: (payload: {
     txXdr: string;
@@ -159,6 +160,30 @@ async function createWalletConnectAdapter(): Promise<WalletConnectLike> {
       if (!currentAddress) throw new Error("No Stellar account returned from WalletConnect");
 
       return { publicKey: currentAddress };
+    },
+
+    async connectWithUri(uri: string, network: NetworkPreset) {
+      if (!projectId) throw new Error("WalletConnect project id not configured");
+      client = client ?? (await SignClient.init({
+        projectId,
+        metadata: { name: "Linkora", description: "Linkora SocialFi mobile app", url: "https://linkora.social", icons: [] },
+      }));
+      if (!uri.startsWith("wc:")) throw new Error("Invalid WalletConnect pairing URI");
+      await client.pair({ uri });
+      const deadline = Date.now() + 120000;
+      while (Date.now() < deadline) {
+        const sessions = client.session.getAll();
+        const session = sessions[sessions.length - 1];
+        const account = session?.namespaces.stellar?.accounts?.[0]?.split(":").pop();
+        if (session && account) {
+          topic = session.topic;
+          currentAddress = account;
+          connectedNetwork = network;
+          return { publicKey: account };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      throw new Error("WalletConnect pairing timed out");
     },
 
     async disconnect() {
@@ -252,6 +277,7 @@ export interface WalletContextType {
   network: WalletNetwork;
   error: string | null;
   connect: (provider?: WalletProviderKind) => Promise<void>;
+  connectWithPairingUri: (uri: string) => Promise<void>;
   disconnect: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -624,6 +650,24 @@ export function WalletProvider({ children }: { children: ReactNode }): JSX.Eleme
     [persistSession, requestFreighterAddress, selectedNetwork, walletKit]
   );
 
+  const connectWithPairingUri = useCallback(async (uri: string) => {
+    if (!walletKit?.connectWithUri) throw new Error("WalletConnect QR pairing is not available");
+    try {
+      setState("connecting");
+      setError(null);
+      const result = await walletKit.connectWithUri(uri, selectedNetwork);
+      const address = result.publicKey ?? result.address ?? (walletKit.getPublicKey ? await walletKit.getPublicKey() : null);
+      if (!address || !isStellarAddress(address)) throw new Error("WalletConnect returned no Stellar address");
+      await persistSession(address, "walletconnect");
+      setWallet({ address, network: selectedNetwork.id, provider: "walletconnect" });
+      setState("connected");
+    } catch (err) {
+      setState("error");
+      setError(err instanceof Error ? err.message : "WalletConnect QR pairing failed");
+      throw err;
+    }
+  }, [persistSession, selectedNetwork, walletKit]);
+
   const disconnect = useCallback(async () => {
     const currentAddress = wallet.address;
     const currentProvider = wallet.provider;
@@ -656,10 +700,11 @@ export function WalletProvider({ children }: { children: ReactNode }): JSX.Eleme
       network,
       error,
       connect,
+      connectWithPairingUri,
       disconnect,
       refresh,
     }),
-    [state, wallet, network, error, connect, disconnect, refresh]
+    [state, wallet, network, error, connect, connectWithPairingUri, disconnect, refresh]
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

@@ -21,6 +21,7 @@ import { useNetworkContext } from "../../context/NetworkContext";
 import { addOptimisticPost } from "../../utils/db";
 import { getSyncPendingPostsOptions, syncPendingPosts } from "../../utils/sync";
 import { notifyFeedUpdate } from "../../hooks/useFeed";
+import { impact } from "../../utils/haptics";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ export default function CreatePostScreen() {
 
       dismissToast();
       showSuccess(localId);
+      await impact("heavy");
 
       // 3. Navigate back to feed immediately
       router.replace("/(tabs)/feed" as Parameters<typeof router.replace>[0]);
@@ -76,6 +78,7 @@ export default function CreatePostScreen() {
         notifyFeedUpdate();
       });
     } catch (err) {
+      await impact("heavy");
       dismissToast();
       showError(err instanceof Error ? err.message : "Failed to publish post.");
       setSubmitting(false);

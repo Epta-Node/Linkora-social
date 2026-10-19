@@ -155,3 +155,12 @@ export const themes: Record<ColorScheme, ThemeTokens> = {
     radius,
   },
 };
+import { DynamicColorIOS, PlatformColor } from "react-native";
+
+
+/** Platform semantic colors are available to native surfaces that need to follow
+ * the OS appearance while the token sets provide deterministic app styling. */
+export const platformColors = {
+  background: DynamicColorIOS({ light: lightColors.surface.background, dark: darkColors.surface.background }),
+  label: PlatformColor("label"),
+};

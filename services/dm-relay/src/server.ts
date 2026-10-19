@@ -24,7 +24,6 @@ import {
   validateContentType,
 } from "./middleware";
 import {
-  rateLimitMiddleware,
   initRateLimiters,
   closeRateLimiters,
   isWsIpRateLimited,

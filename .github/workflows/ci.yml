@@ -7,6 +7,21 @@ on:
   pull_request:
 
 jobs:
+  openapi:
+    name: Lint Indexer OpenAPI contract
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+
+      - name: Lint OpenAPI specification
+        run: npx --yes @redocly/cli lint docs/api/indexer.openapi.yaml
+
   js-ci:
     name: JS/TS — typecheck, test, build
     runs-on: ubuntu-latest

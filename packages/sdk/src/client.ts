@@ -1486,11 +1486,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
    * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
    * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
    */
-  async prepareBlockUserTx(
-    blocker: string,
-    blocked: string,
-    horizonUrl?: string
-  ): Promise<string> {
+  async prepareBlockUserTx(blocker: string, blocked: string, horizonUrl?: string): Promise<string> {
     ensureAddress(blocker, "blocker");
     ensureAddress(blocked, "blocked");
     const sourceAccount = await this.getAccountForTx(blocker, horizonUrl);
@@ -1944,7 +1940,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     ensureNonEmptyString(poolId, "poolId");
     ensurePositiveInteger(amount, "amount");
     ensureAddress(recipient, "recipient");
-    const sourceAccount = await this.getAccountForTx(signers[0], horizonUrl);
+    const sourceAccount = await this.getAccountForTx(signers[0]!, horizonUrl);
     const tx = await this.prepareTransaction(
       "pool_withdraw",
       sourceAccount,

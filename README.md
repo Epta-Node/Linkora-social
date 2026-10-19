@@ -103,6 +103,7 @@ schema snapshot after an intentional change.
 | [Mobile UI Spec](./docs/design/MOBILE_SPEC.md)                   | Screen inventory, components, tokens, accessibility       |
 | [Mobile Developer Guide](./docs/mobile/DEVELOPER_GUIDE.md)       | Expo setup, simulators, EAS builds                        |
 | [Indexer Design](./docs/indexer/INDEXER_DESIGN.md)               | Event indexing strategy and search API                    |
+| [Indexer OpenAPI Spec](./docs/api/indexer.openapi.yaml)           | REST API schema, authentication, and response definitions  |
 | [Indexer Migrations](./services/indexer/migrations/README.md)    | Migration rules, reversibility policy, and testing        |
 | [Mini Apps Developer Guide](./docs/mini-apps/DEVELOPER_GUIDE.md) | Build and submit a Linkora mini app                       |
 | [Mini Apps Bridge API](./docs/mini-apps/BRIDGE_API.md)           | Bridge method reference                                   |

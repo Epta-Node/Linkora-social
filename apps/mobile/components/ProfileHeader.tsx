@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { AccessibilityInfo, Pressable, StyleSheet, Text, View } from "react-native";
+import Animated from "react-native-reanimated";
 
 import { useTheme } from "../theme/useTheme";
 
@@ -42,23 +43,30 @@ export default function ProfileHeader({
 }: Props) {
   const { theme } = useTheme();
   const styles = useMemo(() => createStyles(theme), [theme]);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => undefined);
+  }, []);
 
   const shortAddress = `${profile.address.slice(0, 8)}…${profile.address.slice(-6)}`;
 
   return (
     <View style={styles.container}>
       <View style={styles.row}>
-        <View
+        <Animated.View
           style={styles.avatar}
+          sharedTransitionTag={reduceMotion ? undefined : `avatar-${profile.address}`}
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         >
           <Text style={styles.avatarText}>
             {(profile.username ?? "").charAt(0).toUpperCase() || "?"}
           </Text>
-        </View>
+        </Animated.View>
         <View style={styles.meta}>
-          <Text style={styles.username}>{profile.username ?? shortAddress}</Text>
+          <Animated.Text style={styles.username} sharedTransitionTag={reduceMotion ? undefined : `username-${profile.address}`}>
+            {profile.username ?? shortAddress}
+          </Animated.Text>
           <Text style={styles.address}>{shortAddress}</Text>
           {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
         </View>

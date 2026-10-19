@@ -138,7 +138,7 @@ export class InMemoryRateLimitStore implements RateLimitStore {
     // Timestamps are stored in ascending order, so the first in-window entry
     // is the oldest. Never spread into Math.min — a large window would blow
     // the call-stack argument limit.
-    return inWindow[0];
+    return inWindow[0] ?? null;
   }
 
   async clear(): Promise<void> {
@@ -247,7 +247,11 @@ export class RedisRateLimitStore implements RateLimitStore {
     if (!results || results.length === 0) return null;
 
     // Member format: "<timestampMs>-<random>"; score == timestampMs
-    return parseInt(results[0].split("-")[0], 10);
+    const first = results[0];
+    if (!first) return null;
+    const tsPart = first.split("-")[0];
+    if (!tsPart) return null;
+    return parseInt(tsPart, 10);
   }
 
   async clear(): Promise<void> {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
+import { impact } from "../utils/haptics";
 
 export interface UseLikeOptions {
   postId: number | string;
@@ -65,6 +66,7 @@ export function useLike({
     try {
       const postIdString = String(postId);
       await submitTx(`like_post:${address}:${postIdString}`);
+      await impact("medium");
       return true;
     } catch (err) {
       setLiked(false);
