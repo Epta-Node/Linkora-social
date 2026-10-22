@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { VerificationBadge, type VerificationLevel } from "@/components/VerificationBadge";
 import { ResponsiveImage } from "@/components/ui/ResponsiveImage";
+import { useReducedMotion } from "@/hooks/useReducedMotion";
 
 export interface Post {
   id: string | number;

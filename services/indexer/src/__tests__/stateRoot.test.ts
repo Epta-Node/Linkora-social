@@ -12,7 +12,14 @@
  * 6. Benchmark: per-batch cost is near-constant as table grows.
  */
 
-import { merkleRoot, computeStateRoot, xorHex, extractDeltas, applyStateRootDelta } from "../stateRoot";
+import { createHash } from "crypto";
+import {
+  merkleRoot,
+  computeStateRoot,
+  xorHex,
+  extractDeltas,
+  applyStateRootDelta,
+} from "../stateRoot";
 import { Pool as PgPool } from "pg";
 import type { IngestEvent } from "../pipeline";
 
@@ -81,10 +88,10 @@ describe("computeStateRoot determinism", () => {
 
   it("produces identical roots for the same data on two independent calls", async () => {
     const syntheticRows = {
-      posts:    { rows: [{ h: "posthash1" }, { h: "posthash2" }] },
-      follows:  { rows: [{ h: "followhash1" }] },
+      posts: { rows: [{ h: "posthash1" }, { h: "posthash2" }] },
+      follows: { rows: [{ h: "followhash1" }] },
       profiles: { rows: [{ h: "profilehash1" }, { h: "profilehash2" }] },
-      pools:    { rows: [] },
+      pools: { rows: [] },
     };
 
     const root1 = await computeStateRoot(buildMockPg(syntheticRows));
@@ -96,16 +103,16 @@ describe("computeStateRoot determinism", () => {
 
   it("produces different roots when data differs", async () => {
     const rowsA = {
-      posts:    { rows: [{ h: "posthash1" }] },
-      follows:  { rows: [] },
+      posts: { rows: [{ h: "posthash1" }] },
+      follows: { rows: [] },
       profiles: { rows: [] },
-      pools:    { rows: [] },
+      pools: { rows: [] },
     };
     const rowsB = {
-      posts:    { rows: [{ h: "posthash_DIFFERENT" }] },
-      follows:  { rows: [] },
+      posts: { rows: [{ h: "posthash_DIFFERENT" }] },
+      follows: { rows: [] },
       profiles: { rows: [] },
-      pools:    { rows: [] },
+      pools: { rows: [] },
     };
 
     const rootA = await computeStateRoot(buildMockPg(rowsA));
@@ -135,7 +142,9 @@ describe("extractDeltas", () => {
   });
 
   it("emits a posts delta for post_created", () => {
-    const deltas = extractDeltas([makeEvent("post_created", { id: "42", author: "GTEST", content: "hello" })]);
+    const deltas = extractDeltas([
+      makeEvent("post_created", { id: "42", author: "GTEST", content: "hello" }),
+    ]);
     expect(deltas).toHaveLength(1);
     expect(deltas[0].tableName).toBe("posts");
     expect(deltas[0].rowKey).toBe("post:42");
@@ -197,10 +206,10 @@ describe("applyStateRootDelta", () => {
 
     // In-memory state
     const accumulators: Record<string, string> = {
-      posts:              ZERO,
-      follows:            ZERO,
-      profiles:           ZERO,
-      pools:              ZERO,
+      posts: ZERO,
+      follows: ZERO,
+      profiles: ZERO,
+      pools: ZERO,
       __bootstrap_done__: ZERO,
     };
     const rowHashes: Map<string, string> = new Map(); // "table:key" → hash
@@ -209,22 +218,28 @@ describe("applyStateRootDelta", () => {
     const mockClient = {
       query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
         // BEGIN / COMMIT / ROLLBACK
-        if (/^\s*BEGIN/i.test(sql)) { return { rows: [], rowCount: 0 }; }
-        if (/^\s*COMMIT/i.test(sql)) { return { rows: [], rowCount: 0 }; }
-        if (/^\s*ROLLBACK/i.test(sql)) { return { rows: [], rowCount: 0 }; }
+        if (/^\s*BEGIN/i.test(sql)) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (/^\s*COMMIT/i.test(sql)) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (/^\s*ROLLBACK/i.test(sql)) {
+          return { rows: [], rowCount: 0 };
+        }
 
         // INSERT INTO state_root_accumulators
         if (/INSERT INTO state_root_accumulators/.test(sql)) {
           const table = params![0] as string;
-          const acc   = params![1] as string;
+          const acc = params![1] as string;
           accumulators[table] = acc;
           return { rows: [], rowCount: 1 };
         }
 
         // INSERT INTO state_root_row_hashes (upsert)
         if (/INSERT INTO state_root_row_hashes/.test(sql)) {
-          const table   = params![0] as string;
-          const rowKey  = params![1] as string;
+          const table = params![0] as string;
+          const rowKey = params![1] as string;
           const rowHash = params![2] as string;
           rowHashes.set(`${table}:${rowKey}`, rowHash);
           return { rows: [], rowCount: 1 };
@@ -234,7 +249,7 @@ describe("applyStateRootDelta", () => {
         if (/DELETE FROM state_root_row_hashes/.test(sql)) {
           if (params && params.length >= 2) {
             // Targeted delete (table_name, row_key params)
-            const table  = params[0] as string;
+            const table = params[0] as string;
             const rowKey = params[1] as string;
             rowHashes.delete(`${table}:${rowKey}`);
           } else {
@@ -265,8 +280,15 @@ describe("applyStateRootDelta", () => {
       connect: jest.fn().mockResolvedValue(mockClient),
       query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
         // Bootstrap sentinel check — uses a literal string in SQL, no params
-        if (/SELECT accumulator FROM state_root_accumulators WHERE table_name = '__bootstrap_done__'/.test(sql)) {
-          return { rows: [{ accumulator: accumulators["__bootstrap_done__"] ?? ZERO }], rowCount: 1 };
+        if (
+          /SELECT accumulator FROM state_root_accumulators WHERE table_name = '__bootstrap_done__'/.test(
+            sql
+          )
+        ) {
+          return {
+            rows: [{ accumulator: accumulators["__bootstrap_done__"] ?? ZERO }],
+            rowCount: 1,
+          };
         }
 
         // Select accumulators for the four named tables
@@ -282,36 +304,67 @@ describe("applyStateRootDelta", () => {
         // Select row hashes for a given table + keys
         if (/SELECT row_key, row_hash FROM state_root_row_hashes/.test(sql)) {
           const table = params![0] as string;
-          const keys  = params![1] as string[];
-          const rows  = keys
+          const keys = params![1] as string[];
+          const rows = keys
             .filter((k) => rowHashes.has(`${table}:${k}`))
-            .map((k)  => ({ row_key: k, row_hash: rowHashes.get(`${table}:${k}`) }));
+            .map((k) => ({ row_key: k, row_hash: rowHashes.get(`${table}:${k}`) }));
           return { rows, rowCount: rows.length };
         }
 
         // Current post row
         if (/FROM posts\s+WHERE id/.test(sql)) {
           const id = String(params![0]);
-          return { rows: [{ id, author: "GTEST", content: "hello", tip_total: "0", like_count: "0", deleted_at: null }], rowCount: 1 };
+          return {
+            rows: [
+              {
+                id,
+                author: "GTEST",
+                content: "hello",
+                tip_total: "0",
+                like_count: "0",
+                deleted_at: null,
+              },
+            ],
+            rowCount: 1,
+          };
         }
 
         // Current follow row
         if (/FROM follows\s+WHERE follower/.test(sql)) {
           const follower = String(params![0]);
           const followee = String(params![1]);
-          return { rows: [{ follower, followee, created_at: "2024-01-01T00:00:00.000Z" }], rowCount: 1 };
+          return {
+            rows: [{ follower, followee, created_at: "2024-01-01T00:00:00.000Z" }],
+            rowCount: 1,
+          };
         }
 
         // Current profile row
         if (/FROM profiles\s+WHERE address/.test(sql)) {
           const address = String(params![0]);
-          return { rows: [{ address, username: "alice", creator_token: "TKN", updated_ledger: "100" }], rowCount: 1 };
+          return {
+            rows: [{ address, username: "alice", creator_token: "TKN", updated_ledger: "100" }],
+            rowCount: 1,
+          };
         }
 
         // Current pool row
         if (/FROM pools\s+WHERE pool_id/.test(sql)) {
           const poolId = String(params![0]);
-          return { rows: [{ pool_id: poolId, token: "XLM", balance: "1000", admins: "{}", threshold: "1", created_ledger: "1", updated_ledger: "100" }], rowCount: 1 };
+          return {
+            rows: [
+              {
+                pool_id: poolId,
+                token: "XLM",
+                balance: "1000",
+                admins: "{}",
+                threshold: "1",
+                created_ledger: "1",
+                updated_ledger: "100",
+              },
+            ],
+            rowCount: 1,
+          };
         }
 
         return { rows: [], rowCount: 0 };
@@ -383,7 +436,9 @@ describe("applyStateRootDelta", () => {
     // Track whether the follow row "exists" in the mock DB.
     let followExists = true;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const originalImpl = (pg as any).query.getMockImplementation() as (...args: unknown[]) => unknown;
+    const originalImpl = (pg as any).query.getMockImplementation() as (
+      ...args: unknown[]
+    ) => unknown;
 
     // Override pool query to consult `followExists` for follows lookups.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -392,7 +447,10 @@ describe("applyStateRootDelta", () => {
         if (!followExists) return { rows: [], rowCount: 0 };
         const follower = String(params![0]);
         const followee = String(params![1]);
-        return { rows: [{ follower, followee, created_at: "2024-01-01T00:00:00.000Z" }], rowCount: 1 };
+        return {
+          rows: [{ follower, followee, created_at: "2024-01-01T00:00:00.000Z" }],
+          rowCount: 1,
+        };
       }
       return originalImpl(sql, params);
     });
@@ -436,16 +494,15 @@ describe("applyStateRootDelta benchmark — per-batch cost is near-constant", ()
   function buildMockWithPreseededRows(preseededRows: number) {
     const ZERO = "0".repeat(64);
     const accumulators: Record<string, string> = {
-      posts:              ZERO,
-      follows:            ZERO,
-      profiles:           ZERO,
-      pools:              ZERO,
+      posts: ZERO,
+      follows: ZERO,
+      profiles: ZERO,
+      pools: ZERO,
       __bootstrap_done__: "1".padStart(64, "0"), // already bootstrapped
     };
     const rowHashes = new Map<string, string>();
 
     // Seed the accumulator and row-hash table with preseededRows existing posts.
-    const { createHash } = await import("crypto");
     for (let i = 0; i < preseededRows; i++) {
       const h = createHash("sha256").update(`seed:${i}`).digest("hex");
       rowHashes.set(`posts:post:${i}`, h);
@@ -491,24 +548,39 @@ describe("applyStateRootDelta benchmark — per-batch cost is near-constant", ()
       connect: jest.fn().mockResolvedValue(mockClient),
       query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
         // Bootstrap sentinel check (literal string in SQL, no params)
-        if (/SELECT accumulator FROM state_root_accumulators WHERE table_name = '__bootstrap_done__'/.test(sql)) {
-          return { rows: [{ accumulator: accumulators["__bootstrap_done__"] ?? ZERO }], rowCount: 1 };
+        if (
+          /SELECT accumulator FROM state_root_accumulators WHERE table_name = '__bootstrap_done__'/.test(
+            sql
+          )
+        ) {
+          return {
+            rows: [{ accumulator: accumulators["__bootstrap_done__"] ?? ZERO }],
+            rowCount: 1,
+          };
         }
         if (/SELECT table_name, accumulator FROM state_root_accumulators/.test(sql)) {
           const tables = (params as string[][])[0] as string[];
-          return { rows: tables.map((t) => ({ table_name: t, accumulator: accumulators[t] ?? ZERO })), rowCount: 4 };
+          return {
+            rows: tables.map((t) => ({ table_name: t, accumulator: accumulators[t] ?? ZERO })),
+            rowCount: 4,
+          };
         }
         if (/SELECT row_key, row_hash FROM state_root_row_hashes/.test(sql)) {
           const table = params![0] as string;
-          const keys  = params![1] as string[];
-          const rows  = keys
+          const keys = params![1] as string[];
+          const rows = keys
             .filter((k) => rowHashes.has(`${table}:${k}`))
             .map((k) => ({ row_key: k, row_hash: rowHashes.get(`${table}:${k}`) }));
           return { rows, rowCount: rows.length };
         }
         if (/FROM posts\s+WHERE id/.test(sql)) {
           const id = String(params![0]);
-          return { rows: [{ id, author: "GA", content: "c", tip_total: "0", like_count: "0", deleted_at: null }], rowCount: 1 };
+          return {
+            rows: [
+              { id, author: "GA", content: "c", tip_total: "0", like_count: "0", deleted_at: null },
+            ],
+            rowCount: 1,
+          };
         }
         return { rows: [], rowCount: 0 };
       }),
@@ -527,32 +599,28 @@ describe("applyStateRootDelta benchmark — per-batch cost is near-constant", ()
     );
   }
 
-  it(
-    `batch of ${BATCH_SIZE} events costs <${MAX_RATIO}× more with ${PRESEEDED_ROWS} pre-existing rows than with 0`,
-    async () => {
-      // ── Empty table baseline ───────────────────────────────────────────────
-      const pgEmpty = buildMockWithPreseededRows(0);
-      const batchEmpty = makeBatch(BATCH_SIZE, 1_000_000);
+  it(`batch of ${BATCH_SIZE} events costs <${MAX_RATIO}× more with ${PRESEEDED_ROWS} pre-existing rows than with 0`, async () => {
+    // ── Empty table baseline ───────────────────────────────────────────────
+    const pgEmpty = buildMockWithPreseededRows(0);
+    const batchEmpty = makeBatch(BATCH_SIZE, 1_000_000);
 
-      const t0empty = Date.now();
-      await applyStateRootDelta(pgEmpty, 1, batchEmpty);
-      const durEmpty = Date.now() - t0empty + 1; // +1 avoids division-by-zero
+    const t0empty = Date.now();
+    await applyStateRootDelta(pgEmpty, 1, batchEmpty);
+    const durEmpty = Date.now() - t0empty + 1; // +1 avoids division-by-zero
 
-      // ── Large table ────────────────────────────────────────────────────────
-      const pgLarge = buildMockWithPreseededRows(PRESEEDED_ROWS);
-      const batchLarge = makeBatch(BATCH_SIZE, 2_000_000); // distinct IDs, no row conflict
+    // ── Large table ────────────────────────────────────────────────────────
+    const pgLarge = buildMockWithPreseededRows(PRESEEDED_ROWS);
+    const batchLarge = makeBatch(BATCH_SIZE, 2_000_000); // distinct IDs, no row conflict
 
-      const t0large = Date.now();
-      await applyStateRootDelta(pgLarge, 1, batchLarge);
-      const durLarge = Date.now() - t0large + 1;
+    const t0large = Date.now();
+    await applyStateRootDelta(pgLarge, 1, batchLarge);
+    const durLarge = Date.now() - t0large + 1;
 
-      const ratio = durLarge / durEmpty;
-      console.log(
-        `[stateRoot benchmark] empty=${durEmpty}ms, large(${PRESEEDED_ROWS} rows)=${durLarge}ms, ratio=${ratio.toFixed(2)}x`
-      );
+    const ratio = durLarge / durEmpty;
+    console.log(
+      `[stateRoot benchmark] empty=${durEmpty}ms, large(${PRESEEDED_ROWS} rows)=${durLarge}ms, ratio=${ratio.toFixed(2)}x`
+    );
 
-      expect(ratio).toBeLessThanOrEqual(MAX_RATIO);
-    },
-    15_000 // 15 s timeout — generous for slow CI
-  );
+    expect(ratio).toBeLessThanOrEqual(MAX_RATIO);
+  }, 15_000); // 15 s timeout — generous for slow CI
 });

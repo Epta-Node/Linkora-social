@@ -8,7 +8,7 @@ export interface NotificationItemSkeletonProps {
  * Mirrors `NotificationRow`: unread dot, message line (text-sm) and timestamp
  * (text-xs) inside the same bordered, padded row as a real notification.
  */
-export function NotificationItemSkeleton({ className }: NotificationItemSkeletonProps = {}) {
+export function NotificationItemSkeleton({ className }: NotificationItemSkeletonProps) {
   return (
     <li
       data-testid="notification-item-skeleton"

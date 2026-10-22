@@ -8,6 +8,8 @@ import { useInputLatency } from "@/hooks/useInputLatency";
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
+  /** Called on every keystroke so the host page can debounce a live search. */
+  onQueryChange?: (query: string) => void;
   placeholder?: string;
   initialValue?: string;
   className?: string;
@@ -19,6 +21,7 @@ interface SearchBarProps {
 
 export default function SearchBar({
   onSearch,
+  onQueryChange,
   placeholder = "Search posts...",
   initialValue = "",
   className = "w-full max-w-md",
@@ -188,6 +191,7 @@ export default function SearchBar({
               recordKeystroke(e.nativeEvent);
               setIsFocused(true);
               setQuery(e.target.value);
+              onQueryChange?.(e.target.value);
             }}
             onFocus={() => setIsFocused(true)}
             onKeyDown={handleKeyDown}

@@ -43,6 +43,7 @@ function makeDb(overrides: Partial<Database> = {}): Database {
   return {
     getPool: jest.fn().mockResolvedValue(null),
     listPools: jest.fn().mockResolvedValue([]),
+    searchPools: jest.fn().mockResolvedValue({ pools: [], total: 0 }),
     getPoolAnalytics: jest.fn().mockResolvedValue(makeAnalytics()),
     ...overrides,
   } as unknown as Database;
@@ -57,6 +58,25 @@ describe("GET /pools", () => {
     const res = await request(app).get("/pools");
     expect(res.status).toBe(200);
     expect(body(res).pools).toHaveLength(2);
+  });
+  describe("GET /pools/search", () => {
+    it("returns 400 when q is missing", async () => {
+      const res = await request(buildApp(makeDb())).get("/pools/search");
+      expect(res.status).toBe(400);
+    });
+
+    it("delegates to db.searchPools and serialises balances", async () => {
+      const db = makeDb({
+        searchPools: jest.fn().mockResolvedValue({ pools: [makePool()], total: 3 }),
+      });
+      const res = await request(buildApp(db)).get("/pools/search?q=comm&limit=1&offset=0");
+
+      expect(res.status).toBe(200);
+      expect(body(res).total).toBe(3);
+      expect(body(res).has_more).toBe(true);
+      expect((body(res).pools as Array<Record<string, unknown>>)[0].balance).toBe("5000000000");
+      expect(db.searchPools).toHaveBeenCalledWith({ q: "comm", limit: 1, offset: 0 });
+    });
   });
 });
 

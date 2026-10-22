@@ -1,3 +1,30 @@
+// jsdom does not expose the WHATWG classes that Next's server helpers
+// (NextRequest, route handlers, server actions) rely on. Install Node's own
+// spec-compliant implementations (undici backs Node's global fetch) rather
+// than a browser shim: NextRequest extends the global Request, and shims such
+// as whatwg-fetch assign `this.url`, which NextRequest defines as a getter.
+import { TextDecoder as NodeTextDecoder, TextEncoder as NodeTextEncoder } from "util";
+import { ReadableStream, TransformStream, WritableStream } from "node:stream/web";
+
+const globals = globalThis as Record<string, unknown>;
+
+globals.TextEncoder ??= NodeTextEncoder;
+globals.TextDecoder ??= NodeTextDecoder;
+globals.ReadableStream ??= ReadableStream;
+globals.WritableStream ??= WritableStream;
+globals.TransformStream ??= TransformStream;
+
+// undici reads TextEncoder when its module is evaluated, so it has to be
+// required *after* the globals above are installed — a static import would be
+// hoisted above them.
+const undici = require("undici") as typeof import("undici");
+
+globals.Request ??= undici.Request;
+globals.Response ??= undici.Response;
+globals.Headers ??= undici.Headers;
+globals.fetch ??= undici.fetch;
+globals.FormData ??= undici.FormData;
+
 // Jest setup file for DOM and React testing utilities
 import "@testing-library/jest-dom";
 import { toHaveNoViolations } from "jest-axe";

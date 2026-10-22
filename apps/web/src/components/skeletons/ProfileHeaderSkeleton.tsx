@@ -10,7 +10,7 @@ export interface ProfileHeaderSkeletonProps {
  * with the same shell (padding, radius, border, background) as the loaded
  * header so the profile paints without a layout jump.
  */
-export function ProfileHeaderSkeleton({ className }: ProfileHeaderSkeletonProps = {}) {
+export function ProfileHeaderSkeleton({ className }: ProfileHeaderSkeletonProps) {
   return (
     <section
       data-testid="profile-header-skeleton"

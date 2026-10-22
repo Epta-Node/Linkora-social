@@ -1,23 +1,30 @@
-import { renderHook } from '@testing-library/react-hooks';
-import { useKeyboardShortcuts } from './useKeyboardShortcuts';
-import { KeyboardShortcutsProvider } from './KeyboardShortcutsContext';
+import type { ReactNode } from "react";
+import { act, renderHook } from "@testing-library/react";
+import {
+  KeyboardShortcutsProvider,
+  useKeyboardShortcutsContext,
+} from "./KeyboardShortcutsContext";
 
-describe('useKeyboardShortcuts', () => {
-  it('should register shortcuts', () => {
-    const wrapper = ({ children }) => (
-      <KeyboardShortcutsProvider>{children}</KeyboardShortcutsProvider>
-    );
+const wrapper = ({ children }: { children: ReactNode }) => (
+  <KeyboardShortcutsProvider>{children}</KeyboardShortcutsProvider>
+);
 
-    const { result } = renderHook(() => useKeyboardShortcuts(), { wrapper });
+describe("useKeyboardShortcutsContext", () => {
+  it("exposes the shortcut registration API", () => {
+    const { result } = renderHook(() => useKeyboardShortcutsContext(), { wrapper });
     expect(result.current).toBeDefined();
+    expect(result.current.registerComposeHandler).toBeInstanceOf(Function);
   });
 
-  it('should handle shortcut registration', () => {
-    const wrapper = ({ children }) => (
-      <KeyboardShortcutsProvider>{children}</KeyboardShortcutsProvider>
-    );
+  it("opens and closes the command palette", () => {
+    const { result } = renderHook(() => useKeyboardShortcutsContext(), { wrapper });
 
-    const { result } = renderHook(() => useKeyboardShortcuts(), { wrapper });
-    expect(result.current.register).toBeInstanceOf(Function);
+    expect(result.current.isCommandPaletteOpen).toBe(false);
+
+    act(() => result.current.openCommandPalette());
+    expect(result.current.isCommandPaletteOpen).toBe(true);
+
+    act(() => result.current.closeCommandPalette());
+    expect(result.current.isCommandPaletteOpen).toBe(false);
   });
 });

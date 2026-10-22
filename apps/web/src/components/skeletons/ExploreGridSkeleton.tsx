@@ -11,7 +11,7 @@ export interface ExploreGridSkeletonProps {
  * container and card shell as the loaded results (`grid-cols-1 gap-4` with
  * bordered cards) so results drop straight in without shifting the page.
  */
-export function ExploreGridSkeleton({ count = 4, className }: ExploreGridSkeletonProps = {}) {
+export function ExploreGridSkeleton({ count = 4, className }: ExploreGridSkeletonProps) {
   const visibleCount = Math.min(Math.max(Math.floor(count) || 4, 1), 8);
 
   return (
