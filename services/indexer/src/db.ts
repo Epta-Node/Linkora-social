@@ -176,6 +176,17 @@ export interface Database {
     limit: number;
     offset: number;
   }): Promise<{ posts: Post[]; total: number }>;
+  search(filters: {
+    q: string;
+    type?: "posts" | "profiles" | "pools" | "all";
+    limit: number;
+    offset: number;
+  }): Promise<{
+    posts?: Post[];
+    profiles?: Profile[];
+    pools?: Pool[];
+    total: number;
+  }>;
   listPostsCursor(filters: {
     author?: string;
     limit: number;

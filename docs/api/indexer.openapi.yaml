@@ -487,10 +487,15 @@ paths:
       parameters:
         - name: q
           in: query
-          required: true
+          required: false
           schema:
             type: string
           description: Full-text search query.
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/cursor"
       responses:
@@ -498,6 +503,172 @@ paths:
           description: Matching posts.
           content:
             application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/search:
+    get:
+      summary: Search across posts, profiles, and pools
+      operationId: search
+      tags: [Search]
+      security:
+        - StellarSig: []
+        - {}
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Full-text search query.
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [posts, profiles, pools]
+          description: Filter by result type.
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/cursor"
+      responses:
+        "200":
+          description: Matching results.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+
+  # ── Webhooks ────────────────────────────────────────────────────────────────
+  /api/webhooks:
+    post:
+      summary: Register a webhook endpoint
+      operationId: registerWebhook
+      tags: [Webhooks]
+      security:
+        - StellarSig: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, secret, event_types]
+              properties:
+                url:
+                  type: string
+                  format: uri
+                secret:
+                  type: string
+                event_types:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: Webhook registered
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/webhooks/{id}:
+    delete:
+      summary: Deactivate a webhook
+      operationId: deleteWebhook
+      tags: [Webhooks]
+      security:
+        - StellarSig: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Webhook deactivated
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/webhooks/{id}/deliveries:
+    get:
+      summary: List webhook delivery attempts
+      operationId: getWebhookDeliveries
+      tags: [Webhooks]
+      security:
+        - StellarSig: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Delivery history
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  # ── Events ──────────────────────────────────────────────────────────────────
+  /api/events/replay:
+    get:
+      summary: Replay historical events
+      operationId: replayEvents
+      tags: [Events]
+      security:
+        - StellarSig: []
+        - {}
+      parameters:
+        - name: fromLedger
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: toLedger
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: types
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: true
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: NDJSON stream of events
+          content:
+            application/x-ndjson:
               schema:
                 type: object
                 additionalProperties: true

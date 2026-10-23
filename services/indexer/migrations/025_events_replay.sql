@@ -1,0 +1,2 @@
+-- Migration: Events replay support
+-- Description: Ensure raw_events are queryable for replay

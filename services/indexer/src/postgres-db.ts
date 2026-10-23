@@ -1004,3 +1004,217 @@ export class PostgresDatabase implements Database {
     return res.rows[0]?.x25519_pubkey ?? null;
   }
 }
+
+  async search(filters: {
+    q: string;
+    type?: "posts" | "profiles" | "pools" | "all";
+    limit: number;
+    offset: number;
+  }): Promise<{
+    posts?: Post[];
+    profiles?: Profile[];
+    pools?: Pool[];
+    total: number;
+  }> {
+    const { q, type = "all", limit, offset } = filters;
+    if (!q || !q.trim()) {
+      return { total: 0 };
+    }
+
+    const searchType = type;
+    const result: any = { total: 0 };
+
+    // Use websearch_to_tsquery style - try websearch_to_tsquery, fallback to to_tsquery
+    let tsQuery: string | null = null;
+    try {
+      const tsRes = await this.pool.query("SELECT websearch_to_tsquery('english', $1) AS q", [q]);
+      tsQuery = tsRes.rows[0]?.q?.toString() || null;
+    } catch (e) {
+      // fallback
+      const sanitised = q.trim().replace(/[^\w\s]/gu, " ").trim();
+      if (!sanitised) return { total: 0 };
+      tsQuery = sanitised
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((t) => `${t}:*`)
+        .join(" & ");
+    }
+
+    if (!tsQuery) return { total: 0 };
+
+    if (searchType === "posts" || searchType === "all") {
+      try {
+        const totalRes = await this.pool.query(
+          `
+          SELECT COUNT(*)::int AS total
+          FROM posts
+          WHERE deleted_at IS NULL
+            AND content_tsv @@ to_tsquery('english', $1)
+          `,
+          [tsQuery]
+        );
+        const total = totalRes.rows[0]?.total ?? 0;
+        const res = await this.pool.query(
+          `
+          SELECT
+            id,
+            author,
+            content,
+            tags,
+            deleted_at IS NOT NULL AS deleted,
+            tip_total,
+            like_count,
+            extract(epoch from created_at)::bigint AS created_ledger,
+            CASE WHEN deleted_at IS NULL THEN NULL ELSE extract(epoch from deleted_at)::bigint END AS deleted_ledger,
+            ts_rank_cd(content_tsv, to_tsquery('english', $1)) AS rank
+          FROM posts
+          WHERE deleted_at IS NULL
+            AND content_tsv @@ to_tsquery('english', $1)
+          ORDER BY rank DESC, created_at DESC
+          OFFSET $2 LIMIT $3
+          `,
+          [tsQuery, offset, limit]
+        );
+        const posts: Post[] = res.rows.map((row) => ({
+          id: BigInt(row.id),
+          author: row.author,
+          content: row.content,
+          tags: row.tags || [],
+          deleted: row.deleted,
+          tip_total: BigInt(row.tip_total),
+          like_count: BigInt(row.like_count),
+          created_ledger: Number(row.created_ledger),
+          deleted_ledger: row.deleted_ledger === null ? null : Number(row.deleted_ledger),
+        }));
+        result.posts = posts;
+        result.total += total;
+      } catch (e) {
+        // If content_tsv doesn't exist, try ILIKE fallback
+        try {
+          const likeQ = `%${q}%`;
+          const totalRes = await this.pool.query(
+            `SELECT COUNT(*)::int AS total FROM posts WHERE deleted_at IS NULL AND content ILIKE $1`,
+            [likeQ]
+          );
+          const total = totalRes.rows[0]?.total ?? 0;
+          const res = await this.pool.query(
+            `SELECT id, author, content, tags, deleted_at IS NOT NULL AS deleted, tip_total, like_count,
+                    extract(epoch from created_at)::bigint AS created_ledger,
+                    CASE WHEN deleted_at IS NULL THEN NULL ELSE extract(epoch from deleted_at)::bigint END AS deleted_ledger
+             FROM posts WHERE deleted_at IS NULL AND content ILIKE $1
+             ORDER BY created_at DESC OFFSET $2 LIMIT $3`,
+            [likeQ, offset, limit]
+          );
+          const posts: Post[] = res.rows.map((row) => ({
+            id: BigInt(row.id),
+            author: row.author,
+            content: row.content,
+            tags: row.tags || [],
+            deleted: row.deleted,
+            tip_total: BigInt(row.tip_total),
+            like_count: BigInt(row.like_count),
+            created_ledger: Number(row.created_ledger),
+            deleted_ledger: row.deleted_ledger === null ? null : Number(row.deleted_ledger),
+          }));
+          result.posts = posts;
+          result.total += total;
+        } catch (e2) {
+          // ignore
+        }
+      }
+    }
+
+    if (searchType === "profiles" || searchType === "all") {
+      try {
+        // Try with profile_tsv first
+        const totalRes = await this.pool.query(
+          `
+          SELECT COUNT(*)::int AS total
+          FROM profiles
+          WHERE profile_tsv @@ to_tsquery('english', $1)
+             OR username ILIKE '%' || $2 || '%'
+             OR handle ILIKE '%' || $2 || '%'
+          `,
+          [tsQuery, q]
+        );
+        const total = totalRes.rows[0]?.total ?? 0;
+        const res = await this.pool.query(
+          `
+          SELECT address, username, creator_token, updated_ledger,
+                 COALESCE(ts_rank_cd(profile_tsv, to_tsquery('english', $1)), 0) +
+                 CASE WHEN username ILIKE $2 OR handle ILIKE $2 THEN 10 ELSE 0 END +
+                 CASE WHEN similarity(COALESCE(handle,''), $2) > 0.3 THEN similarity(COALESCE(handle,''), $2)*5 ELSE 0 END AS rank
+          FROM profiles
+          WHERE profile_tsv @@ to_tsquery('english', $1)
+             OR username ILIKE '%' || $2 || '%'
+             OR handle ILIKE '%' || $2 || '%'
+          ORDER BY rank DESC, username ASC
+          OFFSET $3 LIMIT $4
+          `,
+          [tsQuery, q, offset, limit]
+        );
+        const profiles: Profile[] = res.rows.map((row) => ({
+          address: row.address,
+          username: row.username || row.handle || '',
+          creator_token: row.creator_token || '',
+          updated_ledger: Number(row.updated_ledger || 0),
+        }));
+        result.profiles = profiles;
+        if (searchType === "profiles") result.total = total;
+        else if (searchType === "all") result.total += total;
+      } catch (e) {
+        try {
+          const likeQ = `%${q}%`;
+          const totalRes = await this.pool.query(
+            `SELECT COUNT(*)::int AS total FROM profiles WHERE username ILIKE $1 OR COALESCE(handle,'') ILIKE $1 OR COALESCE(bio,'') ILIKE $1`,
+            [likeQ]
+          );
+          const total = totalRes.rows[0]?.total ?? 0;
+          const res = await this.pool.query(
+            `SELECT address, username, creator_token, updated_ledger FROM profiles WHERE username ILIKE $1 OR COALESCE(handle,'') ILIKE $1 OR COALESCE(bio,'') ILIKE $1 ORDER BY username ASC OFFSET $2 LIMIT $3`,
+            [likeQ, offset, limit]
+          );
+          const profiles: Profile[] = res.rows.map((row) => ({
+            address: row.address,
+            username: row.username || '',
+            creator_token: row.creator_token || '',
+            updated_ledger: Number(row.updated_ledger || 0),
+          }));
+          result.profiles = profiles;
+          if (searchType === "profiles") result.total = total;
+          else if (searchType === "all") result.total += total;
+        } catch (e2) {}
+      }
+    }
+
+    if (searchType === "pools" || searchType === "all") {
+      try {
+        const likeQ = `%${q}%`;
+        const totalRes = await this.pool.query(
+          `SELECT COUNT(*)::int AS total FROM pools WHERE pool_id ILIKE $1 OR token ILIKE $1`,
+          [likeQ]
+        );
+        const total = totalRes.rows[0]?.total ?? 0;
+        const res = await this.pool.query(
+          `SELECT pool_id, token, balance, admins, threshold, created_ledger, updated_ledger FROM pools WHERE pool_id ILIKE $1 OR token ILIKE $1 ORDER BY created_ledger DESC OFFSET $2 LIMIT $3`,
+          [likeQ, offset, limit]
+        );
+        const pools: Pool[] = res.rows.map((row) => ({
+          pool_id: row.pool_id,
+          token: row.token,
+          balance: BigInt(row.balance),
+          admins: row.admins || [],
+          threshold: row.threshold,
+          created_ledger: row.created_ledger,
+          updated_ledger: row.updated_ledger,
+        }));
+        result.pools = pools;
+        if (searchType === "pools") result.total = total;
+        else if (searchType === "all") result.total += total;
+      } catch (e) {}
+    }
+
+    return result;
+  }
+
+}
