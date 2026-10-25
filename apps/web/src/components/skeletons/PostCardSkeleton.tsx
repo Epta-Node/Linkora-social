@@ -9,7 +9,7 @@ export interface PostCardSkeletonProps {
  * the like/tip action row, using the same padding, borders and type heights
  * so swapping skeleton → content does not shift the layout.
  */
-export function PostCardSkeleton({ className }: PostCardSkeletonProps = {}) {
+export function PostCardSkeleton({ className }: PostCardSkeletonProps) {
   return (
     <div
       data-testid="post-card-skeleton"

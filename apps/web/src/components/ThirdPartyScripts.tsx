@@ -7,7 +7,7 @@ import { Analytics as VercelAnalytics } from "@vercel/analytics/react";
  *
  * Loading order:
  *  - `beforeInteractive` — wallet SDK (must exist before first interaction)
- *  - GA4 via @next/third-party `<GoogleAnalytics>` — `afterInteractive`
+ *  - GA4 via @next/third-parties `<GoogleAnalytics>` — `afterInteractive`
  *    (automatically deferred; respects Consent Mode v2 default-deny set by
  *    the inline script in layout.tsx)
  *  - Vercel Web Analytics — privacy-friendly fallback, no cookies
@@ -78,7 +78,7 @@ export function ThirdPartyScripts() {
       {WALLET_SDK_URL && <Script src={WALLET_SDK_URL} strategy="beforeInteractive" />}
 
       {/*
-        GA4 via @next/third-party.
+        GA4 via @next/third-parties.
         GoogleAnalytics automatically uses strategy="afterInteractive" and
         respects the Consent Mode v2 default-deny set by the inline script in
         layout.tsx. It will not fire hits until the user grants consent.

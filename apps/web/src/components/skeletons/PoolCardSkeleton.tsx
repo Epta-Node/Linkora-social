@@ -10,9 +10,14 @@ export interface PoolCardSkeletonProps {
  * column gap) and the same five rows — header, token, balance, governance and
  * call-to-action — so the grid keeps its dimensions while pools load.
  */
-export function PoolCardSkeleton({ className }: PoolCardSkeletonProps = {}) {
+export function PoolCardSkeleton({ className }: PoolCardSkeletonProps) {
   return (
-    <div data-testid="pool-card-skeleton" aria-hidden="true" className={cx(styles.card, className)}>
+    <div
+      data-testid="pool-card-skeleton"
+      aria-hidden="true"
+      className={cx(className)}
+      style={styles.card}
+    >
       {/* Header: pool id + status badge */}
       <div style={styles.row}>
         <Skeleton width="45%" height="1.375rem" radius="var(--radius-full)" />

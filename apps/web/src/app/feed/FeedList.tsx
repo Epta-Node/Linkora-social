@@ -21,7 +21,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { InfiniteScroll } from "@/components/InfiniteScroll";
-import { PostCard, PostCardSkeleton, type Post } from "@/components/PostCard";
+import { PostCardSkeleton, type Post } from "@/components/PostCard";
+import { OptimisticPostCard } from "@/components/feed/OptimisticPostCard";
 import { isAboveTheFold } from "@/lib/responsiveImage";
 import { useInfiniteFeed, type CursorPage } from "@/hooks/useInfiniteFeed";
 import { useSlowConnection } from "@/hooks/useSlowConnection";
@@ -182,17 +183,13 @@ export function FeedList({ tab, address, initial }: FeedListProps) {
       </div>
 
       <div className="space-y-4" data-testid="post-list">
-        {visibleItems.map((post) => (
+        {visibleItems.map((post, index) => (
           <OptimisticPostCard
             key={post.id}
             post={post}
             currentUser={address}
             onOptimisticDelete={handleOptimisticDelete}
             onDeleteFailed={handleDeleteFailed}
-        {items.map((post, index) => (
-          <PostCard
-            key={post.id}
-            post={post}
             priority={isAboveTheFold(index)}
             data-testid="post-card"
           />

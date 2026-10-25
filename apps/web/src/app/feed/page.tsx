@@ -16,50 +16,14 @@
  * Behaviour preserved from the #1580 rewrite:
  *  - Switching tabs shows only the active tab's posts.
  *  - A missing wallet address shows a helpful error on the Following tab.
- *  - Pagination ("Load more") appends to the current tab's list.
- */
-
-import { Suspense, use, useCallback, useState } from "react";
-import { useWallet } from "@/hooks/useWallet";
-import { PostCard, PostCardSkeleton, type Post } from "@/components/PostCard";
-import { FeedSkeleton } from "@/components/skeletons";
-
-/** Skeleton shown by the `<Suspense>` boundary while a tab streams in. */
-function FeedSkeleton() {
-  return (
-    <div data-testid="loading-indicator" className="space-y-4">
-      <PostCardSkeleton />
-      <PostCardSkeleton />
-      <PostCardSkeleton />
-    </div>
-  );
-}
-
-const ERROR_CLASS =
-  "mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400";
-
-interface LoadMoreState {
-  posts: Post[];
-  cursor: string | null;
-  hasMore: boolean;
-  loading: boolean;
-  error: string | null;
-}
-
-/**
- * Streams a single feed tab.
- *
- * `useState` is used with a function initialiser so the snapshot promise has a
- * stable identity for the lifetime of the component — `use()` would otherwise
- * re-suspend on every render. The component is keyed by tab/address in the
- * parent, so changing either remounts it and fetches the new feed.
+ *  - Pagination appends to the current tab's list.
  */
 
 import { Suspense, useEffect, useRef, useState } from "react";
 
 import { useWallet } from "@/hooks/useWallet";
 import { ReturnToTop } from "@/components/ReturnToTop";
-import { FeedSkeleton } from "./FeedList";
+import { FeedSkeleton } from "@/components/skeletons";
 import { FeedStream } from "./FeedStream";
 import { getFeedSnapshotPromise, type FeedSnapshot, type FeedTab } from "@/services/feed";
 
@@ -141,62 +105,29 @@ export default function FeedPage() {
           ))}
         </div>
 
-      {/* Tab panel */}
-      <section
-        role="tabpanel"
-        id={`tabpanel-${activeTab}`}
-        aria-labelledby={`tab-${activeTab}`}
-        data-testid={`tabpanel-${activeTab}`}
-      >
-        {state.error && (
-          <div
-            role="alert"
-            className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400"
-            data-testid="feed-error"
-          >
-            {state.error}
-          </div>
-        )}
-
-        {state.loading && state.posts.length === 0 ? (
-          <div data-testid="loading-indicator">
-            <FeedSkeleton />
-          </div>
-        ) : state.posts.length === 0 && !state.loading ? (
-          <div
-            className="py-16 text-center text-[var(--text-muted)]"
-            data-testid="empty-feed"
-          >
-            {activeTab === "following"
-              ? "Follow some accounts to see their posts here."
-              : "No posts yet. Be the first to share something!"}
-          </div>
-        ) : (
-          <div className="space-y-4" data-testid="post-list">
-            {state.posts.map((post) => (
-              <PostCard key={post.id} post={post} data-testid="post-card" />
-            ))}
-
-            {state.loading && (
-              <div data-testid="loading-more" className="space-y-4">
-                <PostCardSkeleton />
-              </div>
+        {/* Tab panel */}
+        <section
+          role="tabpanel"
+          id={`tabpanel-${activeTab}`}
+          aria-labelledby={`tab-${activeTab}`}
+          data-testid={`tabpanel-${activeTab}`}
+        >
+          <Suspense fallback={<FeedSkeleton />}>
+            {activeRequest ? (
+              <FeedStream
+                key={activeRequest.key}
+                tab={activeRequest.tab}
+                address={activeRequest.address}
+                promise={activeRequest.promise}
+              />
+            ) : (
+              <FeedSkeleton />
             )}
+          </Suspense>
+        </section>
+      </main>
 
-            {state.hasMore && !state.loading && (
-              <div className="flex justify-center pt-4">
-                <button
-                  onClick={() => loadFeed(activeTab, true)}
-                  className="rounded-lg border border-[var(--border)] bg-[var(--muted)] px-6 py-2 text-sm font-medium text-[var(--foreground)] hover:border-violet-500/50 transition-colors"
-                  data-testid="load-more"
-                >
-                  Load more
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-    </main>
+      <ReturnToTop targetRef={topRef} />
+    </>
   );
 }

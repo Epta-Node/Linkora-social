@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { injectWalletMock } from "./test-utils";
 
-test("search renders post and profile results from the NavBar", async ({ page }) => {
+test("search renders post, profile, and pool results from the NavBar", async ({ page }) => {
   page.on("request", (req) => console.log("REQ:", req.url()));
   page.on("response", (res) => console.log("RES:", res.url(), res.status()));
   await page.addInitScript(() => {
@@ -22,6 +22,33 @@ test("search renders post and profile results from the NavBar", async ({ page })
               followerCount: 12,
             },
           ],
+        }),
+      });
+      return;
+    }
+
+    if (url.includes("/api/pools/search")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          pools: [
+            {
+              pool_id: "community",
+              token: "GDQOE23CFSUMSVQK4Y5JHPPYK73VYCNHZHA7ENKCV37P6SUEO6XQBKPP",
+              balance: "5000000000",
+              admins: ["GALICE1234567890", "GBOB1234567890"],
+              threshold: 2,
+            },
+            {
+              pool_id: "grants",
+              token: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+              balance: "0",
+              admins: ["GALICE1234567890"],
+              threshold: 1,
+            },
+          ],
+          total: 2,
         }),
       });
       return;
@@ -89,4 +116,27 @@ test("search renders post and profile results from the NavBar", async ({ page })
   await expect(page).toHaveURL(/tab=profiles/);
   await expect(page.getByText("stellar_alice")).toBeVisible();
   await expect(page.getByRole("button", { name: "Follow" })).toBeVisible();
+
+  await page.getByRole("button", { name: "1k+" }).click();
+  await expect(page).toHaveURL(/min_followers=1000/);
+  await expect(page.getByTestId("search-empty-state")).toContainText(
+    "No profiles match these filters"
+  );
+
+  await page.getByRole("button", { name: "Any" }).click();
+  await page.getByRole("button", { name: "Pools" }).click();
+  await expect(page).toHaveURL(/tab=pools/);
+  await expect(page.getByRole("link", { name: "View pool community" })).toContainText("Active");
+  await expect(page.getByRole("link", { name: "View pool community" })).toContainText("500");
+
+  await page.getByRole("button", { name: "Empty", exact: true }).click();
+  await expect(page).toHaveURL(/status=empty/);
+  await expect(page.getByRole("link", { name: "View pool grants" })).toContainText("Empty");
+  await expect(page.getByRole("link", { name: "View pool community" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "1k+" }).click();
+  await expect(page).toHaveURL(/tvl=over_1000/);
+  await expect(page.getByTestId("search-empty-state")).toContainText(
+    "No pools match these filters"
+  );
 });

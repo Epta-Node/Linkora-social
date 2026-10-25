@@ -11,6 +11,8 @@ export interface Profile {
   username: string;
   creator_token: string;
   updated_ledger: number;
+  /** Populated by search queries; omitted by plain profile lookups. */
+  follower_count?: number;
 }
 
 export interface Follow {
@@ -191,6 +193,16 @@ export interface Database {
     limit: number;
     offset: number;
   }): Promise<{ posts: Post[]; total: number }>;
+  searchProfiles(filters: {
+    q: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ profiles: Profile[]; total: number }>;
+  searchPools(filters: {
+    q: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ pools: Pool[]; total: number }>;
   search(filters: {
     q: string;
     type?: "posts" | "profiles" | "pools" | "all";

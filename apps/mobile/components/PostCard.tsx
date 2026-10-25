@@ -137,7 +137,7 @@ export function PostCard(props: PostCardProps) {
         <Pressable onPress={() => router.push(`/profile/${post.author}` as Parameters<typeof router.push>[0])} accessibilityRole="button" accessibilityLabel={`Open ${post.username}'s profile`}>
         <Animated.View style={styles.avatar} sharedTransitionTag={reduceMotion ? undefined : `avatar-${post.author}`}>
           <Text style={styles.avatarText}>{post.username.charAt(0).toUpperCase()}</Text>
-        </View>
+        </Animated.View>
         </Pressable>
         <View style={styles.meta}>
           <Animated.Text style={styles.username} sharedTransitionTag={reduceMotion ? undefined : `username-${post.author}`}>

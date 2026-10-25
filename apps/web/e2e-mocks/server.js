@@ -154,6 +154,61 @@ app.get("/api/follows/:address/following", (req, res) => {
   });
 });
 
+app.get("/api/profiles/search", (req, res) => {
+  const q = String(req.query.q || "").toLowerCase();
+  const limit = parseInt(req.query.limit || "20", 10);
+  const offset = parseInt(req.query.offset || "0", 10);
+  const matches = MOCK_USERS.filter(
+    (user) => user.username.toLowerCase().includes(q) || user.address.toLowerCase().includes(q)
+  ).map((user, index) => ({ ...user, follower_count: (index + 1) * 10 }));
+  const paginated = matches.slice(offset, offset + limit);
+
+  res.json({
+    profiles: paginated,
+    total: matches.length,
+    limit,
+    offset,
+    has_more: offset + paginated.length < matches.length,
+  });
+});
+
+app.get("/api/pools/search", (req, res) => {
+  const q = String(req.query.q || "").toLowerCase();
+  const limit = parseInt(req.query.limit || "20", 10);
+  const offset = parseInt(req.query.offset || "0", 10);
+  const pools = [
+    {
+      pool_id: "community",
+      token: "GDQOE23CFSUMSVQK4Y5JHPPYK73VYCNHZHA7ENKCV37P6SUEO6XQBKPP",
+      balance: "5000000000",
+      admins: [MOCK_USERS[0].address, MOCK_USERS[1].address],
+      threshold: 2,
+      created_ledger: 1000,
+      updated_ledger: 1000,
+    },
+    {
+      pool_id: "grants",
+      token: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+      balance: "0",
+      admins: [MOCK_USERS[2].address],
+      threshold: 1,
+      created_ledger: 990,
+      updated_ledger: 990,
+    },
+  ].filter(
+    (pool) => pool.pool_id.toLowerCase().includes(q) || pool.token.toLowerCase().includes(q)
+  );
+  const paginated = pools.slice(offset, offset + limit);
+
+  res.json({
+    pools: paginated,
+    total: pools.length,
+    limit,
+    offset,
+    has_more: offset + paginated.length < pools.length,
+  });
+});
+
 app.get("/api/profiles/:address", (req, res) => {
   const addr = req.params.address;
   const user = MOCK_USERS.find((u) => u.address.toLowerCase() === addr.toLowerCase());

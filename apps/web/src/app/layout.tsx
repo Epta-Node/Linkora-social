@@ -16,7 +16,8 @@ import { ResourceHints, ThirdPartyScripts } from "@/components/ThirdPartyScripts
 import { ConsentBanner } from "@/components/ConsentBanner";
 import { QueryProvider } from "@/contexts/QueryProvider";
 import { Toaster } from "@/components/ui/Toaster";
-import { InstallPromptProvider, InstallPromptBanner } from "@/contexts/InstallPromptContext";
+import { InstallPromptProvider } from "@/contexts/InstallPromptContext";
+import { InstallPromptBanner } from "@/components/InstallPromptBanner";
 
 export const metadata: Metadata = {
   title: "Linkora",
@@ -56,26 +57,30 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
           {/* KeyboardShortcutsProvider reads the wallet via useWallet, so it must
             sit inside WalletProvider. NavBar and KeyboardShortcutsModal consume
             its context, so both must sit inside this provider. */}
-        <KeyboardShortcutsProvider>
-          <OnboardingProvider>
-            <GuidedTourProvider>
-              <NotificationsProvider>
-                <InstallPromptProvider>
-                  <NavBar />
-                  <main id="main-content" tabIndex={-1} className="pb-safe md:pb-0">
-                    {children}
-                  </main>
-                  <GuidedTour />
-                  <KeyboardShortcutsModal />
-                  <CommandPalette />
-                  <InstallPromptBanner />
-                </InstallPromptProvider>
-              </NotificationsProvider>
-            </GuidedTourProvider>
-          </OnboardingProvider>
-        </KeyboardShortcutsProvider>
-      </WalletProvider>
-    </ThemeProvider>
+          <KeyboardShortcutsProvider>
+            <OnboardingProvider>
+              <GuidedTourProvider>
+                <NotificationsProvider>
+                  <InstallPromptProvider>
+                    <NavBar />
+                    <main id="main-content" tabIndex={-1} className="pb-safe md:pb-0">
+                      {children}
+                    </main>
+                    <GuidedTour />
+                    <KeyboardShortcutsModal />
+                    <CommandPalette />
+                    <InstallPromptBanner />
+                    {/* Rollback toasts for optimistic mutations (follow, like,
+                      delete, pool deposits) are rendered above page content. */}
+                    <Toaster />
+                  </InstallPromptProvider>
+                </NotificationsProvider>
+              </GuidedTourProvider>
+            </OnboardingProvider>
+          </KeyboardShortcutsProvider>
+        </WalletProvider>
+      </ThemeProvider>
+    </QueryProvider>
   );
 }
 

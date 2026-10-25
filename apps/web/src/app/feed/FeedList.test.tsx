@@ -312,7 +312,7 @@ describe("FeedList image loading (#1748)", () => {
       imageUrl: `/media/p${index + 1}.png`,
     }));
 
-    render(<FeedList tab="for-you" address={null} initial={initialSnapshot(posts)} />);
+    renderFeed(<FeedList tab="for-you" address={null} initial={initialSnapshot(posts)} />);
 
     const images = screen
       .getAllByTestId("post-card")

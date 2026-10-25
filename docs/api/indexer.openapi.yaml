@@ -199,6 +199,54 @@ paths:
                 type: string
 
   # ── Profiles ────────────────────────────────────────────────────────────────
+  /api/profiles/search:
+    get:
+      summary: Search profiles by username or address
+      operationId: searchProfiles
+      tags: [Search, Profiles]
+      security:
+        - StellarSig: []
+        - {}
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Case-insensitive username or Stellar address fragment.
+        - $ref: "#/components/parameters/limit"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Number of matching profiles to skip.
+      responses:
+        "200":
+          description: Matching profiles ordered by exact match, prefix match, then follower count.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  profiles:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Profile"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
   /api/profiles:
     get:
       summary: List profiles
@@ -779,6 +827,54 @@ paths:
                   next_cursor:
                     type: [string, "null"]
                     description: Pass as `cursor` to fetch the next page. `null` when no more pages.
+                  has_more:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/ValidationError"
+
+  /api/pools/search:
+    get:
+      summary: Search tip pools by pool ID or token
+      operationId: searchPools
+      tags: [Search, Pools]
+      security:
+        - StellarSig: []
+        - {}
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+          description: Case-insensitive pool ID or token fragment.
+        - $ref: "#/components/parameters/limit"
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          description: Number of matching pools to skip.
+      responses:
+        "200":
+          description: Matching pools ordered by exact pool ID match, then balance.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pools:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Pool"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
                   has_more:
                     type: boolean
         "400":
@@ -1383,6 +1479,9 @@ components:
           type: string
         updated_ledger:
           type: integer
+        follower_count:
+          type: integer
+          description: Follower count included by profile search results.
 
     ProfileList:
       type: object

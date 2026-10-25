@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { Database } from "../../db";
 import { validateParams, validateQuery } from "../../middleware/validate";
 import { z } from "zod";
-import { cursorPaginationSchema } from "@linkora/types/src/schemas";
+import { offsetPaginationSchema, cursorPaginationSchema } from "@linkora/types/src/schemas";
 import { notFoundError, internalError } from "@linkora/types/src/errors";
 import { CacheService, CacheKeys, POOL_LIST_TTL_S } from "../../cache";
 
@@ -11,6 +11,10 @@ const poolIdParamsSchema = z.object({
     .string()
     .min(1)
     .refine((v) => v.trim().length > 0, "id is required"),
+});
+
+const searchPoolsQuerySchema = offsetPaginationSchema.extend({
+  q: z.string().trim().min(1, "q is required and must be a non-empty string"),
 });
 
 export function createPoolsRouter(db: Database, cache?: CacheService): Router {
@@ -60,6 +64,29 @@ export function createPoolsRouter(db: Database, cache?: CacheService): Router {
         });
       } catch {
         const err = internalError("Failed to fetch pools");
+        res.status(err.statusCode).json(err.toJSON(req.context?.requestId));
+      }
+    }
+  );
+
+  router.get(
+    "/search",
+    validateQuery(searchPoolsQuerySchema),
+    async (req: Request, res: Response): Promise<void> => {
+      const { q, limit, offset } = req.query as unknown as z.infer<typeof searchPoolsQuerySchema>;
+
+      try {
+        const { pools, total } = await db.searchPools({ q, limit, offset });
+
+        res.json({
+          pools: pools.map((p) => ({ ...p, balance: p.balance.toString() })),
+          total,
+          limit,
+          offset,
+          has_more: offset + pools.length < total,
+        });
+      } catch {
+        const err = internalError("Failed to search pools");
         res.status(err.statusCode).json(err.toJSON(req.context?.requestId));
       }
     }

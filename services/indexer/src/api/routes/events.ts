@@ -1,9 +1,11 @@
 import { Router, Request, Response } from "express";
 import { Pool } from "pg";
 import { z } from "zod";
+import { Database } from "../../db";
 import { validateQuery } from "../../middleware/validate";
-import { rateLimit } from "../../middleware/rateLimit";
 import { getClientIP } from "../../middleware/rateLimit";
+import { cursorPaginationSchema } from "@linkora/types/src/schemas";
+import { internalError } from "@linkora/types/src/errors";
 
 const replayQuerySchema = z.object({
   fromLedger: z.coerce.number().int().positive(),
@@ -23,7 +25,7 @@ const replayQuerySchema = z.object({
 // Simple in-memory rate limiter for replay (1 req/min per IP)
 const replayRateLimit = new Map<string, number>();
 
-export function createEventsRouter(pg: Pool): Router {
+export function createEventsReplayRouter(pg: Pool): Router {
   const router = Router();
 
   router.get(
@@ -40,8 +42,9 @@ export function createEventsRouter(pg: Pool): Router {
         }
         replayRateLimit.set(clientIp, now);
 
-        const { fromLedger, toLedger, types, cursor, limit } =
-          req.query as unknown as z.infer<typeof replayQuerySchema>;
+        const { fromLedger, toLedger, types, cursor, limit } = req.query as unknown as z.infer<
+          typeof replayQuerySchema
+        >;
 
         if (fromLedger > toLedger) {
           res.status(400).json({ error: "fromLedger must be <= toLedger" });
@@ -106,19 +109,18 @@ export function createEventsRouter(pg: Pool): Router {
             `${lastEvent.ledger_sequence}:${lastEvent.event_index}`
           ).toString("base64");
           // Send cursor as a final line with metadata
-          res.write(
-            JSON.stringify({ _cursor: nextCursor, _has_more: true }) + "\n"
-          );
+          res.write(JSON.stringify({ _cursor: nextCursor, _has_more: true }) + "\n");
         }
 
         res.end();
       } catch (error) {
         res.status(500).json({ error: "Failed to replay events" });
-import { Database } from "../../db";
-import { validateQuery } from "../../middleware/validate";
-import { z } from "zod";
-import { cursorPaginationSchema } from "@linkora/types/src/schemas";
-import { internalError } from "@linkora/types/src/errors";
+      }
+    }
+  );
+
+  return router;
+}
 
 const listEventsQuerySchema = cursorPaginationSchema.extend({
   contract_id: z.string().min(1).optional(),

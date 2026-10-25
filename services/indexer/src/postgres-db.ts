@@ -12,6 +12,11 @@ import {
 } from "./db";
 import { followCountDriftTotal } from "./metrics";
 
+/** Escape LIKE/ILIKE wildcards so user input is matched literally. */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
+}
+
 export class PostgresDatabase implements Database {
   private pool: Pool;
 
@@ -49,6 +54,62 @@ export class PostgresDatabase implements Database {
       [address]
     );
     return res.rows[0] ?? null;
+  }
+
+  async searchProfiles(filters: {
+    q: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ profiles: Profile[]; total: number }> {
+    const { q, limit, offset } = filters;
+    const trimmed = q.trim();
+    if (!trimmed) return { profiles: [], total: 0 };
+
+    const pattern = `%${escapeLikePattern(trimmed)}%`;
+    const prefix = `${escapeLikePattern(trimmed)}%`;
+
+    const totalRes = await this.pool.query(
+      `
+      SELECT COUNT(*)::int AS total
+      FROM profiles
+      WHERE username ILIKE $1 ESCAPE '\\'
+        OR address ILIKE $1 ESCAPE '\\'
+      `,
+      [pattern]
+    );
+    const total = totalRes.rows[0]?.total ?? 0;
+
+    const res = await this.pool.query(
+      `
+      SELECT
+        p.address,
+        p.username,
+        p.creator_token,
+        p.updated_ledger,
+        COALESCE(fc.followers_count, 0)::int AS follower_count
+      FROM profiles p
+      LEFT JOIN follow_counts fc ON fc.user_address = p.address
+      WHERE p.username ILIKE $1 ESCAPE '\\'
+        OR p.address ILIKE $1 ESCAPE '\\'
+      ORDER BY
+        (LOWER(p.username) = LOWER($2)) DESC,
+        (LOWER(p.username) LIKE LOWER($3) ESCAPE '\\') DESC,
+        COALESCE(fc.followers_count, 0) DESC,
+        p.username ASC
+      OFFSET $4 LIMIT $5
+      `,
+      [pattern, trimmed, prefix, offset, limit]
+    );
+
+    const profiles: Profile[] = res.rows.map((row) => ({
+      address: row.address,
+      username: row.username,
+      creator_token: row.creator_token,
+      updated_ledger: Number(row.updated_ledger),
+      follower_count: Number(row.follower_count ?? 0),
+    }));
+
+    return { profiles, total };
   }
 
   // ───────────────────────────────── Follows ──────────────────────────────────
@@ -502,7 +563,8 @@ export class PostgresDatabase implements Database {
     let nextCursor: string | null = null;
     if (hasMore && rows.length > 0) {
       const last = rows[rows.length - 1];
-      const ts = last.created_at instanceof Date ? last.created_at.toISOString() : String(last.created_at);
+      const ts =
+        last.created_at instanceof Date ? last.created_at.toISOString() : String(last.created_at);
       nextCursor = Buffer.from(`${ts}|${last.id}`, "utf-8").toString("base64");
     }
 
@@ -576,7 +638,9 @@ export class PostgresDatabase implements Database {
     let nextCursor: string | null = null;
     if (hasMore && rows.length > 0) {
       const last = rows[rows.length - 1];
-      nextCursor = Buffer.from(`${last.proposal_id}|${last.proposal_id}`, "utf-8").toString("base64");
+      nextCursor = Buffer.from(`${last.proposal_id}|${last.proposal_id}`, "utf-8").toString(
+        "base64"
+      );
     }
 
     return { proposals, nextCursor };
@@ -644,7 +708,9 @@ export class PostgresDatabase implements Database {
     let nextCursor: string | null = null;
     if (hasMore && rows.length > 0) {
       const last = rows[rows.length - 1];
-      nextCursor = Buffer.from(`${last.created_ledger}|${last.pool_id}`, "utf-8").toString("base64");
+      nextCursor = Buffer.from(`${last.created_ledger}|${last.pool_id}`, "utf-8").toString(
+        "base64"
+      );
     }
 
     return { pools, nextCursor };
@@ -709,7 +775,9 @@ export class PostgresDatabase implements Database {
     let nextCursor: string | null = null;
     if (hasMore && rows.length > 0) {
       const last = rows[rows.length - 1];
-      nextCursor = Buffer.from(`${last.updated_ledger}|${last.address}`, "utf-8").toString("base64");
+      nextCursor = Buffer.from(`${last.updated_ledger}|${last.address}`, "utf-8").toString(
+        "base64"
+      );
     }
 
     return { profiles, nextCursor };
@@ -850,6 +918,56 @@ export class PostgresDatabase implements Database {
       created_ledger: Number(row.created_ledger),
       updated_ledger: Number(row.updated_ledger),
     }));
+  }
+
+  async searchPools(filters: {
+    q: string;
+    limit: number;
+    offset: number;
+  }): Promise<{ pools: PoolModel[]; total: number }> {
+    const { q, limit, offset } = filters;
+    const trimmed = q.trim();
+    if (!trimmed) return { pools: [], total: 0 };
+
+    const pattern = `%${escapeLikePattern(trimmed)}%`;
+
+    const totalRes = await this.pool.query(
+      `
+      SELECT COUNT(*)::int AS total
+      FROM pools
+      WHERE pool_id ILIKE $1 ESCAPE '\\'
+        OR token ILIKE $1 ESCAPE '\\'
+      `,
+      [pattern]
+    );
+    const total = totalRes.rows[0]?.total ?? 0;
+
+    const res = await this.pool.query(
+      `
+      SELECT pool_id, token, balance, admins, threshold, created_ledger, updated_ledger
+      FROM pools
+      WHERE pool_id ILIKE $1 ESCAPE '\\'
+        OR token ILIKE $1 ESCAPE '\\'
+      ORDER BY
+        (LOWER(pool_id) = LOWER($2)) DESC,
+        balance DESC,
+        created_ledger DESC
+      OFFSET $3 LIMIT $4
+      `,
+      [pattern, trimmed, offset, limit]
+    );
+
+    const pools: PoolModel[] = res.rows.map((row) => ({
+      pool_id: row.pool_id,
+      token: row.token,
+      balance: BigInt(row.balance),
+      admins: row.admins ?? [],
+      threshold: Number(row.threshold),
+      created_ledger: Number(row.created_ledger),
+      updated_ledger: Number(row.updated_ledger),
+    }));
+
+    return { pools, total };
   }
 
   async getPoolAnalytics(pool_id: string): Promise<import("./db").PoolAnalytics> {
@@ -1247,7 +1365,9 @@ export class PostgresDatabase implements Database {
         if (/^\d+$/.test(ledgerValue) && /^\d+$/.test(indexValue)) {
           params.push(ledgerValue, indexValue);
           // Composite keyset: strictly ordered even when ledger_sequence ties.
-          conditions.push(`(ledger_sequence, event_index) < ($${params.length - 1}::bigint, $${params.length}::int)`);
+          conditions.push(
+            `(ledger_sequence, event_index) < ($${params.length - 1}::bigint, $${params.length}::int)`
+          );
         }
       }
     }
@@ -1294,15 +1414,13 @@ export class PostgresDatabase implements Database {
     let nextCursor: string | null = null;
     if (hasMore && rows.length > 0) {
       const last = rows[rows.length - 1];
-      nextCursor = Buffer.from(
-        `${last.ledger_sequence}|${last.event_index}`,
-        "utf-8"
-      ).toString("base64");
+      nextCursor = Buffer.from(`${last.ledger_sequence}|${last.event_index}`, "utf-8").toString(
+        "base64"
+      );
     }
 
     return { events, nextCursor };
   }
-}
 
   async search(filters: {
     q: string;
@@ -1330,7 +1448,10 @@ export class PostgresDatabase implements Database {
       tsQuery = tsRes.rows[0]?.q?.toString() || null;
     } catch (e) {
       // fallback
-      const sanitised = q.trim().replace(/[^\w\s]/gu, " ").trim();
+      const sanitised = q
+        .trim()
+        .replace(/[^\w\s]/gu, " ")
+        .trim();
       if (!sanitised) return { total: 0 };
       tsQuery = sanitised
         .split(/\s+/)
@@ -1454,8 +1575,8 @@ export class PostgresDatabase implements Database {
         );
         const profiles: Profile[] = res.rows.map((row) => ({
           address: row.address,
-          username: row.username || row.handle || '',
-          creator_token: row.creator_token || '',
+          username: row.username || row.handle || "",
+          creator_token: row.creator_token || "",
           updated_ledger: Number(row.updated_ledger || 0),
         }));
         result.profiles = profiles;
@@ -1475,8 +1596,8 @@ export class PostgresDatabase implements Database {
           );
           const profiles: Profile[] = res.rows.map((row) => ({
             address: row.address,
-            username: row.username || '',
-            creator_token: row.creator_token || '',
+            username: row.username || "",
+            creator_token: row.creator_token || "",
             updated_ledger: Number(row.updated_ledger || 0),
           }));
           result.profiles = profiles;
@@ -1515,5 +1636,4 @@ export class PostgresDatabase implements Database {
 
     return result;
   }
-
 }

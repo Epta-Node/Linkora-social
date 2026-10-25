@@ -32,9 +32,7 @@ export function VerificationBadge({
   className = "",
 }: VerificationBadgeProps) {
   const provenance = VERIFICATION_PROVENANCE[level];
-  const label = subject
-    ? `${subject} — ${VERIFICATION_LABEL[level]}`
-    : VERIFICATION_LABEL[level];
+  const label = subject ? `${subject} — ${VERIFICATION_LABEL[level]}` : VERIFICATION_LABEL[level];
 
   return (
     <span
@@ -44,8 +42,10 @@ export function VerificationBadge({
       <BadgeCheck
         role="img"
         aria-label={`${label}. ${provenance}.`}
-        title={provenance}
-        data-verification-level={level}
+        // `title` and `data-*` are valid attributes on the rendered <svg>, but
+        // lucide's `LucideProps` (Partial<SVGProps>) omits them, so they are
+        // spread in rather than written as JSX attributes.
+        {...{ title: provenance, "data-verification-level": level }}
         className="h-4 w-4 text-[var(--accent)]"
         strokeWidth={2.25}
       />

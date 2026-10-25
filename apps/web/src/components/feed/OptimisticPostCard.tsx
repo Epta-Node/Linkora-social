@@ -12,6 +12,8 @@ interface OptimisticPostCardProps {
   onOptimisticDelete?: (postId: string | number) => void;
   /** Put the post back when the delete fails. */
   onDeleteFailed?: (postId: string | number) => void;
+  /** Load the card's hero image eagerly when it sits above the fold. */
+  priority?: boolean;
   "data-testid"?: string;
 }
 
@@ -31,6 +33,7 @@ export function OptimisticPostCard({
   currentUser,
   onOptimisticDelete,
   onDeleteFailed,
+  priority,
   "data-testid": dataTestId,
 }: OptimisticPostCardProps) {
   const like = useLikeMutation({
@@ -50,6 +53,7 @@ export function OptimisticPostCard({
     <PostCard
       data-testid={dataTestId}
       post={{ ...post, like_count: like.likeCount }}
+      priority={priority}
       isLiked={like.liked}
       onLike={() => {
         void like.like();

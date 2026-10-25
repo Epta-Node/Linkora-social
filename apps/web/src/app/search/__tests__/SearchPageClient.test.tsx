@@ -69,7 +69,9 @@ describe("SearchPageClient", () => {
 
     render(<SearchPageClient />);
 
-    const input = screen.getByRole("textbox", { name: "Search posts and profiles" });
+    const input = screen.getByRole("textbox", {
+      name: "Search posts, profiles, and pools",
+    });
     fireEvent.change(input, { target: { value: "stellar wave" } });
 
     expect(input).toHaveValue("stellar wave");
@@ -113,5 +115,120 @@ describe("SearchPageClient", () => {
     );
     expect(screen.queryAllByRole("article")).toHaveLength(0);
     expect(screen.getByTestId("search-results")).toHaveAttribute("aria-busy", "false");
+  });
+
+  it("searches profiles and applies a follower filter from the URL", async () => {
+    mockParams = new URLSearchParams("q=alice&tab=profiles&min_followers=100");
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        profiles: [
+          {
+            address: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            username: "alice",
+            follower_count: 12,
+          },
+          {
+            address: "GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            username: "alice_pro",
+            follower_count: 250,
+          },
+        ],
+      }),
+    });
+
+    render(<SearchPageClient />);
+
+    expect(await screen.findByText("alice_pro", {}, RESULTS_TIMEOUT)).toBeInTheDocument();
+    expect(screen.queryByText("alice")).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/profiles/search?q=alice"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("searches pools and filters by balance status", async () => {
+    mockParams = new URLSearchParams("q=community&tab=pools&status=empty");
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        pools: [
+          {
+            pool_id: "community",
+            token: "GTOKEN",
+            balance: "5000000000",
+            admins: ["GADMIN"],
+            threshold: 1,
+          },
+          {
+            pool_id: "treasury",
+            token: "GTOKEN",
+            balance: "0",
+            admins: ["GADMIN"],
+            threshold: 1,
+          },
+        ],
+      }),
+    });
+
+    render(<SearchPageClient />);
+
+    expect(await screen.findByRole("heading", { name: "treasury" }, RESULTS_TIMEOUT)).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "community" })).not.toBeInTheDocument();
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/pools/search?q=community"),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
+  });
+
+  it("shows trending searches and debounces typed queries into the URL", async () => {
+    mockParams = new URLSearchParams();
+    mockFetch.mockReturnValue(new Promise(() => {}));
+
+    render(<SearchPageClient />);
+
+    expect(screen.getByTestId("trending-searches")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Soroban" }));
+    expect(mockPush).toHaveBeenCalledWith("/search?q=soroban");
+
+    const input = screen.getByRole("textbox", {
+      name: "Search posts, profiles, and pools",
+    });
+    fireEvent.change(input, { target: { value: "soroban" } });
+
+    expect(mockReplace).not.toHaveBeenCalled();
+    await waitFor(
+      () =>
+        expect(mockReplace).toHaveBeenCalledWith("/search?q=soroban", {
+          scroll: false,
+        }),
+      { timeout: 2000 }
+    );
+  });
+
+  it("focuses search when / is pressed outside an input", () => {
+    mockParams = new URLSearchParams();
+    mockFetch.mockReturnValue(new Promise(() => {}));
+
+    render(<SearchPageClient />);
+
+    const input = screen.getByRole("textbox", {
+      name: "Search posts, profiles, and pools",
+    });
+    fireEvent.keyDown(window, { key: "/" });
+
+    expect(input).toHaveFocus();
+  });
+
+  it("renders an illustrated empty state when nothing matches", async () => {
+    mockParams = new URLSearchParams("q=zzz");
+    mockFetch.mockResolvedValue({ ok: true, json: async () => ({ posts: [] }) });
+
+    render(<SearchPageClient />);
+
+    expect(
+      await screen.findByText('No posts found for "zzz".', {}, RESULTS_TIMEOUT)
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("search-empty-illustration")).toBeInTheDocument();
   });
 });

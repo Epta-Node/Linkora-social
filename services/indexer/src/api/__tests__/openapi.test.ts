@@ -60,11 +60,7 @@ function mountPathOf(layer: { regexp?: { source?: string } }): string {
 
 function joinPath(prefix: string, routePath: string): string {
   const suffix =
-    !routePath || routePath === "/"
-      ? ""
-      : routePath.startsWith("/")
-        ? routePath
-        : `/${routePath}`;
+    !routePath || routePath === "/" ? "" : routePath.startsWith("/") ? routePath : `/${routePath}`;
   if (!prefix) return suffix || "/";
   return `${prefix.replace(/\/+$/, "")}${suffix}`;
 }
@@ -197,6 +193,8 @@ describe("openapi.yaml ↔ createApp() coverage", () => {
     expect(documented.has("/api/feed")).toBe(true);
     expect(documented.has("/api/feed/explore")).toBe(true);
     expect(documented.has("/api/search/posts")).toBe(true);
+    expect(documented.has("/api/profiles/search")).toBe(true);
+    expect(documented.has("/api/pools/search")).toBe(true);
     expect(documented.has("/api/notifications/register")).toBe(true);
     expect(documented.has("/api/governance/proposals")).toBe(true);
     expect(documented.has("/api/state-root")).toBe(true);
@@ -210,6 +208,8 @@ describe("openapi.yaml ↔ createApp() coverage", () => {
     // Must reference the shared canonical builder, not re-implement it.
     expect(yaml).toContain("packages/types/src/auth.ts");
     expect(yaml).toContain("v1:{METHOD}:{canonicalPath}:{address}:{timestamp}:{bodyHash}");
-    expect(yaml).toContain("Authorization: StellarSig <base64(JSON { address, timestamp, signature })>");
+    expect(yaml).toContain(
+      "Authorization: StellarSig <base64(JSON { address, timestamp, signature })>"
+    );
   });
 });
