@@ -78,6 +78,14 @@ pub enum StorageKey {
     RemovedPost(u64), // persistent: post_id -> Post snapshot removed by moderation
     ModerationRecord(u64), // persistent: post_id -> ModerationRecord (appeal deadline)
     Appeal(u64),      // persistent: post_id -> Appeal
+
+    // ── Governance appeals (token-holder vote, Issue #1766) ───────────────
+    GovAppeal(u64),                // persistent: appeal_id -> GovAppeal
+    PostGovAppeal(u64),            // persistent: post_id -> appeal_id (one appeal per post)
+    GovAppealVote(u64, Address),   // persistent: (appeal_id, voter) -> AppealVote
+    ModerationModerator(u64),      // persistent: post_id -> moderator who upheld the removal
+    ModeratorBond(Address),        // persistent: moderator -> ModeratorBond
+    ModeratorOpenAppeals(Address), // persistent: moderator -> u32 appeals still being voted on
 }
 
 #[contracterror]
@@ -103,6 +111,8 @@ const CONTRACT_STATE: Symbol = symbol_short!("CT_STATE");
 const ROLES: Symbol = symbol_short!("ROLES");
 const PAUSED: Symbol = symbol_short!("PAUSED");
 const PAUSE_MASK: Symbol = symbol_short!("P_MASK");
+const APPEAL_CONFIG: Symbol = symbol_short!("APL_CFG");
+const GOV_APPEAL_COUNT: Symbol = symbol_short!("APL_CT");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -139,6 +149,13 @@ const MAX_SUGGEST_SCAN: u32 = 200;
 
 /// Ledgers an author has to appeal a moderation decision (~2 days at 5s/ledger).
 const APPEAL_WINDOW_LEDGERS: u32 = 34_560;
+
+/// How long governance token holders can vote on an appeal filed with
+/// `appeal_removal`: 7 days, measured with the ledger timestamp.
+pub const APPEAL_VOTING_PERIOD_SECONDS: u64 = 7 * 24 * 60 * 60;
+
+/// Longest reason accepted by `appeal_removal`, in bytes.
+const MAX_APPEAL_REASON_LEN: u32 = 500;
 
 // ── Time-locked Posts ──────────────────────────────────────────────────────────
 //
@@ -367,6 +384,69 @@ pub struct Appeal {
     pub status: AppealStatus,
     pub approvers: Vec<Address>,
     pub rejecters: Vec<Address>,
+}
+
+/// Settings for the governance appeal workflow (`appeal_removal`).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppealConfig {
+    /// Token whose holders vote on appeals; a vote weighs the voter's balance.
+    pub gov_token: Address,
+    /// Token used for the appellant's stake and for moderator bonds.
+    pub stake_token: Address,
+    /// Stake the author posts when appealing. Refunded if the appeal passes,
+    /// sent to the treasury if it fails.
+    pub appeal_stake: i128,
+    /// Taken from the original moderator's bond (up to what is bonded) and
+    /// sent to the treasury when an appeal against their decision passes.
+    pub moderator_slash: i128,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GovAppealStatus {
+    Voting,
+    Passed,
+    Failed,
+}
+
+/// An appeal decided by governance token holders.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GovAppeal {
+    pub id: u64,
+    pub post_id: u64,
+    pub appellant: Address,
+    /// Moderator who upheld the removal, when it was recorded.
+    pub moderator: Option<Address>,
+    pub reason: String,
+    pub stake_token: Address,
+    pub stake_amount: i128,
+    pub moderator_slash: i128,
+    pub gov_token: Address,
+    pub filed_at: u64,
+    pub voting_ends_at: u64,
+    pub votes_for: i128,
+    pub votes_against: i128,
+    pub status: GovAppealStatus,
+}
+
+/// A token holder's vote. The voted tokens are held by the contract until the
+/// appeal is resolved, so the same tokens cannot be voted twice.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppealVote {
+    pub support: bool,
+    pub weight: i128,
+    pub withdrawn: bool,
+}
+
+/// Stake a moderator has bonded; it backs their moderation decisions.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModeratorBond {
+    pub token: Address,
+    pub amount: i128,
 }
 
 // ── Per-module Pause ──────────────────────────────────────────────────────────
@@ -924,6 +1004,51 @@ pub struct AppealResolvedEvent {
     pub post_id: u64,
     #[topic]
     pub approved: bool,
+}
+
+#[contractevent(topics = ["appeal_filed"])]
+#[derive(Clone)]
+pub struct GovAppealFiledEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub appeal_id: u64,
+    #[topic]
+    pub post_id: u64,
+    pub appellant: Address,
+    pub stake_amount: i128,
+    pub voting_ends_at: u64,
+}
+
+#[contractevent(topics = ["appeal_voted"])]
+#[derive(Clone)]
+pub struct GovAppealVotedEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub appeal_id: u64,
+    #[topic]
+    pub voter: Address,
+    pub support: bool,
+    pub weight: i128,
+}
+
+#[contractevent(topics = ["appeal_resolved"])]
+#[derive(Clone)]
+pub struct GovAppealResolvedEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub appeal_id: u64,
+    #[topic]
+    pub post_id: u64,
+    pub passed: bool,
+    pub votes_for: i128,
+    pub votes_against: i128,
+    /// Taken from the moderator's bond (appeal passed).
+    pub moderator_slashed: i128,
+    /// Appellant stake sent to the treasury (appeal failed).
+    pub appellant_slashed: i128,
 }
 
 // ── Contract ──────────────────────────────────────────────────────────────────
@@ -3924,6 +4049,11 @@ impl LinkoraContract {
                         },
                     );
                     Self::bump(&env, &moderation_key);
+                    // Remember who upheld the removal: their bond is at stake
+                    // if a governance appeal overturns it.
+                    let moderator_key = StorageKey::ModerationModerator(post_id);
+                    env.storage().persistent().set(&moderator_key, &moderator);
+                    Self::bump(&env, &moderator_key);
 
                     env.storage().persistent().remove(&post_key);
 
@@ -4076,7 +4206,11 @@ impl LinkoraContract {
         );
         require_with_error!(
             &env,
-            !env.storage().persistent().has(&StorageKey::Appeal(post_id)),
+            !env.storage().persistent().has(&StorageKey::Appeal(post_id))
+                && !env
+                    .storage()
+                    .persistent()
+                    .has(&StorageKey::PostGovAppeal(post_id)),
             "appeal already filed"
         );
 
@@ -4180,6 +4314,487 @@ impl LinkoraContract {
         result
     }
 
+    // ── Governance appeals (Issue #1766) ─────────────────────────────────────
+    //
+    // A removed post's author can put the removal to a vote of governance
+    // token holders instead of the `mods` pool:
+    //
+    // 1. `appeal_removal` — the author files one appeal per post, posting
+    //    `appeal_stake`, while the moderation appeal window is open.
+    // 2. `vote_appeal` — token holders vote for 7 days. A vote weighs the
+    //    voter's whole `gov_token` balance, which the contract holds until the
+    //    appeal is resolved so the same tokens cannot vote twice.
+    // 3. `resolve_appeal` — anyone, once the 7 days are over. The appeal
+    //    passes with more than 50% of the voted weight in favour.
+    //    Passed: the post is restored, the stake refunded and the original
+    //    moderator loses `moderator_slash` from their bond. Failed: the post
+    //    stays removed and the stake goes to the treasury.
+    // 4. `withdraw_appeal_vote` — voters take their tokens back afterwards.
+
+    /// Configure the governance appeal workflow. Admin only.
+    pub fn set_appeal_config(
+        env: Env,
+        admin: Address,
+        gov_token: Address,
+        stake_token: Address,
+        appeal_stake: i128,
+        moderator_slash: i128,
+    ) {
+        Self::bump_instance(&env);
+        admin.require_auth();
+        Self::require_role(&env, &admin, Role::Admin);
+        validate_non_default_address(&env, "gov_token", &gov_token);
+        validate_non_default_address(&env, "stake_token", &stake_token);
+        require_with_error!(
+            &env,
+            appeal_stake >= 0 && moderator_slash >= 0,
+            "stakes must not be negative"
+        );
+        env.storage().instance().set(
+            &APPEAL_CONFIG,
+            &AppealConfig {
+                gov_token,
+                stake_token,
+                appeal_stake,
+                moderator_slash,
+            },
+        );
+    }
+
+    pub fn get_appeal_config(env: Env) -> Option<AppealConfig> {
+        env.storage().instance().get(&APPEAL_CONFIG)
+    }
+
+    /// Bond `amount` of the appeal stake token as a moderator. The bond backs
+    /// the moderator's decisions: it is slashed when an appeal overturns one.
+    pub fn stake_moderator_bond(env: Env, moderator: Address, amount: i128) {
+        Self::bump_instance(&env);
+        moderator.require_auth();
+        Self::require_role(&env, &moderator, Role::Moderator);
+        validate_amount(&env, "bond amount", amount);
+        let config = Self::appeal_config(&env);
+
+        let key = StorageKey::ModeratorBond(moderator.clone());
+        let mut bond: ModeratorBond =
+            env.storage()
+                .persistent()
+                .get(&key)
+                .unwrap_or(ModeratorBond {
+                    token: config.stake_token.clone(),
+                    amount: 0,
+                });
+        if bond.amount == 0 {
+            bond.token = config.stake_token.clone();
+        }
+        require_with_error!(
+            &env,
+            bond.token == config.stake_token,
+            "bond is held in a different token"
+        );
+
+        token::Client::new(&env, &bond.token).transfer(
+            &moderator,
+            env.current_contract_address(),
+            &amount,
+        );
+        bond.amount += amount;
+        env.storage().persistent().set(&key, &bond);
+        Self::bump(&env, &key);
+    }
+
+    /// Withdraw bonded stake. Not allowed while an appeal against one of the
+    /// moderator's decisions is still being voted on.
+    pub fn unstake_moderator_bond(env: Env, moderator: Address, amount: i128) {
+        Self::bump_instance(&env);
+        moderator.require_auth();
+        validate_amount(&env, "bond amount", amount);
+        require_with_error!(
+            &env,
+            Self::open_appeals_against(&env, &moderator) == 0,
+            "moderator has appeals in progress"
+        );
+
+        let key = StorageKey::ModeratorBond(moderator.clone());
+        let mut bond: ModeratorBond = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("no moderator bond"));
+        require_with_error!(&env, amount <= bond.amount, "amount exceeds bond");
+
+        bond.amount -= amount;
+        env.storage().persistent().set(&key, &bond);
+        Self::bump(&env, &key);
+        token::Client::new(&env, &bond.token).transfer(
+            &env.current_contract_address(),
+            &moderator,
+            &amount,
+        );
+    }
+
+    pub fn get_moderator_bond(env: Env, moderator: Address) -> Option<ModeratorBond> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ModeratorBond(moderator))
+    }
+
+    /// File a governance appeal against the moderation removal of `post_id`.
+    /// Only the post's author, once per post, while the appeal window opened
+    /// by `review_report` is still open. Returns the appeal id.
+    pub fn appeal_removal(env: Env, appellant: Address, post_id: u64, reason: String) -> u64 {
+        Self::bump_instance(&env);
+        Self::require_not_paused(&env, PauseModule::Governance);
+        appellant.require_auth();
+        validate_non_default_address(&env, "appellant", &appellant);
+        require_with_error!(&env, post_id > 0, "post id must be positive");
+        require_with_error!(
+            &env,
+            !reason.is_empty() && reason.len() <= MAX_APPEAL_REASON_LEN,
+            "appeal reason must be 1-500 bytes"
+        );
+        let config = Self::appeal_config(&env);
+
+        let record: ModerationRecord = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::ModerationRecord(post_id))
+            .unwrap_or_else(|| panic!("no moderation decision to appeal"));
+        let removed_post: Post = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::RemovedPost(post_id))
+            .expect("removed post not found");
+        require_with_error!(
+            &env,
+            removed_post.author == appellant,
+            "only the post author can appeal"
+        );
+        require_with_error!(
+            &env,
+            env.ledger().sequence() <= record.appeal_deadline,
+            "appeal window has closed"
+        );
+        let post_appeal_key = StorageKey::PostGovAppeal(post_id);
+        require_with_error!(
+            &env,
+            !env.storage().persistent().has(&post_appeal_key)
+                && !env.storage().persistent().has(&StorageKey::Appeal(post_id)),
+            "appeal already filed"
+        );
+
+        if config.appeal_stake > 0 {
+            token::Client::new(&env, &config.stake_token).transfer(
+                &appellant,
+                env.current_contract_address(),
+                &config.appeal_stake,
+            );
+        }
+
+        let moderator: Option<Address> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::ModerationModerator(post_id));
+        if let Some(moderator) = &moderator {
+            let open_key = StorageKey::ModeratorOpenAppeals(moderator.clone());
+            let open = Self::open_appeals_against(&env, moderator);
+            env.storage().persistent().set(&open_key, &(open + 1));
+            Self::bump(&env, &open_key);
+        }
+
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&GOV_APPEAL_COUNT)
+            .unwrap_or(0u64)
+            + 1;
+        env.storage().instance().set(&GOV_APPEAL_COUNT, &id);
+
+        let filed_at = env.ledger().timestamp();
+        let voting_ends_at = filed_at.saturating_add(APPEAL_VOTING_PERIOD_SECONDS);
+        let appeal = GovAppeal {
+            id,
+            post_id,
+            appellant: appellant.clone(),
+            moderator,
+            reason,
+            stake_token: config.stake_token,
+            stake_amount: config.appeal_stake,
+            moderator_slash: config.moderator_slash,
+            gov_token: config.gov_token,
+            filed_at,
+            voting_ends_at,
+            votes_for: 0,
+            votes_against: 0,
+            status: GovAppealStatus::Voting,
+        };
+        Self::save_gov_appeal(&env, &appeal);
+        env.storage().persistent().set(&post_appeal_key, &id);
+        Self::bump(&env, &post_appeal_key);
+
+        GovAppealFiledEvent {
+            version: EVENT_VERSION,
+            appeal_id: id,
+            post_id,
+            appellant,
+            stake_amount: appeal.stake_amount,
+            voting_ends_at,
+        }
+        .publish(&env);
+
+        id
+    }
+
+    /// Vote on an open appeal with the voter's whole governance token
+    /// balance, which is held by the contract until the appeal is resolved.
+    /// One vote per holder; the appellant and the original moderator cannot
+    /// vote.
+    pub fn vote_appeal(env: Env, voter: Address, appeal_id: u64, vote: bool) {
+        Self::bump_instance(&env);
+        Self::require_not_paused(&env, PauseModule::Governance);
+        voter.require_auth();
+        validate_non_default_address(&env, "voter", &voter);
+        let mut appeal = Self::load_gov_appeal(&env, appeal_id);
+
+        require_with_error!(
+            &env,
+            appeal.status == GovAppealStatus::Voting,
+            "appeal already resolved"
+        );
+        require_with_error!(
+            &env,
+            env.ledger().timestamp() < appeal.voting_ends_at,
+            "voting period has ended"
+        );
+        require_with_error!(
+            &env,
+            voter != appeal.appellant && Some(voter.clone()) != appeal.moderator,
+            "parties to the appeal cannot vote"
+        );
+        let vote_key = StorageKey::GovAppealVote(appeal_id, voter.clone());
+        require_with_error!(
+            &env,
+            !env.storage().persistent().has(&vote_key),
+            "already voted"
+        );
+
+        let gov_token = token::Client::new(&env, &appeal.gov_token);
+        let weight = gov_token.balance(&voter);
+        require_with_error!(&env, weight > 0, "only governance token holders can vote");
+        gov_token.transfer(&voter, env.current_contract_address(), &weight);
+
+        if vote {
+            appeal.votes_for += weight;
+        } else {
+            appeal.votes_against += weight;
+        }
+        Self::save_gov_appeal(&env, &appeal);
+        env.storage().persistent().set(
+            &vote_key,
+            &AppealVote {
+                support: vote,
+                weight,
+                withdrawn: false,
+            },
+        );
+        Self::bump(&env, &vote_key);
+
+        GovAppealVotedEvent {
+            version: EVENT_VERSION,
+            appeal_id,
+            voter,
+            support: vote,
+            weight,
+        }
+        .publish(&env);
+    }
+
+    /// Settle an appeal once its 7-day voting period is over. Callable by
+    /// anyone. Returns whether the appeal passed.
+    pub fn resolve_appeal(env: Env, appeal_id: u64) -> bool {
+        Self::bump_instance(&env);
+        let mut appeal = Self::load_gov_appeal(&env, appeal_id);
+        require_with_error!(
+            &env,
+            appeal.status == GovAppealStatus::Voting,
+            "appeal already resolved"
+        );
+        require_with_error!(
+            &env,
+            env.ledger().timestamp() >= appeal.voting_ends_at,
+            "voting period still open"
+        );
+
+        // Strictly more than half of the voted weight. No votes: fails.
+        let passed = appeal.votes_for > appeal.votes_against;
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&TREASURY)
+            .expect("treasury not set");
+        let stake_token = token::Client::new(&env, &appeal.stake_token);
+        let mut moderator_slashed = 0i128;
+        let mut appellant_slashed = 0i128;
+
+        if passed {
+            Self::restore_moderated_post(&env, appeal.post_id);
+            if appeal.stake_amount > 0 {
+                stake_token.transfer(
+                    &env.current_contract_address(),
+                    &appeal.appellant,
+                    &appeal.stake_amount,
+                );
+            }
+            if let Some(moderator) = &appeal.moderator {
+                moderator_slashed =
+                    Self::slash_moderator_bond(&env, moderator, appeal.moderator_slash, &treasury);
+            }
+            appeal.status = GovAppealStatus::Passed;
+        } else {
+            if appeal.stake_amount > 0 {
+                stake_token.transfer(
+                    &env.current_contract_address(),
+                    &treasury,
+                    &appeal.stake_amount,
+                );
+                appellant_slashed = appeal.stake_amount;
+            }
+            appeal.status = GovAppealStatus::Failed;
+        }
+
+        if let Some(moderator) = &appeal.moderator {
+            let open_key = StorageKey::ModeratorOpenAppeals(moderator.clone());
+            let open = Self::open_appeals_against(&env, moderator);
+            if open <= 1 {
+                env.storage().persistent().remove(&open_key);
+            } else {
+                env.storage().persistent().set(&open_key, &(open - 1));
+                Self::bump(&env, &open_key);
+            }
+        }
+        Self::save_gov_appeal(&env, &appeal);
+
+        GovAppealResolvedEvent {
+            version: EVENT_VERSION,
+            appeal_id,
+            post_id: appeal.post_id,
+            passed,
+            votes_for: appeal.votes_for,
+            votes_against: appeal.votes_against,
+            moderator_slashed,
+            appellant_slashed,
+        }
+        .publish(&env);
+
+        passed
+    }
+
+    /// Return the governance tokens a voter put behind their vote, once the
+    /// appeal is resolved. Returns the amount.
+    pub fn withdraw_appeal_vote(env: Env, voter: Address, appeal_id: u64) -> i128 {
+        Self::bump_instance(&env);
+        voter.require_auth();
+        let appeal = Self::load_gov_appeal(&env, appeal_id);
+        require_with_error!(
+            &env,
+            appeal.status != GovAppealStatus::Voting,
+            "appeal not resolved yet"
+        );
+        let vote_key = StorageKey::GovAppealVote(appeal_id, voter.clone());
+        let mut vote: AppealVote = env
+            .storage()
+            .persistent()
+            .get(&vote_key)
+            .unwrap_or_else(|| panic!("no vote to withdraw"));
+        require_with_error!(&env, !vote.withdrawn, "vote already withdrawn");
+
+        vote.withdrawn = true;
+        env.storage().persistent().set(&vote_key, &vote);
+        Self::bump(&env, &vote_key);
+        token::Client::new(&env, &appeal.gov_token).transfer(
+            &env.current_contract_address(),
+            &voter,
+            &vote.weight,
+        );
+        vote.weight
+    }
+
+    pub fn get_gov_appeal(env: Env, appeal_id: u64) -> Option<GovAppeal> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::GovAppeal(appeal_id))
+    }
+
+    /// Id of the governance appeal filed for `post_id`, if any.
+    pub fn get_post_gov_appeal(env: Env, post_id: u64) -> Option<u64> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::PostGovAppeal(post_id))
+    }
+
+    pub fn get_appeal_vote(env: Env, appeal_id: u64, voter: Address) -> Option<AppealVote> {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::GovAppealVote(appeal_id, voter))
+    }
+
+    fn appeal_config(env: &Env) -> AppealConfig {
+        env.storage()
+            .instance()
+            .get(&APPEAL_CONFIG)
+            .unwrap_or_else(|| panic!("appeal voting not configured"))
+    }
+
+    fn load_gov_appeal(env: &Env, appeal_id: u64) -> GovAppeal {
+        let key = StorageKey::GovAppeal(appeal_id);
+        let appeal: GovAppeal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic!("appeal not found"));
+        Self::bump(env, &key);
+        appeal
+    }
+
+    fn save_gov_appeal(env: &Env, appeal: &GovAppeal) {
+        let key = StorageKey::GovAppeal(appeal.id);
+        env.storage().persistent().set(&key, appeal);
+        Self::bump(env, &key);
+    }
+
+    fn open_appeals_against(env: &Env, moderator: &Address) -> u32 {
+        env.storage()
+            .persistent()
+            .get(&StorageKey::ModeratorOpenAppeals(moderator.clone()))
+            .unwrap_or(0)
+    }
+
+    /// Move up to `amount` from the moderator's bond to the treasury and
+    /// return what was taken.
+    fn slash_moderator_bond(
+        env: &Env,
+        moderator: &Address,
+        amount: i128,
+        treasury: &Address,
+    ) -> i128 {
+        let key = StorageKey::ModeratorBond(moderator.clone());
+        let Some(mut bond) = env.storage().persistent().get::<_, ModeratorBond>(&key) else {
+            return 0;
+        };
+        let slashed = amount.min(bond.amount);
+        if slashed <= 0 {
+            return 0;
+        }
+        bond.amount -= slashed;
+        env.storage().persistent().set(&key, &bond);
+        Self::bump(env, &key);
+        token::Client::new(env, &bond.token).transfer(
+            &env.current_contract_address(),
+            treasury,
+            &slashed,
+        );
+        slashed
+    }
+
     /// Re-insert a post removed by moderation and relink it to its author.
     fn restore_moderated_post(env: &Env, post_id: u64) {
         let removed_key = StorageKey::RemovedPost(post_id);
@@ -4204,6 +4819,9 @@ impl LinkoraContract {
         env.storage()
             .persistent()
             .remove(&StorageKey::ModerationRecord(post_id));
+        env.storage()
+            .persistent()
+            .remove(&StorageKey::ModerationModerator(post_id));
     }
 
     pub fn get_report(env: Env, post_id: u64, reporter: Address) -> Option<Report> {

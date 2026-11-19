@@ -144,6 +144,11 @@ jobs:
           cargo build --target wasm32v1-none --release -p linkora-contracts
           cp target/wasm32v1-none/release/linkora_contracts.wasm contracts/linkora-contracts/linkora_contracts.wasm
 
+      - name: Run vesting, multicall and governance-appeal tests
+        # Separate step so these report on their own; linkora-wasm-tests runs
+        # against the WASM built in the previous step.
+        run: cargo test -p linkora-vesting -p linkora-multicall -p linkora-wasm-tests
+
       - name: Run unit tests
         run: cargo test
 

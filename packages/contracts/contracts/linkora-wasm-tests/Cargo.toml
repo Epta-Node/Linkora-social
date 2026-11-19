@@ -1,0 +1,15 @@
+[package]
+name = "linkora-wasm-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Tests that drive the compiled LinkoraContract WASM"
+
+[lib]
+doctest = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }

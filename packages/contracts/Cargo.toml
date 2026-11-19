@@ -4,6 +4,9 @@ members = [
   "contracts/linkora-contracts",
   "contracts/linkora-referral",
   "contracts/token-factory",
+  "contracts/linkora-vesting",
+  "contracts/linkora-multicall",
+  "contracts/linkora-wasm-tests",
 ]
 
 [workspace.dependencies]
