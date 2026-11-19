@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "test": "jest"
+    "test": "jest",
+    "a11y:lint": "node scripts/a11y-lint.js"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",

@@ -281,7 +281,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       opacity: 0.56,
     },
     deleteButtonText: {
-      color: theme.colors.text.onBrand,
+      color: theme.colors.text.onSemantic,
       fontSize: 14,
       fontWeight: "800",
     },

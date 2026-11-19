@@ -462,6 +462,54 @@ Keep expensive result updates in a `startTransition` so they never block typing.
 
 ---
 
+## Accessibility (mobile)
+
+The mobile app is audited for accessibility on every pull request that touches
+`apps/mobile`. The **Mobile Build Check** workflow fails when any of these
+checks regress.
+
+### What is checked
+
+| Check           | Where                                                                                  | Fails when                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Static audit    | `apps/mobile/scripts/a11y-lint.js` (`pnpm --filter @linkora/mobile a11y:lint`)         | A `Pressable` / `Touchable*` element has no `accessibilityLabel` or no `accessibilityRole` |
+| Render audit    | `findInaccessibleTouchables()` in `apps/mobile/utils/a11y.ts`, used by component tests | A rendered interactive element is not exposed with a label and role                        |
+| Colour contrast | `apps/mobile/theme/__tests__/contrast.test.ts`                                         | A text/background token pair drops below WCAG AA (4.5:1 for normal text)                   |
+
+`jest-axe` targets the DOM and cannot inspect React Native trees, so the mobile
+audit is built on the React Native accessibility props and
+`@testing-library/react-native` role/label queries instead.
+
+### Rules for new UI
+
+- Every `Pressable`, `TouchableOpacity`, `TouchableHighlight`,
+  `TouchableWithoutFeedback` and `TouchableNativeFeedback` needs an
+  `accessibilityRole` (`button`, `link`, `tab`, `radio`, …) **and** an
+  `accessibilityLabel` that describes the action ("Retry loading profile", not
+  "Retry").
+- Reflect state with `accessibilityState` (`disabled`, `busy`, `selected`,
+  `checked`) instead of only changing styles.
+- Use theme tokens for text colours. When you add a token, add its pairing to
+  `theme/__tests__/contrast.test.ts`. Use `text.onBrand` on `brand.primary`
+  and `text.onSemantic` on filled `semantic.*` surfaces.
+- Prefer the shared `BottomSheet` component for sheets: it traps screen-reader
+  focus and closes on the Android back button.
+- Elements spreading props (`{...rest}`) are skipped by the static audit; the
+  component that renders them is responsible for passing a label and role.
+- Query by role and label in tests (`getByRole("button", { name: "…" })`), and
+  add `expect(findInaccessibleTouchables(screen.UNSAFE_root)).toEqual([])` to
+  tests for new interactive components.
+
+### Running the audit locally
+
+```bash
+pnpm --filter @linkora/mobile a11y:lint
+```
+
+```bash
+pnpm --filter @linkora/mobile exec jest theme utils/__tests__/a11y.test.ts components
+```
+
 ## Branch Naming
 
 | Prefix   | Use for                             |
