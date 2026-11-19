@@ -1,13 +1,7 @@
-import React, { useEffect } from 'react';
-import { 
-  TouchableOpacity, 
-  Text, 
-  StyleSheet, 
-  ActivityIndicator, 
-  Alert 
-} from 'react-native';
-import { useFollow } from '../hooks/useFollow';
-import { impact } from '../utils/haptics';
+import React, { useEffect } from "react";
+import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { useFollow } from "../hooks/useFollow";
+import { impact } from "../utils/haptics";
 
 interface FollowButtonProps {
   targetAddress: string;
@@ -22,34 +16,34 @@ export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => 
 
   useEffect(() => {
     if (error) {
-      const isBlocked = error.message.toLowerCase().includes('blocked');
+      const isBlocked = error.message.toLowerCase().includes("blocked");
       Alert.alert(
         "Action Failed",
-        isBlocked 
-          ? "You cannot follow this user because you have been blocked." 
+        isBlocked
+          ? "You cannot follow this user because you have been blocked."
           : "Something went wrong. Please try again later."
       );
     }
   }, [error]);
 
   return (
-    <TouchableOpacity 
-      style={[
-        styles.button, 
-        isFollowing ? styles.followingButton : styles.followButton
-      ]} 
+    <TouchableOpacity
+      style={[styles.button, isFollowing ? styles.followingButton : styles.followButton]}
       onPress={() => {
         void impact("light");
         void toggleFollow();
       }}
       disabled={isLoading}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
+      accessibilityState={{ disabled: isLoading, busy: isLoading, selected: isFollowing }}
     >
       {isLoading ? (
         <ActivityIndicator color={isFollowing ? "#7C3AED" : "#FFFFFF"} size="small" />
       ) : (
         <Text style={[styles.text, isFollowing && styles.followingText]}>
-          {isFollowing ? 'Following' : 'Follow'}
+          {isFollowing ? "Following" : "Follow"}
         </Text>
       )}
     </TouchableOpacity>
@@ -62,23 +56,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 25,
     minWidth: 110,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   followButton: {
-    backgroundColor: '#7C3AED', // Primary design token
+    backgroundColor: "#7C3AED", // Primary design token
   },
   followingButton: {
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
     borderWidth: 1,
-    borderColor: '#7C3AED',
+    borderColor: "#7C3AED",
   },
   text: {
-    color: '#FFFFFF',
-    fontWeight: '700',
+    color: "#FFFFFF",
+    fontWeight: "700",
     fontSize: 14,
   },
   followingText: {
-    color: '#7C3AED',
+    color: "#7C3AED",
   },
 });

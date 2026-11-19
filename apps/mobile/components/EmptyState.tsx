@@ -46,6 +46,8 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           style={styles.actionButton}
           onPress={onActionPress}
           testID={`${testID}-action`}
+          accessibilityRole="button"
+          accessibilityLabel={actionText}
         >
           <Text style={styles.actionText}>{actionText}</Text>
         </TouchableOpacity>

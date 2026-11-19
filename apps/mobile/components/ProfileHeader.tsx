@@ -45,7 +45,9 @@ export default function ProfileHeader({
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => undefined);
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setReduceMotion)
+      .catch(() => undefined);
   }, []);
 
   const shortAddress = `${profile.address.slice(0, 8)}…${profile.address.slice(-6)}`;
@@ -64,7 +66,10 @@ export default function ProfileHeader({
           </Text>
         </Animated.View>
         <View style={styles.meta}>
-          <Animated.Text style={styles.username} sharedTransitionTag={reduceMotion ? undefined : `username-${profile.address}`}>
+          <Animated.Text
+            style={styles.username}
+            sharedTransitionTag={reduceMotion ? undefined : `username-${profile.address}`}
+          >
             {profile.username ?? shortAddress}
           </Animated.Text>
           <Text style={styles.address}>{shortAddress}</Text>
@@ -99,7 +104,14 @@ export default function ProfileHeader({
       </View>
 
       <View style={styles.countsRow}>
-        <Pressable onPress={onFollowersPress} accessibilityRole="button" style={styles.countItem}>
+        <Pressable
+          onPress={onFollowersPress}
+          accessibilityRole="button"
+          accessibilityLabel={
+            followerCount === null ? "Followers loading" : `${followerCount} followers`
+          }
+          style={styles.countItem}
+        >
           <Text
             style={styles.countNumber}
             accessibilityLabel={
@@ -111,7 +123,14 @@ export default function ProfileHeader({
           </Text>
           <Text style={styles.countLabel}>Followers</Text>
         </Pressable>
-        <Pressable onPress={onFollowingPress} accessibilityRole="button" style={styles.countItem}>
+        <Pressable
+          onPress={onFollowingPress}
+          accessibilityRole="button"
+          accessibilityLabel={
+            followingCount === null ? "Following loading" : `${followingCount} following`
+          }
+          style={styles.countItem}
+        >
           <Text
             style={styles.countNumber}
             accessibilityLabel={

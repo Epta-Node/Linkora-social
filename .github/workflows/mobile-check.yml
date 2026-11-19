@@ -28,6 +28,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Accessibility audit (labels and roles on interactive elements)
+        working-directory: apps/mobile
+        run: pnpm run a11y:lint
+
       - name: TypeScript type check
         working-directory: apps/mobile
         run: pnpm exec tsc --noEmit
