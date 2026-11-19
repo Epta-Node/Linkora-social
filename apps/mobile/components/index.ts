@@ -8,6 +8,7 @@ export { PoolRow } from "./PoolRow";
 export { WalletButton } from "./WalletButton";
 export { MiniAppIcon } from "./MiniAppIcon";
 export { TipModal } from "./TipModal";
+export { BottomSheet, SheetTextInput, SHEET_SNAP_POINTS } from "./BottomSheet";
 export { AnalyticsCard } from "./AnalyticsCard";
 export type { MiniApp } from "./MiniAppIcon";
 export { PostCardSkeleton } from "./skeletons/PostCardSkeleton";

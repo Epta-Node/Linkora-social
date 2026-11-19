@@ -36,6 +36,35 @@ jest.mock("react-native-reanimated", () => {
   };
 });
 
+// AsyncStorage has no native module under Jest. Use the package's official
+// in-memory mock so anything that reads the theme preference can render.
+jest.mock("@react-native-async-storage/async-storage", () =>
+  require("@react-native-async-storage/async-storage/jest/async-storage-mock")
+);
+
+// @gorhom/bottom-sheet drives its gestures and springs through reanimated
+// worklets, which cannot run under Jest. The library ships a JS mock; wrap it
+// with `__esModule` so the default `BottomSheet` import resolves correctly, and
+// make imperative `close()` fire `onClose` like the real sheet does.
+jest.mock("@gorhom/bottom-sheet", () => {
+  const React = jest.requireActual("react");
+  const mock = jest.requireActual("@gorhom/bottom-sheet/mock");
+  const BottomSheet = React.forwardRef(
+    (props: { children?: unknown; onClose?: () => void }, ref: unknown) => {
+      React.useImperativeHandle(ref, () => ({
+        snapToIndex: jest.fn(),
+        snapToPosition: jest.fn(),
+        expand: jest.fn(),
+        collapse: jest.fn(),
+        close: () => props.onClose?.(),
+        forceClose: () => props.onClose?.(),
+      }));
+      return props.children;
+    }
+  );
+  return { __esModule: true, ...mock, default: BottomSheet };
+});
+
 // Mock react-native-svg — prevents TurboModuleRegistry.getEnforcing crash in Jest.
 // lucide-react-native renders via react-native-svg; stubbing it here covers both.
 jest.mock("react-native-svg", () => {
