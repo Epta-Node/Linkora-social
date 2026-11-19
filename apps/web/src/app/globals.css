@@ -2,13 +2,13 @@
 
 :root {
   /* Dark Mode Dashboard Color Palette - Issue #900 */
-  --bg-primary: #0B1120;
-  --bg-secondary: #1E293B;
-  --bg-card: #1E293B;
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --accent-primary: #60A5FA;
-  --accent-secondary: #818CF8;
+  --bg-primary: #0b1120;
+  --bg-secondary: #1e293b;
+  --bg-card: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --accent-primary: #60a5fa;
+  --accent-secondary: #818cf8;
   --border: #334155;
 
   /* Design tokens */
@@ -33,12 +33,15 @@
   --color-neutral-950: #0f172a;
   --color-success: #10b981;
   --color-success-light: #d1fae5;
+  --color-success-text: #065f46;
   --color-warning: #f59e0b;
   --color-warning-light: #fef3c7;
   --color-error: #ef4444;
   --color-error-light: #fee2e2;
+  --color-error-text: #991b1b;
   --color-info: #3b82f6;
   --color-info-light: #dbeafe;
+  --color-info-text: #1e40af;
   --color-bg: #ffffff;
   --color-surface-1: #f9fafb;
   --color-surface-2: #f3f4f6;
@@ -87,21 +90,19 @@
   --skeleton-background-size: 200% 100%;
   --skeleton-shimmer-duration: 1.5s;
   --skeleton-shimmer-easing: linear;
-  --skeleton-shimmer-animation: shimmer
-    var(--skeleton-shimmer-duration)
-    var(--skeleton-shimmer-easing)
-    infinite;
+  --skeleton-shimmer-animation: shimmer var(--skeleton-shimmer-duration)
+    var(--skeleton-shimmer-easing) infinite;
   color-scheme: light;
 }
 
 [data-theme="dark"] {
-  --bg-primary: #0B1120;
-  --bg-secondary: #1E293B;
-  --bg-card: #1E293B;
-  --text-primary: #F8FAFC;
-  --text-secondary: #94A3B8;
-  --accent-primary: #60A5FA;
-  --accent-secondary: #818CF8;
+  --bg-primary: #0b1120;
+  --bg-secondary: #1e293b;
+  --bg-card: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --accent-primary: #60a5fa;
+  --accent-secondary: #818cf8;
   --border: #334155;
 
   --color-bg: #0f172a;
@@ -113,6 +114,18 @@
   --color-text-secondary: #9ca3af;
   --color-text-disabled: #4b5563;
   --color-text-inverse: #111827;
+
+  /* Semantic state colors — WCAG AA contrast on dark surfaces */
+  --color-success-light: #064e3b;
+  --color-success-text: #6ee7b7;
+  --color-error-light: #450a0a;
+  --color-error-text: #fca5a5;
+  --color-info-light: #1e3a5f;
+  --color-info-text: #93c5fd;
+
+  /* Pool card active badge */
+  --pool-badge-active-bg: var(--color-success-light);
+  --pool-badge-active-text: var(--color-success-text);
 
   --background: var(--color-bg);
   --foreground: var(--color-text-primary);
@@ -323,7 +336,7 @@ body {
 .dashboard-post-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 12px 24px -6px rgba(0, 0, 0, 0.4);
-  border-color: var(--accent-primary, #60A5FA) !important;
+  border-color: var(--accent-primary, #60a5fa) !important;
 }
 
 @keyframes shimmer {
@@ -355,7 +368,7 @@ body {
 }
 
 .skeleton-card {
-  background: var(--bg-card, #1E293B);
+  background: var(--bg-card, #1e293b);
   border: 1px solid var(--border, #334155);
   border-radius: 16px;
   padding: 20px;
