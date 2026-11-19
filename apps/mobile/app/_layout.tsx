@@ -15,6 +15,44 @@ import { HeaderActions } from "./(tabs)/_layout";
 import { ThemeProvider, useTheme } from "../theme/useTheme";
 
 /**
+ * Expo Router / React Navigation linking configuration.
+ * Declares every deep-link pattern the app handles so the OS hands the URL
+ * to the navigator rather than opening a browser.  The route handler in
+ * RootNavigator still validates every URL through parseDeepLink before
+ * navigating — this config is purely for OS-level intent registration.
+ *
+ * Supported schemes:
+ *   linkora://profile/<address>
+ *   linkora://post/<id>
+ *   linkora://pool/<id>
+ *   linkora://dm/<address>
+ *   https://linkora.social/<resource>/<id>  (universal links / App Links)
+ */
+const LINKING_CONFIG = {
+  prefixes: ["linkora://", "https://linkora.social", "https://www.linkora.social"],
+  config: {
+    screens: {
+      "(tabs)": {
+        screens: {
+          feed: "feed",
+          explore: "explore",
+          pools: "pools",
+          profile: "profile",
+          "mini-apps": "mini-apps",
+        },
+      },
+      "post/[id]": "post/:id",
+      "profile/[address]": "profile/:address",
+      "pools/[id]": "pool/:id",
+      "dm/[address]": "dm/:address",
+      "dm/index": "dm",
+      "mini-app/[id]": "mini-app/:id",
+      connect: "connect",
+    },
+  },
+};
+
+/**
  * Root layout — wraps the entire app in the providers and mounts a Stack
  * navigator. The bottom tabs live in the `(tabs)` group (app/(tabs)/_layout.tsx)
  * and are pushed as a single stack entry, while detail views (post/[id],
@@ -121,7 +159,9 @@ export default function RootLayout() {
     <ThemeProvider>
       <NetworkProvider>
         <WalletProvider>
-          <ToastProvider><RootNavigator /></ToastProvider>
+          <ToastProvider>
+            <RootNavigator />
+          </ToastProvider>
         </WalletProvider>
       </NetworkProvider>
     </ThemeProvider>

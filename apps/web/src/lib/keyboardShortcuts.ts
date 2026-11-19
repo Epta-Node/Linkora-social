@@ -20,6 +20,7 @@ export interface ShortcutDefinition {
 export const SHORTCUTS: readonly ShortcutDefinition[] = [
   // ── Composition ──────────────────────────────────────────────────────────
   { keys: ["n"], label: "Open new post composer", group: "Actions" },
+  { keys: ["Ctrl+N"], label: "Open new post composer (⌘N on macOS)", group: "Actions" },
   { keys: ["/"], label: "Focus the global search bar", group: "Actions" },
   { keys: ["?"], label: "Open keyboard shortcuts help", group: "Actions" },
 

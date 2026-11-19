@@ -149,8 +149,8 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
   },
   badgeActive: {
-    background: "#D1FAE5",
-    color: "#065F46",
+    background: "var(--color-success-light)",
+    color: "var(--color-success-text)",
   },
   badgeEmpty: {
     background: "var(--color-surface-2)",

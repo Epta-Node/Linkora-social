@@ -190,6 +190,18 @@ export function KeyboardShortcutsProvider({ children }: { children: React.ReactN
         return;
       }
 
+      // ⌘N (macOS) / Ctrl+N (Windows/Linux) opens the compose modal from anywhere,
+      // overriding the browser's default "new window / new tab" behaviour.
+      const isCmdN = (event.metaKey || event.ctrlKey) && (event.key === "n" || event.key === "N");
+
+      if (isCmdN) {
+        event.preventDefault();
+        event.stopPropagation();
+        clearSequence();
+        composeHandlerRef.current?.();
+        return;
+      }
+
       // Never intercept when typing in an editable element
       if (isEditableTarget(event)) {
         clearSequence();

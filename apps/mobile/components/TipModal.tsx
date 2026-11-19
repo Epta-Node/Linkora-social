@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -13,6 +13,8 @@ import {
 
 import { useTip, type TipToken } from "../hooks/useTip";
 import { useTheme } from "../theme/useTheme";
+import { impact } from "../utils/haptics";
+import { useHapticSettings } from "../hooks/useHapticSettings";
 
 const SUPPORTED_TOKENS: TipToken[] = [
   {
@@ -52,6 +54,14 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
   const [selectedToken, setSelectedToken] = useState<TipToken>(SUPPORTED_TOKENS[0]);
   const [validationError, setValidationError] = useState<string | null>(null);
   const { pending, status, error, result, estimateProtocolFee, tip, reset } = useTip();
+  const { hapticsEnabled } = useHapticSettings();
+
+  // ImpactFeedbackStyle.Rigid on contract / network error — gated by user setting.
+  useEffect(() => {
+    if (error && hapticsEnabled) {
+      void impact("heavy");
+    }
+  }, [error, hapticsEnabled]);
 
   const parsedAmount = parseAmount(amount);
   const protocolFee = estimateProtocolFee(parsedAmount);
@@ -69,10 +79,14 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
   const handleSubmit = async () => {
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setValidationError("Enter a positive, non-zero amount.");
+      // ImpactFeedbackStyle.Rigid on validation error — gated by user setting.
+      if (hapticsEnabled) void impact("heavy");
       return;
     }
 
     setValidationError(null);
+    // ImpactFeedbackStyle.Medium on tip confirmation — gated by user setting.
+    if (hapticsEnabled) void impact("medium");
     await tip({ postId, amount: parsedAmount, token: selectedToken });
   };
 
