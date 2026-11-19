@@ -73,6 +73,8 @@ export const DEFAULT_MAX_DROPS_BEFORE_DISCONNECT = 1024;
 
 const DEFAULT_HEARTBEAT_MS = 15_000;
 const DEFAULT_MAX_RATE_VIOLATIONS = 5;
+/** Maximum distinct event types accepted from one subscription frame. */
+export const MAX_SUBSCRIPTION_TOPICS = 10;
 
 // ── Public option types ───────────────────────────────────────────────────────
 
@@ -538,6 +540,11 @@ function handleSubscribeFrame(
   const { types } = msg;
   if (!Array.isArray(types) || !types.every((t) => typeof t === "string")) {
     sendError(ws, "subscribe requires a string[] 'types' field");
+    return;
+  }
+
+  if (types.length > MAX_SUBSCRIPTION_TOPICS && !types.includes(ALL_EVENTS)) {
+    sendError(ws, `subscribe accepts at most ${MAX_SUBSCRIPTION_TOPICS} event types`);
     return;
   }
 
