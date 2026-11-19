@@ -83,6 +83,38 @@ jobs:
       - name: Build Storybook (validates skeleton stories)
         run: pnpm --filter apps-web build-storybook
 
+  codegen:
+    name: Contract bindings are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contracts
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate bindings from the contract WASM and compare
+        run: pnpm codegen:check
+
   # gitleaks action now requires a paid license for organizations.
   # Disabled until a license is configured or replaced with an alternative.
   # secret-scan:

@@ -34,6 +34,16 @@
         "types": "./dist/cjs/index.d.ts",
         "default": "./dist/cjs/index.js"
       }
+    },
+    "./contracts": {
+      "import": {
+        "types": "./dist/esm/generated/contracts/index.d.ts",
+        "default": "./dist/esm/generated/contracts/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/generated/contracts/index.d.ts",
+        "default": "./dist/cjs/generated/contracts/index.js"
+      }
     }
   },
   "files": [

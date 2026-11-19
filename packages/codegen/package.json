@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "generate": "tsx generate.ts && prettier --write \"$(cd ../../ && pwd)/packages/sdk/src/generated/*.ts\""
+    "generate": "tsx generate.ts",
+    "check": "tsx generate.ts --check"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0"
