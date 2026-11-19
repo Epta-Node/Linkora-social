@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, existsSync, readdirSync } from "fs";
 import { gzipSync } from "zlib";
 import path from "path";
 
@@ -59,7 +59,7 @@ function walkModuleGraph(entry: string): ModuleGraph {
     const importRe = /(?:from|import)\s+['"](\.[^'"]+)['"]/g;
     let match: RegExpExecArray | null;
     while ((match = importRe.exec(source))) {
-      walk(match[1]);
+      if (match[1]) walk(match[1]);
     }
   };
 
@@ -91,7 +91,7 @@ describe("SDK bundle-size budget (Epta-Node#1364)", () => {
           `${budgetKbGzip} KiB. Generated or hand-written exports have grown.\n` +
           `Per-file gzipped sizes:\n${breakdown}\n` +
           `Reduce generated surface, or raise the budget in bundle-size-budget.json` +
-          ` with justification in the PR description.`,
+          ` with justification in the PR description.`
       );
     }
   });
@@ -113,9 +113,22 @@ describe("SDK bundle-size budget (Epta-Node#1364)", () => {
     const importOrExport = /^(?:import|export)\b/;
     const pureDeclaration =
       /^(?:abstract\s+|async\s+|declare\s+)*(?:class|interface|type|enum|const|let|var|function)\b/;
-    const closer = /^[)}\]|,;]+\s*$/;
+    // Lines that only close a multi-line declaration: brackets, the end of a
+    // multi-line import (`} from "…";`), a wrapped signature (`): T {`) or a
+    // literal (`} as const;`).
+    const closer = /^(?:[)}\]|,;]+\s*|\}\s*from\s*"[^"]+";|\)(?::\s*.+)?\s*\{|[}\]]\s*as const;)$/;
 
-    for (const rel of ["generated/index.ts", "generated/client.ts", "generated/events.ts", "generated/contract-parity.ts"]) {
+    // Spec-derived contract bindings (Epta-Node#1769) are generated too.
+    const contractModules = readdirSync(path.join(SDK_ROOT, "src/generated/contracts"))
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => `generated/contracts/${f}`);
+    for (const rel of [
+      "generated/index.ts",
+      "generated/client.ts",
+      "generated/events.ts",
+      "generated/contract-parity.ts",
+      ...contractModules,
+    ]) {
       const source = readFileSync(path.join(SDK_ROOT, "src", rel), "utf8");
       const stripped = source
         .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
@@ -130,7 +143,7 @@ describe("SDK bundle-size budget (Epta-Node#1364)", () => {
         if (importOrExport.test(line) || pureDeclaration.test(line) || closer.test(line)) continue;
         throw new Error(
           `${rel} contains a top-level statement that is not a pure declaration: "${line.trim()}". ` +
-            "Generated files must stay side-effect-free for tree-shaking (Epta-Node#1364).",
+            "Generated files must stay side-effect-free for tree-shaking (Epta-Node#1364)."
         );
       }
     }

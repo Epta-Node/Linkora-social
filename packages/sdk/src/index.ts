@@ -20,6 +20,7 @@ export * from "./dm/index.js";
 export * from "./signers/freighter.js";
 export * from "./events/parser.js";
 export * from "./tx-builder.js";
+export * from "./multicall.js";
 export * from "./queue.js";
 export * from "./classic.js";
 export * from "./submit.js";
