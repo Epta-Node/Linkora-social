@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   View,
   Text,
@@ -34,18 +35,31 @@ function SkeletonList() {
 export default function FeedScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { posts, loading, error, loadMore, refresh } = useFeed();
+  const {
+    posts,
+    loading,
+    refreshing,
+    loadingMore,
+    error,
+    loadMoreError,
+    hasMore,
+    loadMore,
+    refresh,
+  } = useFeed();
   const viewTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const viewed = useRef(new Set<string>());
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const visible = new Set(viewableItems.map((token) => String((token.item as Post).id)));
     visible.forEach((postId) => {
       if (viewed.current.has(postId) || viewTimers.current.has(postId)) return;
-      viewTimers.current.set(postId, setTimeout(() => {
-        viewed.current.add(postId);
-        viewTimers.current.delete(postId);
-        trackPostViewed({ postId, durationMs: 2000 });
-      }, 2000));
+      viewTimers.current.set(
+        postId,
+        setTimeout(() => {
+          viewed.current.add(postId);
+          viewTimers.current.delete(postId);
+          trackPostViewed({ postId, durationMs: 2000 });
+        }, 2000)
+      );
     });
     viewTimers.current.forEach((timer, postId) => {
       if (!visible.has(postId)) {
@@ -70,6 +84,52 @@ export default function FeedScreen() {
       subscription.remove();
     };
   }, [refresh]);
+
+  // onEndReached can fire repeatedly while the list settles; useFeed ignores
+  // calls while a page is in flight or once the end of the feed is reached.
+  const handleEndReached = useCallback(() => {
+    if (!hasMore || loadingMore || refreshing || loadMoreError) return;
+    loadMore();
+  }, [hasMore, loadingMore, refreshing, loadMoreError, loadMore]);
+
+  const renderFooter = useCallback(() => {
+    if (posts.length === 0) return null;
+    if (loadingMore) {
+      return (
+        <ActivityIndicator
+          style={styles.footer}
+          color={theme.colors.brand.primary}
+          size="small"
+          accessibilityLabel="Loading more posts"
+          testID="feed-loading-more"
+        />
+      );
+    }
+    if (loadMoreError) {
+      return (
+        <View style={styles.end}>
+          <Text style={styles.endText}>{loadMoreError}</Text>
+          <Pressable
+            onPress={loadMore}
+            style={styles.retryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading more posts"
+            testID="feed-load-more-retry"
+          >
+            <Text style={styles.retryText}>Try again</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (!hasMore) {
+      return (
+        <View style={styles.end} testID="feed-end">
+          <Text style={styles.endText}>You are all caught up</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [posts.length, loadingMore, loadMoreError, hasMore, loadMore, theme.colors.brand.primary]);
 
   const isInitialLoad = loading && posts.length === 0;
 
@@ -101,16 +161,8 @@ export default function FeedScreen() {
           onAction={() => router.push("/(tabs)/explore" as Parameters<typeof router.push>[0])}
         />
       }
-      ListFooterComponent={
-        loading && posts.length > 0 ? (
-          <ActivityIndicator
-            style={styles.footer}
-            color={theme.colors.brand.primary}
-            size="small"
-          />
-        ) : !loading && posts.length > 0 ? <View style={styles.end}><Text style={styles.endText}>You are all caught up</Text></View> : null
-      }
-      onEndReached={loadMore}
+      ListFooterComponent={renderFooter}
+      onEndReached={handleEndReached}
       onEndReachedThreshold={0.4}
       windowSize={11}
       maxToRenderPerBatch={5}
@@ -120,7 +172,7 @@ export default function FeedScreen() {
       onViewableItemsChanged={onViewableItemsChanged}
       refreshControl={
         <RefreshControl
-          refreshing={loading && posts.length > 0}
+          refreshing={refreshing}
           onRefresh={refresh}
           tintColor={theme.colors.brand.primary}
           colors={[theme.colors.brand.primary]}
@@ -151,6 +203,15 @@ const styles = StyleSheet.create({
   footer: {
     paddingVertical: 16,
   },
-  end: { padding: 20, alignItems: "center" },
+  end: { padding: 20, alignItems: "center", gap: 10 },
   endText: { color: "#94a3b8" },
+  retryButton: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#334155",
+    justifyContent: "center",
+  },
+  retryText: { color: "#e2e8f0", fontWeight: "600" },
 });
