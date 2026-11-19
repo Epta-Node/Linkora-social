@@ -28,6 +28,7 @@ import type { RateLimitStoreStatus } from "@linkora/types/src/rate-limit-env";
 import type { BackfillCoordinator, BackfillStatus, BackfillProgress } from "./backfill-coordinator";
 import { getRateLimitStoreStatus } from "../middleware/rateLimit";
 import { streamHealth } from "../metrics";
+import { inspectSchemaVersion, type SchemaVersionStatus } from "../schema-version";
 
 export interface DependencyCheck {
   status: "up" | "down";
@@ -69,6 +70,7 @@ export interface ReadinessResult {
   degraded: boolean;
   checks: {
     database: DependencyCheck;
+    migrations: SchemaVersionStatus;
     stellar_rpc: DependencyCheck;
     event_stream: EventStreamCheck;
     backfill: BackfillHealthCheck;
@@ -148,6 +150,14 @@ export class HealthMonitor {
     }
   }
 
+  private async checkMigrations(): Promise<SchemaVersionStatus> {
+    try {
+      return await inspectSchemaVersion(this.db);
+    } catch {
+      return { status: "pending", missingTables: [], missingColumns: [] };
+    }
+  }
+
   private checkEventStream(): EventStreamCheck {
     if (this.lastEventAt === null) {
       return {
@@ -205,6 +215,7 @@ export class HealthMonitor {
         degraded: !rateLimiter.shared,
         checks: {
           database: { status: "down", latencyMs: 0 },
+          migrations: { status: "pending", missingTables: [], missingColumns: [] },
           stellar_rpc: { status: "down", latencyMs: 0 },
           event_stream: {
             status: "stopped",
@@ -225,9 +236,10 @@ export class HealthMonitor {
       };
     }
 
-    const [database, stellar_rpc] = await Promise.all([
+    const [database, stellar_rpc, migrations] = await Promise.all([
       this.checkDatabase(),
       this.checkStellarRpc(),
+      this.checkMigrations(),
     ]);
     const event_stream = this.checkEventStream();
     const backfill = this.checkBackfill();
@@ -239,14 +251,18 @@ export class HealthMonitor {
     const streamHealthy =
       !streamHealth.started || (event_stream.status === "connected" && !event_stream.circuitOpen);
     const ready =
-      database.status === "up" && stellar_rpc.status === "up" && backfillHealthy && streamHealthy;
+      database.status === "up" &&
+      migrations.status === "up" &&
+      stellar_rpc.status === "up" &&
+      backfillHealthy &&
+      streamHealthy;
 
     return {
       ready,
       // An unshared limiter is a real weakness in a scaled deployment, but it
       // is not a reason to pull the pod out of the load balancer.
       degraded: !rateLimiter.shared,
-      checks: { database, stellar_rpc, event_stream, backfill, pool, rateLimiter },
+      checks: { database, migrations, stellar_rpc, event_stream, backfill, pool, rateLimiter },
     };
   }
 }
