@@ -23,6 +23,7 @@ import { OptimisticStore, useOptimisticFollow, type FollowState } from "@/lib/op
 import { queryKeys } from "@/lib/queryKeys";
 import { toast } from "@/lib/toast";
 import { classifyError } from "./usePoolContract";
+import { getErrorMessage } from "@/lib/errorClassifier";
 
 export interface UseFollowMutationOptions {
   /** Account being followed / unfollowed. */
@@ -57,9 +58,15 @@ function storeKeyFor(follower: string | null, followee: string): string {
 
 /** Message explaining which action failed and that the UI was restored. */
 function rollbackDescription(isFollowing: boolean, error: unknown): string {
-  const reason = classifyError(error);
+  const reason = getErrorMessage(error);
   const action = isFollowing ? "Follow" : "Unfollow";
   return `${action} failed: ${reason}. Your previous state was restored.`;
+}
+
+function getTransactionHash(result: unknown): string | undefined {
+  if (!result || typeof result !== "object" || !("hash" in result)) return undefined;
+  const hash = result.hash;
+  return typeof hash === "string" && hash ? hash : undefined;
 }
 
 export function useFollowMutation({
@@ -96,7 +103,7 @@ export function useFollowMutation({
   const state = useOptimisticFollow(follower, followee, serverStateRef.current);
 
   const mutation = useMutation<
-    { isFollowing: boolean },
+    { isFollowing: boolean; txHash?: string },
     Error,
     FollowMutationVariables,
     FollowMutationContext
@@ -107,9 +114,9 @@ export function useFollowMutation({
       }
 
       const submit = submitFollow ?? submitFollowTransaction;
-      await submit({ follower, followee, isFollowing });
+      const result = await submit({ follower, followee, isFollowing });
 
-      return { isFollowing };
+      return { isFollowing, txHash: getTransactionHash(result) };
     },
 
     onMutate: async ({ isFollowing }) => {
@@ -152,10 +159,11 @@ export function useFollowMutation({
       toast.error({
         title: variables.isFollowing ? "Follow didn't go through" : "Unfollow didn't go through",
         description: rollbackDescription(variables.isFollowing, error),
+        duration: 5000,
       });
     },
 
-    onSuccess: (_result, _variables, context) => {
+    onSuccess: (result, variables, context) => {
       if (!context) return;
 
       // Chain agrees with the optimistic value: keep it and drop the rollback
@@ -163,6 +171,11 @@ export function useFollowMutation({
       queryClient.setQueryData<FollowState>(queryKey, context.optimistic);
       OptimisticStore.commitFollowState(context.storeKey);
       onConfirmed?.(context.optimistic);
+      toast.success({
+        title: variables.isFollowing ? "Follow confirmed" : "Unfollow confirmed",
+        txHash: result.txHash,
+        duration: 5000,
+      });
     },
 
     onSettled: () => {

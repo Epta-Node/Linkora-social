@@ -4,6 +4,7 @@ import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
 import { impact } from "../utils/haptics";
+import { useNetwork } from "./useNetwork";
 
 export type TipStatus = "idle" | "pending" | "success" | "error";
 
@@ -41,6 +42,7 @@ const PROTOCOL_FEE_BPS = 100;
 
 export function useTip(): UseTipResult {
   const { address, connected } = useWallet();
+  const { isOffline } = useNetwork();
   const { showPending, showSuccess, showError } = useToast();
   const submitTx = useSubmitTx();
   const [status, setStatus] = useState<TipStatus>("idle");
@@ -64,6 +66,15 @@ export function useTip(): UseTipResult {
   const tip = useCallback(
     async ({ postId, amount, token }: SubmitTipOptions): Promise<boolean> => {
       if (status === "pending") {
+        return false;
+      }
+
+      if (isOffline) {
+        const message =
+          "You are offline. Tipping is unavailable until your connection is restored.";
+        setStatus("error");
+        setError(message);
+        showError(message);
         return false;
       }
 
@@ -108,7 +119,17 @@ export function useTip(): UseTipResult {
         return false;
       }
     },
-    [address, connected, estimateProtocolFee, showError, showPending, showSuccess, status, submitTx]
+    [
+      address,
+      connected,
+      estimateProtocolFee,
+      isOffline,
+      showError,
+      showPending,
+      showSuccess,
+      status,
+      submitTx,
+    ]
   );
 
   const pending = status === "pending";

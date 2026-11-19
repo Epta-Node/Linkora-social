@@ -4,6 +4,7 @@ import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
 import { impact } from "../utils/haptics";
+import { useNetwork } from "./useNetwork";
 
 export interface UseLikeOptions {
   postId: number | string;
@@ -25,6 +26,7 @@ export function useLike({
   initialLikeCount,
 }: UseLikeOptions): UseLikeResult {
   const { address, connected } = useWallet();
+  const { isOffline } = useNetwork();
   const { showError } = useToast();
   const submitTx = useSubmitTx();
 
@@ -47,7 +49,7 @@ export function useLike({
   }, [initialHasLiked, initialLikeCount, postId]);
 
   const like = useCallback(async (): Promise<boolean> => {
-    if (liked || pending) {
+    if (liked || pending || isOffline) {
       return false;
     }
 
@@ -78,7 +80,7 @@ export function useLike({
     } finally {
       setPending(false);
     }
-  }, [address, connected, liked, pending, postId, showError, submitTx]);
+  }, [address, connected, isOffline, liked, pending, postId, showError, submitTx]);
 
   return { liked, likeCount, pending, error, like };
 }

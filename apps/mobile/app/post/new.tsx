@@ -18,6 +18,7 @@ import { useTheme } from "../../theme/useTheme";
 import { useToast } from "../../context/ToastContext";
 import { useProfile } from "../../hooks/useProfile";
 import { useNetworkContext } from "../../context/NetworkContext";
+import { useNetwork } from "../../hooks/useNetwork";
 import { addOptimisticPost } from "../../utils/db";
 import { getSyncPendingPostsOptions, syncPendingPosts } from "../../utils/sync";
 import { notifyFeedUpdate } from "../../hooks/useFeed";
@@ -36,6 +37,7 @@ export default function CreatePostScreen() {
   const { profile } = useProfile(address ?? "");
   const { showPending, showSuccess, showError, dismissToast } = useToast();
   const { contractId, rpcUrl, network } = useNetworkContext();
+  const { isOffline } = useNetwork();
 
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -43,7 +45,7 @@ export default function CreatePostScreen() {
   const remaining = MAX_CHARS - content.length;
   const overLimit = remaining < 0;
   const isEmpty = content.trim().length === 0;
-  const submitDisabled = isEmpty || overLimit || submitting || !connected;
+  const submitDisabled = isEmpty || overLimit || submitting || !connected || isOffline;
 
   const counterColor = useMemo(() => {
     if (overLimit) return theme.colors.semantic?.error ?? "#EF4444";
@@ -85,6 +87,7 @@ export default function CreatePostScreen() {
     }
   }, [
     submitDisabled,
+    isOffline,
     address,
     content,
     router,
@@ -164,6 +167,7 @@ export default function CreatePostScreen() {
               disabled={submitDisabled}
               accessibilityRole="button"
               accessibilityLabel="Publish post"
+              accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
               accessibilityState={{ disabled: submitDisabled, busy: submitting }}
             >
               {submitting ? (
@@ -173,6 +177,9 @@ export default function CreatePostScreen() {
               )}
             </TouchableOpacity>
           </View>
+          {isOffline && (
+            <Text style={styles.offlineHint}>Unavailable while offline</Text>
+          )}
 
           {/* Over-limit error */}
           {overLimit && (
@@ -237,6 +244,11 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
     counter: {
       fontSize: 14,
       fontWeight: "600",
+    },
+    offlineHint: {
+      color: theme.colors.semantic?.error ?? "#EF4444",
+      fontSize: 12,
+      marginTop: 8,
     },
     submitBtn: {
       minHeight: 44,

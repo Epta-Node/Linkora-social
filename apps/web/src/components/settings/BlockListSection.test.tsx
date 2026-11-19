@@ -77,6 +77,31 @@ describe("BlockListSection", () => {
       expect(screen.getByText("Address unblocked successfully.")).toBeInTheDocument();
     });
 
+    it("shows a blocked account immediately and rolls it back when confirmation fails", async () => {
+      const { rpc } = require("@stellar/stellar-sdk");
+      rpc.Server.mockImplementationOnce(() => ({
+        sendTransaction: jest.fn().mockResolvedValue({ status: "PENDING", hash: "failed-tx" }),
+        getTransaction: jest.fn().mockResolvedValue({ status: "FAILED" }),
+      }));
+
+      render(<BlockListSection address={mockAddress} />);
+      fireEvent.change(screen.getByPlaceholderText(/Enter Stellar address/), {
+        target: { value: otherAddress },
+      });
+      fireEvent.click(screen.getByText("Block Address"));
+
+      expect(await screen.findByText(otherAddress)).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent(/Waiting for on-chain confirmation/i);
+
+      await waitFor(() => {
+        expect(screen.getByText("Failed to block address on-chain. Please try again.")).toBeInTheDocument();
+      });
+      expect(screen.queryByText(otherAddress)).not.toBeInTheDocument();
+      expect(JSON.parse(localStorage.getItem("linkora_blocked_accounts") || "[]")).not.toContain(
+        otherAddress
+      );
+    });
+
     expect(screen.queryByText(otherAddress)).not.toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem("linkora_blocked_accounts") || "[]")).not.toContain(
       otherAddress

@@ -50,6 +50,8 @@ const followStateMap = new Map<string, FollowState>();
 const likeStateMap = new Map<string, LikeState>();
 // Key format: postId string
 const tipStateMap = new Map<string, TipState>();
+// Key format: owner wallet address
+const blockedListMap = new Map<string, string[]>();
 const listeners = new Set<() => void>();
 
 // Snapshots capture the pre-mutation state so a failed on-chain transaction
@@ -59,6 +61,7 @@ const listeners = new Set<() => void>();
 const followSnapshots = new Map<string, FollowState | undefined>();
 const likeSnapshots = new Map<string, LikeState | undefined>();
 const tipSnapshots = new Map<string, TipState | undefined>();
+const blockedListSnapshots = new Map<string, string[] | undefined>();
 const rolledBackListeners = new Set<RolledBackListener>();
 
 function subscribe(listener: () => void) {
@@ -215,6 +218,42 @@ export const OptimisticStore = {
     return true;
   },
 
+  setBlockedList(key: string, addresses: string[]) {
+    blockedListMap.set(key, [...addresses]);
+    notify();
+  },
+
+  getBlockedList(key: string): string[] | undefined {
+    return blockedListMap.get(key);
+  },
+
+  snapshotBlockedList(key: string) {
+    blockedListSnapshots.set(key, deepClone(blockedListMap.get(key)));
+  },
+
+  rollbackBlockedList(key: string): string[] | undefined {
+    if (!blockedListSnapshots.has(key)) return undefined;
+    const snapshot = blockedListSnapshots.get(key);
+    if (snapshot === undefined) {
+      blockedListMap.delete(key);
+    } else {
+      blockedListMap.set(key, deepClone(snapshot));
+    }
+    blockedListSnapshots.delete(key);
+    notify();
+    return snapshot ? [...snapshot] : undefined;
+  },
+
+  commitBlockedList(key: string) {
+    blockedListSnapshots.delete(key);
+  },
+
+  clearBlockedList(key: string) {
+    blockedListMap.delete(key);
+    blockedListSnapshots.delete(key);
+    notify();
+  },
+
   // Subscribe to rollback events so components can clear transient "pending"
   // styling for the affected feed slice. Returns an unsubscribe function.
   onRolledBack,
@@ -323,6 +362,17 @@ export function useOptimisticTip(postId: string | bigint, initialState: TipState
   const optimistic = useSyncExternalStore(
     subscribe,
     () => OptimisticStore.getTipState(key),
+    () => undefined
+  );
+
+  return optimistic ?? initialState;
+}
+
+/** Returns the optimistic blocked-account list, falling back to local storage. */
+export function useOptimisticBlockedList(owner: string, initialState: string[]): string[] {
+  const optimistic = useSyncExternalStore(
+    subscribe,
+    () => OptimisticStore.getBlockedList(owner),
     () => undefined
   );
 

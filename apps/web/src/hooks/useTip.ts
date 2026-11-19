@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { parseTokenAmount } from "./usePools";
-import { classifyTipError } from "@/lib/tipValidation";
+import { getErrorMessage } from "@/lib/errorClassifier";
+import { toast } from "@/lib/toast";
 
 export type TipStatus =
   | "idle"
@@ -57,9 +58,16 @@ export function useTip() {
           ledger: 12345682,
         });
         setStatus("success");
+        toast.success({
+          title: "Tip confirmed",
+          txHash,
+          duration: 5000,
+        });
       } catch (err) {
-        setError(classifyTipError(err));
+        const message = getErrorMessage(err);
+        setError(message);
         setStatus("error");
+        toast.error({ title: "Tip wasn't confirmed", description: message, duration: 5000 });
       }
     },
     []

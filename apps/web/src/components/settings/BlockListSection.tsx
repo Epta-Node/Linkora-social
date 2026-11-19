@@ -9,6 +9,7 @@ import {
   writeBlockedList,
   subscribeToBlockedListChanges,
 } from "@/lib/blockedStore";
+import { OptimisticStore, useOptimisticBlockedList } from "@/lib/optimisticStore";
 
 interface BlockListSectionProps {
   address: string;
@@ -37,6 +38,7 @@ export function BlockListSection({ address }: BlockListSectionProps) {
   const [success, setSuccess] = useState("");
   const [blockingInProgress, setBlockingInProgress] = useState(false);
   const [unblockingAddress, setUnblockingAddress] = useState<string | null>(null);
+  const displayedBlockedList = useOptimisticBlockedList(address, blockedList);
 
   const syncFromStore = useCallback(() => {
     setBlockedList(readBlockedList());
@@ -58,6 +60,22 @@ export function BlockListSection({ address }: BlockListSectionProps) {
   function persistBlockedList(list: string[]) {
     writeBlockedList(list);
     setBlockedList(list);
+  }
+
+  function applyOptimisticBlockedList(list: string[]) {
+    OptimisticStore.setBlockedList(address, list);
+    persistBlockedList(list);
+  }
+
+  function finishBlockedListUpdate() {
+    OptimisticStore.commitBlockedList(address);
+    OptimisticStore.clearBlockedList(address);
+  }
+
+  function rollbackBlockedList(previous: string[]) {
+    const snapshot = OptimisticStore.rollbackBlockedList(address) ?? previous;
+    persistBlockedList(snapshot);
+    OptimisticStore.clearBlockedList(address);
   }
 
   async function submitOnChain(
@@ -120,16 +138,19 @@ export function BlockListSection({ address }: BlockListSectionProps) {
       return;
     }
 
+    const previous = blockedList;
     setBlockingInProgress(true);
+    OptimisticStore.snapshotBlockedList(address);
+    applyOptimisticBlockedList([...previous, trimmed]);
     try {
       await submitOnChain("blockUser", trimmed);
-      const updated = [...blockedList, trimmed];
-      persistBlockedList(updated);
+      finishBlockedListUpdate();
       setNewAddress("");
       setSuccess("Address blocked successfully.");
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       console.error("Failed to block address:", err);
+      rollbackBlockedList(previous);
       setError("Failed to block address on-chain. Please try again.");
     } finally {
       setBlockingInProgress(false);
@@ -139,15 +160,19 @@ export function BlockListSection({ address }: BlockListSectionProps) {
   async function handleUnblockAddress(addressToUnblock: string) {
     setError("");
     setSuccess("");
+    const previous = blockedList;
+    const updated = previous.filter((addr) => addr !== addressToUnblock);
     setUnblockingAddress(addressToUnblock);
+    OptimisticStore.snapshotBlockedList(address);
+    applyOptimisticBlockedList(updated);
     try {
       await submitOnChain("unblockUser", addressToUnblock);
-      const updated = blockedList.filter((addr) => addr !== addressToUnblock);
-      persistBlockedList(updated);
+      finishBlockedListUpdate();
       setSuccess("Address unblocked successfully.");
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       console.error("Failed to unblock address:", err);
+      rollbackBlockedList(previous);
       setError("Failed to unblock address on-chain. Please try again.");
     } finally {
       setUnblockingAddress(null);
@@ -173,6 +198,14 @@ export function BlockListSection({ address }: BlockListSectionProps) {
         </div>
       )}
 
+      {(blockingInProgress || unblockingAddress) && (
+        <div className="mb-4 text-sm text-violet-700" role="status" aria-live="polite">
+          {blockingInProgress
+            ? "Blocking account… Waiting for on-chain confirmation."
+            : `Unblocking ${unblockingAddress}… Waiting for on-chain confirmation.`}
+        </div>
+      )}
+
       <form onSubmit={handleBlockAddress} className="flex gap-3 mb-6" aria-label="Block an account">
         <div className="flex-1">
           <label htmlFor="block-address-input" className="sr-only">
@@ -187,32 +220,32 @@ export function BlockListSection({ address }: BlockListSectionProps) {
               if (error) setError("");
             }}
             placeholder="Enter Stellar address (G...)"
-            disabled={blockingInProgress}
+            disabled={blockingInProgress || unblockingAddress !== null}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"
           />
         </div>
         <button
           type="submit"
-          disabled={blockingInProgress}
+          disabled={blockingInProgress || unblockingAddress !== null}
           className="px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {blockingInProgress ? "Blocking..." : "Block Address"}
         </button>
       </form>
 
-      {blockedList.length === 0 ? (
+      {displayedBlockedList.length === 0 ? (
         <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded-lg">
           No blocked accounts.
         </p>
       ) : (
         <ul className="divide-y divide-gray-100 border border-gray-150 rounded-lg max-h-60 overflow-y-auto">
-          {blockedList.map((addr) => (
+          {displayedBlockedList.map((addr) => (
             <li key={addr} className="flex items-center justify-between p-3 gap-4">
               <span className="text-xs font-mono text-gray-700 break-all select-all">{addr}</span>
               <button
                 type="button"
                 onClick={() => handleUnblockAddress(addr)}
-                disabled={unblockingAddress === addr}
+                disabled={blockingInProgress || unblockingAddress !== null}
                 className="px-2.5 py-1 text-xs font-medium text-red-600 hover:text-red-700 border border-red-200 hover:border-red-300 rounded hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {unblockingAddress === addr ? "Unblocking..." : "Unblock"}

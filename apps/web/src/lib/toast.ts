@@ -19,14 +19,17 @@ export interface ToastOptions {
   title: string;
   /** Optional supporting line, e.g. what the user can do next. */
   description?: string;
+  /** Transaction hash rendered as a Stellar Expert link. */
+  txHash?: string;
   /** Auto-dismiss delay in ms. Use 0 to keep the toast until dismissed. */
   duration?: number;
 }
 
-export interface Toast extends Required<Omit<ToastOptions, "description">> {
+export interface Toast extends Required<Omit<ToastOptions, "description" | "txHash">> {
   id: string;
   variant: ToastVariant;
   description?: string;
+  txHash?: string;
 }
 
 const DEFAULT_DURATION_MS = 6000;
@@ -58,6 +61,7 @@ function push(variant: ToastVariant, options: ToastOptions | string): string {
     variant,
     title: resolved.title,
     description: resolved.description,
+    txHash: resolved.txHash,
     duration: resolved.duration ?? DEFAULT_DURATION_MS,
   };
 
