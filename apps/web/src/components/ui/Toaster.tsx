@@ -2,6 +2,10 @@
 
 import { toast, useToasts, type Toast } from "@/lib/toast";
 
+const STELLAR_EXPERT_BASE = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE?.includes("Public")
+  ? "https://stellar.expert/explorer/public/tx"
+  : "https://stellar.expert/explorer/testnet/tx";
+
 const VARIANT_CLASS: Record<Toast["variant"], string> = {
   error: "border-[var(--color-error)] bg-[var(--color-error-light)] text-[var(--color-error)]",
   success: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600",
@@ -18,6 +22,16 @@ function ToastRow({ entry }: { entry: Toast }) {
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold">{entry.title}</p>
         {entry.description && <p className="mt-0.5 text-xs opacity-90">{entry.description}</p>}
+        {entry.txHash && (
+          <a
+            href={`${STELLAR_EXPERT_BASE}/${encodeURIComponent(entry.txHash)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 block break-all text-xs underline"
+          >
+            View transaction: {entry.txHash}
+          </a>
+        )}
       </div>
       <button
         type="button"

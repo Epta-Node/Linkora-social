@@ -14,6 +14,25 @@ describe("OptimisticStore.reconcileFeed (#1203)", () => {
     OptimisticStore.reconcileFeed("__cleanup__", []);
   });
 
+  describe("OptimisticStore blocked-list updates", () => {
+    const owner = "GBLOCKOWNER";
+
+    afterEach(() => {
+      OptimisticStore.clearBlockedList(owner);
+    });
+
+    it("restores the previous list when an optimistic block is rolled back", () => {
+      const original = ["GBLOCKED1"];
+      OptimisticStore.setBlockedList(owner, original);
+      OptimisticStore.snapshotBlockedList(owner);
+      OptimisticStore.setBlockedList(owner, [...original, "GBLOCKED2"]);
+
+      expect(OptimisticStore.getBlockedList(owner)).toEqual(["GBLOCKED1", "GBLOCKED2"]);
+      expect(OptimisticStore.rollbackBlockedList(owner)).toEqual(original);
+      expect(OptimisticStore.getBlockedList(owner)).toEqual(original);
+    });
+  });
+
   it("prunes an optimistic like entry when the post is filtered out of the visible set", () => {
     const user = "GUSER1";
     const key = `${user}:42`;

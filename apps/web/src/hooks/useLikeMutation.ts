@@ -16,6 +16,7 @@ import { OptimisticStore, useOptimisticLike, type LikeState } from "@/lib/optimi
 import { queryKeys } from "@/lib/queryKeys";
 import { toast } from "@/lib/toast";
 import { classifyError } from "./usePoolContract";
+import { getErrorMessage } from "@/lib/errorClassifier";
 
 export interface UseLikeMutationOptions {
   postId: string | number;
@@ -38,6 +39,12 @@ interface LikeMutationContext {
 
 function likeStoreKey(user: string | null, postId: string | number): string {
   return `${user}:${postId}`;
+}
+
+function getTransactionHash(result: unknown): string | undefined {
+  if (!result || typeof result !== "object" || !("hash" in result)) return undefined;
+  const hash = result.hash;
+  return typeof hash === "string" && hash ? hash : undefined;
 }
 
 export function useLikeMutation({
@@ -66,13 +73,14 @@ export function useLikeMutation({
 
   const state = useOptimisticLike(user, postId, serverStateRef.current);
 
-  const mutation = useMutation<void, Error, void, LikeMutationContext>({
+  const mutation = useMutation<{ txHash?: string }, Error, void, LikeMutationContext>({
     mutationFn: async () => {
       if (!user) {
         throw new Error("Connect your wallet to like posts.");
       }
       const submit = submitLike ?? submitLikeTransaction;
-      await submit(user, postId);
+      const result = await submit(user, postId);
+      return { txHash: getTransactionHash(result) };
     },
 
     onMutate: async () => {
@@ -105,16 +113,22 @@ export function useLikeMutation({
 
       toast.error({
         title: "Like didn't go through",
-        description: `${classifyError(error)}. Your like was rolled back.`,
+        description: `${getErrorMessage(error)}. Your like was rolled back.`,
+        duration: 5000,
       });
     },
 
-    onSuccess: (_result, _variables, context) => {
+    onSuccess: (result, _variables, context) => {
       if (!context) return;
 
       queryClient.setQueryData<LikeState>(queryKey, context.optimistic);
       OptimisticStore.commitLikeState(context.storeKey);
       onConfirmed?.(context.optimistic);
+      toast.success({
+        title: "Like confirmed",
+        txHash: result.txHash,
+        duration: 5000,
+      });
     },
 
     onSettled: () => {

@@ -1,6 +1,6 @@
 import { Stack, useRouter } from "expo-router";
 import { useEffect } from "react";
-import { Linking, StyleSheet, Text, View } from "react-native";
+import { Linking } from "react-native";
 
 import { setupNotificationListeners } from "../notifications/notificationHandler";
 import { registerForPushNotificationsAsync } from "../notifications/registerForPushNotifications";
@@ -9,6 +9,7 @@ import { WalletProvider } from "../context/WalletContext";
 import { ToastProvider } from "../context/ToastContext";
 import { NetworkProvider } from "../context/NetworkContext";
 import { useNetwork } from "../hooks/useNetwork";
+import { OfflineBanner } from "../components/OfflineBanner";
 import { useWallet } from "../hooks/useWallet";
 import { parseDeepLink } from "../utils/deepLinks";
 import { HeaderActions } from "./(tabs)/_layout";
@@ -79,11 +80,7 @@ function RootNavigator() {
 
   return (
     <>
-      {isOffline && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineBannerText}>No internet connection</Text>
-        </View>
-      )}
+      <OfflineBanner isOffline={isOffline} />
       <Stack
         screenOptions={{
           headerStyle: {
@@ -127,19 +124,3 @@ export default function RootLayout() {
     </ThemeProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  offlineBanner: {
-    backgroundColor: "#ef4444",
-    paddingTop: 48,
-    paddingBottom: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 9999,
-  },
-  offlineBannerText: {
-    color: "#ffffff",
-    fontWeight: "bold",
-    fontSize: 14,
-  },
-});

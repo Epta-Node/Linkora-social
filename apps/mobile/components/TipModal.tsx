@@ -13,6 +13,7 @@ import {
 
 import { useTip, type TipToken } from "../hooks/useTip";
 import { useTheme } from "../theme/useTheme";
+import { useNetwork } from "../hooks/useNetwork";
 
 const SUPPORTED_TOKENS: TipToken[] = [
   {
@@ -47,6 +48,7 @@ function parseAmount(value: string): number {
 
 export function TipModal({ visible, postId, authorName, onClose }: TipModalProps) {
   const { theme } = useTheme();
+  const { isOffline } = useNetwork();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [amount, setAmount] = useState("");
   const [selectedToken, setSelectedToken] = useState<TipToken>(SUPPORTED_TOKENS[0]);
@@ -56,7 +58,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
   const parsedAmount = parseAmount(amount);
   const protocolFee = estimateProtocolFee(parsedAmount);
   const creatorAmount = Math.max(0, parsedAmount - protocolFee);
-  const canSubmit = !pending && Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const canSubmit = !pending && !isOffline && Number.isFinite(parsedAmount) && parsedAmount > 0;
 
   const handleClose = () => {
     reset();
@@ -161,6 +163,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Confirm tip"
+            accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
             disabled={!canSubmit}
             onPress={handleSubmit}
             style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
@@ -171,6 +174,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
               <Text style={styles.submitText}>Confirm Tip</Text>
             )}
           </Pressable>
+          {isOffline && <Text style={styles.offlineHint}>Unavailable while offline</Text>}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -341,6 +345,12 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       color: theme.colors.text.onBrand,
       fontSize: 15,
       fontWeight: "800",
+    },
+    offlineHint: {
+      color: theme.colors.semantic.error,
+      fontSize: 12,
+      marginTop: 8,
+      textAlign: "center",
     },
   });
 }

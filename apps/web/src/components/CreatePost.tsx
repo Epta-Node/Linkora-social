@@ -4,6 +4,8 @@ import { useState, useCallback } from "react";
 import { useWallet } from "./WalletProvider";
 import Link from "next/link";
 import { RichTextComposer } from "./RichTextComposer";
+import { toast } from "@/lib/toast";
+import { getErrorMessage } from "@/lib/errorClassifier";
 
 const TRANSACTION_FEE_ESTIMATE = "~0.00001 XLM";
 
@@ -109,14 +111,20 @@ export function CreatePost({ onSuccess, compact = false, submitFn = submitPost }
 
         setPostId(result.id);
         setStatus("success");
+        toast.success({
+          title: "Post published",
+          txHash: result.transactionHash,
+          duration: 5000,
+        });
 
         if (onSuccess) {
           onSuccess(result.id);
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to create post";
+        const message = getErrorMessage(err);
         setError(message);
         setStatus("error");
+        toast.error({ title: "Post wasn't published", description: message, duration: 5000 });
       }
     },
     [publicKey, submitFn, onSuccess]
