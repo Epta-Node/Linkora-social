@@ -178,6 +178,41 @@ pub struct Pool {
     pub threshold: u32,
 }
 
+/// Tiered pool-fee parameters, expressed in basis points.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PoolFeeConfig {
+    pub management_fee_bps: u32,
+    pub performance_fee_bps: u32,
+    pub hurdle_rate_bps: u32,
+}
+
+fn validate_pool_fee_config(config: &PoolFeeConfig) {
+    assert!(config.management_fee_bps <= 10_000, "invalid management fee");
+    assert!(config.performance_fee_bps <= 10_000, "invalid performance fee");
+    assert!(config.hurdle_rate_bps <= 10_000, "invalid hurdle rate");
+}
+
+fn apply_bps(amount: i128, bps: u32) -> i128 {
+    (amount / 10_000) * bps as i128 + (amount % 10_000) * bps as i128 / 10_000
+}
+
+/// Calculate management and performance fees without multiplying two large
+/// i128 values. Performance fees apply only to profit above the hurdle.
+pub fn calculate_pool_fees(
+    principal: i128,
+    profit: i128,
+    config: &PoolFeeConfig,
+) -> (i128, i128) {
+    assert!(principal >= 0 && profit >= 0, "negative pool value");
+    validate_pool_fee_config(config);
+    let management_fee = apply_bps(principal, config.management_fee_bps);
+    let hurdle = apply_bps(principal, config.hurdle_rate_bps);
+    let excess_profit = if profit > hurdle { profit - hurdle } else { 0 };
+    let performance_fee = apply_bps(excess_profit, config.performance_fee_bps);
+    (management_fee, performance_fee)
+}
+
 /// A post whose content is still hidden. The content hash committed here is
 /// the sha256 of the bytes revealed in `reveal_post`.
 #[contracttype]
