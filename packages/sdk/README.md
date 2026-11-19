@@ -96,6 +96,39 @@ queue.on("status", (e) => {
 });
 ```
 
+## Atomic batches (multicall)
+
+Run several calls as one transaction through the `LinkoraMulticall` contract:
+one wallet signature, and if any call fails none of them take effect. See
+[docs/contracts/multicall.md](../../docs/contracts/multicall.md).
+
+```ts
+const client = new LinkoraClient({ contractId, rpcUrl, multicallContractId });
+const { follow, tip, poolDeposit } = client.calls;
+
+const txXdr = await client.prepareBatchTx(me, [
+  follow(me, creator),
+  tip(me, postId, usdc, 5_0000000n),
+  poolDeposit(me, "fans", usdc, 10_0000000n),
+]);
+```
+
+## Generated contract bindings
+
+`linkora-sdk/contracts` exposes bindings generated from each contract's ABI
+(`pnpm codegen`): types, `xdr.ScVal` encoders/decoders and operation builders
+for `linkora`, `multicall`, `referral`, `tokenFactory` and `vesting`.
+
+```ts
+import { linkora } from "linkora-sdk/contracts";
+
+const op = new linkora.LinkoraContract(contractId).voteAppeal({
+  voter: me,
+  appeal_id: 1n,
+  vote: true,
+});
+```
+
 ## API Semantics
 
 The SDK exposes two distinct paths for mutative (write) operations:
