@@ -26,3 +26,6 @@ export * from "./submit.js";
 export * from "./signed-transaction.js";
 export * from "./state.js";
 export * from "./validate.js";
+export * from "./fee-estimator.js";
+export * from "./offline-queue.js";
+export * from "./signers/walletconnect.js";
