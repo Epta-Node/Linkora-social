@@ -117,7 +117,9 @@ export function createApp(
     healthMonitor ?? (pg ? new HealthMonitor(pg, process.env.STELLAR_RPC_URL ?? "") : undefined);
 
   app.get("/metrics", (_req: Request, res: Response): void => {
-    res.type("text/plain").send(metricsText());
+    res
+      .type("text/plain; version=0.0.4; charset=utf-8")
+      .send(metricsText({ dbPoolSize: pg?.totalCount }));
   });
 
   app.get("/health", async (_req: Request, res: Response): Promise<void> => {

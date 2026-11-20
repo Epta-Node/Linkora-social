@@ -148,13 +148,27 @@ const navItems: NavItem[] = [
   },
 ];
 
-export function LeftSidebar() {
+interface LeftSidebarProps {
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}
+
+export function LeftSidebar({ mobileOpen = false, onCloseMobile }: LeftSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState("ohcine");
 
   return (
-    <aside
-      aria-label="Left Sidebar Navigation"
+    <>
+      <div
+        className={`dashboard-sidebar-backdrop${mobileOpen ? " is-mobile-open" : ""}`}
+        data-testid="dashboard-sidebar-backdrop"
+        onClick={onCloseMobile}
+        aria-hidden="true"
+      />
+      <aside
+        aria-label="Left Sidebar Navigation"
+        className={`dashboard-left-sidebar${mobileOpen ? " is-mobile-open" : ""}`}
+        data-testid="dashboard-left-sidebar"
       style={{
         width: isCollapsed ? "72px" : "240px",
         minWidth: isCollapsed ? "72px" : "240px",
@@ -347,6 +361,7 @@ export function LeftSidebar() {
           {!isCollapsed && <span>Collapse</span>}
         </button>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

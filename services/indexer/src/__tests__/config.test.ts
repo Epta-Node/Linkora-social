@@ -1,4 +1,4 @@
-import { loadConfig } from "../config";
+import { DB_POOL_MAX_MAX, DB_POOL_MAX_MIN, loadConfig, validateDbPoolConfig } from "../config";
 
 const REQUIRED_ENV = {
   DATABASE_URL: "postgres://localhost/test",
@@ -46,11 +46,11 @@ describe("loadConfig: connection pool + shutdown timeout", () => {
     );
   });
 
-  it("reads pool sizing and shutdown timeout from the environment", () => {
+  it("reads valid pool sizing and shutdown timeout from the environment", () => {
     withEnv(
       {
         ...REQUIRED_ENV,
-        DB_POOL_MAX: "50",
+        DB_POOL_MAX: "10",
         DB_POOL_IDLE_TIMEOUT: "10000",
         DB_POOL_CONNECTION_TIMEOUT: "2000",
         SHUTDOWN_TIMEOUT_MS: "15000",
@@ -58,12 +58,52 @@ describe("loadConfig: connection pool + shutdown timeout", () => {
       () => {
         const cfg = loadConfig();
         expect(cfg.dbPool).toEqual({
-          max: 50,
+          max: 10,
           idleTimeoutMs: 10_000,
           connectionTimeoutMs: 2_000,
         });
         expect(cfg.shutdownTimeoutMs).toBe(15_000);
       }
     );
+  });
+
+  it("rejects DB_POOL_MAX below minimum or above maximum", () => {
+    for (const invalid of ["0", "1", "21", "50", "-5", "abc"]) {
+      withEnv({ ...REQUIRED_ENV, DB_POOL_MAX: invalid }, () => {
+        expect(() => loadConfig()).toThrow();
+      });
+    }
+  });
+
+  it("warns when pool max exceeds CPU core count and logs effective pool config", () => {
+    const info = jest.fn();
+    const warn = jest.fn();
+
+    validateDbPoolConfig(
+      { max: 8, idleTimeoutMs: 30_000, connectionTimeoutMs: 5_000 },
+      { cpuCount: 4, log: { info, warn } }
+    );
+
+    expect(warn).toHaveBeenCalledWith(
+      { dbPoolMax: 8, cpuCount: 4 },
+      expect.stringContaining("exceeds available CPU core count")
+    );
+    expect(info).toHaveBeenCalledWith(
+      { max: 8, idleTimeoutMs: 30_000, connectionTimeoutMs: 5_000, cpuCount: 4 },
+      "Effective database connection pool configuration"
+    );
+  });
+
+  it("does not warn when pool max is within CPU core count", () => {
+    const info = jest.fn();
+    const warn = jest.fn();
+
+    validateDbPoolConfig(
+      { max: DB_POOL_MAX_MIN, idleTimeoutMs: 30_000, connectionTimeoutMs: 5_000 },
+      { cpuCount: DB_POOL_MAX_MAX, log: { info, warn } }
+    );
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledTimes(1);
   });
 });
