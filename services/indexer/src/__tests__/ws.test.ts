@@ -25,6 +25,8 @@ import {
   buildWsAuthMessage,
   verifyWsAuth,
   WS_AUTH_TIMESTAMP_TOLERANCE_MS,
+  DEFAULT_AUTH_TIMEOUT_MS,
+  authTimeoutMsFromEnv,
 } from "../ws";
 import { TokenBucket } from "../ratelimit";
 
@@ -604,5 +606,72 @@ describe("WebSocket outbound backpressure", () => {
     expect(maxReceived).toBe(TOTAL - 1); // newest event always survives
 
     client.close();
+  });
+});
+
+// ── Auth challenge timeout (issue #1884) ──────────────────────────────────────
+
+describe("WebSocket auth challenge timeout (issue #1884)", () => {
+  let h: Harness | undefined;
+  let previousTimeout: string | undefined;
+
+  beforeEach(() => {
+    previousTimeout = process.env.WS_AUTH_TIMEOUT_MS;
+  });
+
+  afterEach(async () => {
+    if (previousTimeout === undefined) delete process.env.WS_AUTH_TIMEOUT_MS;
+    else process.env.WS_AUTH_TIMEOUT_MS = previousTimeout;
+    if (h) await stopHarness(h);
+    h = undefined;
+  });
+
+  it("defaults to a 10 second auth deadline", () => {
+    delete process.env.WS_AUTH_TIMEOUT_MS;
+    expect(DEFAULT_AUTH_TIMEOUT_MS).toBe(10_000);
+    expect(authTimeoutMsFromEnv()).toBe(10_000);
+  });
+
+  it("honours WS_AUTH_TIMEOUT_MS and disconnects with a logged reason", async () => {
+    process.env.WS_AUTH_TIMEOUT_MS = "120";
+    h = await startHarness({ auth: { required: true } });
+    const client = await connect(h.port);
+    await waitFor(() => h!.handle.clientCount() === 1);
+
+    const errors: string[] = [];
+    client.on("message", (data) => {
+      const f = JSON.parse(data.toString());
+      if (f.type === "error") errors.push(f.payload.message);
+    });
+
+    let closeCode: number | undefined;
+    let closeReason = "";
+    const closed = new Promise<void>((resolve) => {
+      client.on("close", (code, reason) => {
+        closeCode = code;
+        closeReason = reason.toString();
+        resolve();
+      });
+    });
+
+    await closed;
+    expect(closeCode).toBe(1008);
+    expect(closeReason).toMatch(/authentication timeout/i);
+    expect(errors.some((m) => /authentication timeout/i.test(m))).toBe(true);
+    await waitFor(() => h!.handle.clientCount() === 0);
+  });
+
+  it("lets opts.auth.deadlineMs override the environment", async () => {
+    process.env.WS_AUTH_TIMEOUT_MS = "60";
+    h = await startHarness({ auth: { required: true, deadlineMs: 5_000 } });
+    const client = await connect(h.port);
+    await new Promise((r) => setTimeout(r, 250));
+    expect(h.handle.clientCount()).toBe(1);
+    client.close();
+  });
+
+  it("falls back to 10s for an invalid WS_AUTH_TIMEOUT_MS", () => {
+    process.env.WS_AUTH_TIMEOUT_MS = "not-a-number";
+    expect(authTimeoutMsFromEnv()).toBe(DEFAULT_AUTH_TIMEOUT_MS);
   });
 });

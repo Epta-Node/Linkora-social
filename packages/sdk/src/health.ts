@@ -5,6 +5,12 @@ import { TimeoutError } from "./errors.js";
 export type ConnectionStatus = "connected" | "disconnected";
 export type ConnectionStatusCallback = (status: ConnectionStatus) => void;
 
+/** Every event emitted by the monitor, including automatic reconnection. */
+export type ConnectionEvent = ConnectionStatus | "reconnecting";
+export type ConnectionEventCallback = (event: ConnectionEvent, attempt?: number) => void;
+/** Receives the 1-based number of the reconnection cycle that just started. */
+export type ReconnectingCallback = (attempt: number) => void;
+
 export interface RpcHealthResult {
   healthy: boolean;
   expectedNetworkPassphrase: string;
@@ -52,6 +58,13 @@ export interface HealthCheckConfig {
   maxBackoffMs?: number;
   /** Timeout in ms for individual health check pings. Default: 10000 */
   pingTimeoutMs?: number;
+  /** Consecutive failed checks before automatic reconnection starts. Default: 3 */
+  reconnectAfterFailures?: number;
+  /**
+   * Keep retrying (with exponential backoff) instead of permanently stopping
+   * when the backoff cap is reached. Default: true.
+   */
+  autoReconnect?: boolean;
 }
 
 /**
@@ -69,11 +82,19 @@ export class ConnectionHealthMonitor {
 
   private status: ConnectionStatus = "disconnected";
   private listeners: ConnectionStatusCallback[] = [];
+  private eventListeners: ConnectionEventCallback[] = [];
+  private reconnectListeners: ReconnectingCallback[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private hasChecked = false;
   private retryMetrics: RetryMetrics = emptyRetryMetrics();
   private readonly _server?: rpc.Server;
+
+  private readonly reconnectAfterFailures: number;
+  private readonly autoReconnect: boolean;
+  private consecutiveFailures = 0;
+  private reconnectAttempts = 0;
+  private reconnecting = false;
 
   private boundResume = () => this.resume();
 
@@ -88,6 +109,8 @@ export class ConnectionHealthMonitor {
     this.backoffMs = config.backoffMs ?? 1_000;
     this.maxBackoffMs = config.maxBackoffMs ?? 30_000;
     this.pingTimeoutMs = config.pingTimeoutMs ?? 10_000;
+    this.reconnectAfterFailures = Math.max(1, config.reconnectAfterFailures ?? 3);
+    this.autoReconnect = config.autoReconnect ?? true;
     this.expectedNetworkPassphrase = expectedNetworkPassphrase;
     this.server = server ?? new rpc.Server(this.rpcUrl, { allowHttp: false });
 
@@ -113,6 +136,35 @@ export class ConnectionHealthMonitor {
     return () => {
       this.listeners = this.listeners.filter((cb) => cb !== callback);
     };
+  }
+
+  /**
+   * Register a callback fired whenever automatic reconnection starts — i.e.
+   * after `reconnectAfterFailures` consecutive failed health checks. The
+   * callback receives the 1-based reconnection attempt number.
+   */
+  onReconnecting(callback: ReconnectingCallback): () => void {
+    if (!this.reconnectListeners.includes(callback)) {
+      this.reconnectListeners.push(callback);
+    }
+    return () => {
+      this.reconnectListeners = this.reconnectListeners.filter((cb) => cb !== callback);
+    };
+  }
+
+  /** Subscribe to all emitted events: connected, disconnected, reconnecting. */
+  onConnectionEvent(callback: ConnectionEventCallback): () => void {
+    if (!this.eventListeners.includes(callback)) {
+      this.eventListeners.push(callback);
+    }
+    return () => {
+      this.eventListeners = this.eventListeners.filter((cb) => cb !== callback);
+    };
+  }
+
+  /** Number of automatic reconnection cycles started so far. */
+  getReconnectAttempts(): number {
+    return this.reconnectAttempts;
   }
 
   /** Perform a single health check ping against the RPC endpoint. */
@@ -179,12 +231,16 @@ export class ConnectionHealthMonitor {
     if (this.timer !== null) return; // already running
     this.stopped = false;
     this.hasChecked = false;
+    this.consecutiveFailures = 0;
+    this.reconnecting = false;
     this.scheduleCheck(0);
   }
 
   /** Stop all periodic checks and clear timers. */
   stop(): void {
     this.stopped = true;
+    this.consecutiveFailures = 0;
+    this.reconnecting = false;
     if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -199,10 +255,15 @@ export class ConnectionHealthMonitor {
       document.removeEventListener("visibilitychange", this.boundResume);
     }
     this.listeners = [];
+    this.eventListeners = [];
+    this.reconnectListeners = [];
     this.status = "disconnected";
     this.hasChecked = false;
     this.retryMetrics = emptyRetryMetrics();
     this._currentBackoff = 0;
+    this.consecutiveFailures = 0;
+    this.reconnectAttempts = 0;
+    this.reconnecting = false;
   }
 
   private scheduleCheck(delayMs: number): void {
@@ -224,17 +285,48 @@ export class ConnectionHealthMonitor {
     if (!this.hasChecked || next !== this.status) {
       this.status = next;
       for (const cb of this.listeners) cb(this.status);
+      this.emitEvent(next);
     }
     this.hasChecked = true;
 
+    if (ok) {
+      this.consecutiveFailures = 0;
+      this.reconnecting = false;
+    } else {
+      this.consecutiveFailures += 1;
+      if (
+        this.autoReconnect &&
+        !this.reconnecting &&
+        this.consecutiveFailures >= this.reconnectAfterFailures
+      ) {
+        this.beginReconnect();
+      }
+    }
+
     if (!this.stopped) {
-      if (!ok && this._currentBackoff >= this.maxBackoffMs) {
-        // Sustained outage reached max backoff cap. Stop probing until manual restart or network recovery event.
+      if (!ok && this._currentBackoff >= this.maxBackoffMs && !this.autoReconnect) {
+        // Legacy opt-out mode: sustained outage reached the cap. Stop probing
+        // until a manual restart or a network recovery event.
         this.stop();
       } else {
+        // Backoff doubles on each failed check; a reconnection cycle resets it
+        // to the configured base so attempts keep backing off exponentially.
         this.scheduleCheck(ok ? this.intervalMs : this.nextBackoff());
       }
     }
+  }
+
+  /** Announce a reconnection cycle and restart the backoff sequence. */
+  private beginReconnect(): void {
+    this.reconnecting = true;
+    this.reconnectAttempts += 1;
+    this._currentBackoff = 0;
+    for (const cb of this.reconnectListeners) cb(this.reconnectAttempts);
+    this.emitEvent("reconnecting", this.reconnectAttempts);
+  }
+
+  private emitEvent(event: ConnectionEvent, attempt?: number): void {
+    for (const cb of this.eventListeners) cb(event, attempt);
   }
 
   /**

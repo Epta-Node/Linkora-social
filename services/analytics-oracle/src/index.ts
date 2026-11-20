@@ -53,6 +53,11 @@ const ATTESTATION_CACHE_TTL_MS = (() => {
   if (isNaN(val)) throw new Error("ATTESTATION_CACHE_TTL_MS must be a valid number");
   return val;
 })();
+const ATTESTATION_CACHE_STATS_INTERVAL_MS = (() => {
+  const val = parseInt(process.env["ATTESTATION_CACHE_STATS_INTERVAL_MS"] ?? "300000", 10);
+  if (isNaN(val)) throw new Error("ATTESTATION_CACHE_STATS_INTERVAL_MS must be a valid number");
+  return val;
+})();
 const SHUTDOWN_DRAIN_TIMEOUT_MS = parseInt(process.env["SHUTDOWN_DRAIN_TIMEOUT_MS"] ?? "30000", 10);
 
 // Load the signing key from the configured secrets backend (a mounted secret
@@ -84,6 +89,7 @@ const rpcServer = new StellarRpc.Server(SOROBAN_RPC_URL);
 const attestationCache = new AttestationCache<SignedAttestation>({
   maxSize: ATTESTATION_CACHE_MAX_SIZE,
   ttlMs: ATTESTATION_CACHE_TTL_MS,
+  statsIntervalMs: ATTESTATION_CACHE_STATS_INTERVAL_MS,
 });
 
 // Bind the cache to the current signer key. If the key rotates (reload of the
@@ -435,7 +441,8 @@ async function main(): Promise<void> {
     forceExitTimer.unref();
 
     try {
-      // 1. Stop scheduling new window ticks.
+      // 1. Stop scheduling new window ticks and cache stats logging.
+      attestationCache.stopStatsLogging();
       if (pollInterval !== null) {
         clearInterval(pollInterval);
         pollInterval = null;

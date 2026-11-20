@@ -18,7 +18,8 @@
  *
  * Replay protection: `timestamp` must be within ±30 s of server time.
  * Connections that have not authenticated within `authDeadlineMs` (default
- * 30 s) are closed with code 1008.  A second `auth` frame is rejected.
+ * 10 s, configurable via `WS_AUTH_TIMEOUT_MS`) are closed with code 1008 and
+ * the reason is logged. A second `auth` frame is rejected.
  *
  * ## Outbound backpressure
  *
@@ -59,7 +60,21 @@ const CLOSE_MESSAGE_TOO_LARGE = 1009;
 export const WS_AUTH_TIMESTAMP_TOLERANCE_MS = 30_000;
 
 /** Default deadline (ms) before an unauthenticated connection is closed. */
-export const DEFAULT_AUTH_DEADLINE_MS = 30_000;
+export const DEFAULT_AUTH_DEADLINE_MS = 10_000;
+
+/** Alias used by `WS_AUTH_TIMEOUT_MS` configuration. */
+export const DEFAULT_AUTH_TIMEOUT_MS = DEFAULT_AUTH_DEADLINE_MS;
+
+/**
+ * Resolve the auth challenge timeout from `WS_AUTH_TIMEOUT_MS`.
+ * Invalid or non-positive values fall back to the 10 s default.
+ */
+export function authTimeoutMsFromEnv(): number {
+  const raw = process.env["WS_AUTH_TIMEOUT_MS"];
+  if (raw === undefined || raw.trim() === "") return DEFAULT_AUTH_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_AUTH_TIMEOUT_MS;
+}
 
 // ── Backpressure constants ────────────────────────────────────────────────────
 
@@ -86,7 +101,7 @@ export interface WsAuthOptions {
   required?: boolean;
   /**
    * Milliseconds before an unauthenticated connection is forcibly closed.
-   * Default 30 000.
+   * Defaults to `WS_AUTH_TIMEOUT_MS` (10 000 when unset).
    */
   deadlineMs?: number;
 }
@@ -248,7 +263,7 @@ export function attachWebSocketServer(
     opts.auth?.required ??
     (process.env.WS_AUTH_REQUIRED === "true" ||
       process.env.WS_AUTH_REQUIRED === "1");
-  const authDeadlineMs = opts.auth?.deadlineMs ?? DEFAULT_AUTH_DEADLINE_MS;
+  const authDeadlineMs = opts.auth?.deadlineMs ?? authTimeoutMsFromEnv();
 
   const sendQueueDepth = opts.backpressure?.sendQueueDepth ?? DEFAULT_SEND_QUEUE_DEPTH;
   const maxDropsBeforeDisconnect =
@@ -277,9 +292,16 @@ export function attachWebSocketServer(
     if (authRequired) {
       state.authDeadlineTimer = setTimeout(() => {
         if (state.address === null && ws.readyState === WebSocket.OPEN) {
-          logger.debug("[ws] auth deadline exceeded, closing unauthenticated client");
-          sendError(ws, "authentication required");
-          ws.close(CLOSE_POLICY_VIOLATION, "authentication required");
+          logger.warn(
+            {
+              reason: "authentication_timeout",
+              authTimeoutMs: authDeadlineMs,
+              closeCode: CLOSE_POLICY_VIOLATION,
+            },
+            "[ws] disconnecting client: authentication challenge timed out"
+          );
+          sendError(ws, `authentication timeout after ${authDeadlineMs}ms`);
+          ws.close(CLOSE_POLICY_VIOLATION, "authentication timeout");
         }
       }, authDeadlineMs);
       if (typeof state.authDeadlineTimer.unref === "function") {

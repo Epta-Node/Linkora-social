@@ -423,6 +423,7 @@ describe("ConnectionHealthMonitor", () => {
         intervalMs: 10,
         backoffMs: 10,
         maxBackoffMs: 10,
+        autoReconnect: false, // legacy stop-at-cap behaviour
       });
       monitor.start();
 
@@ -440,6 +441,103 @@ describe("ConnectionHealthMonitor", () => {
       await new Promise((r) => setTimeout(r, 100));
       expect(mockGetLatestLedger.mock.calls.length).toBeGreaterThan(checksAfterStop);
 
+      monitor.stop();
+    });
+  });
+
+  describe("automatic reconnection (Issue 1883)", () => {
+    it("emits a reconnecting event after 3 consecutive failed checks", async () => {
+      mockGetLatestLedger.mockRejectedValue(new Error("down"));
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 5,
+        backoffMs: 10,
+        maxBackoffMs: 1_000,
+      });
+      const onReconnecting = jest.fn();
+      const onEvent = jest.fn();
+      monitor.onReconnecting(onReconnecting);
+      monitor.onConnectionEvent(onEvent);
+
+      monitor.start();
+      try {
+        await waitFor(() => onReconnecting.mock.calls.length > 0);
+
+        expect(onReconnecting).toHaveBeenCalledTimes(1);
+        expect(onReconnecting).toHaveBeenCalledWith(1);
+        expect(monitor.getReconnectAttempts()).toBe(1);
+        expect(onEvent).toHaveBeenCalledWith("reconnecting", 1);
+        expect(onEvent).toHaveBeenCalledWith("disconnected", undefined);
+      } finally {
+        monitor.stop();
+      }
+    });
+
+    it("uses exponential backoff for reconnection attempts", async () => {
+      mockGetLatestLedger.mockRejectedValue(new Error("down"));
+      const setTimeoutSpy = jest.spyOn(global, "setTimeout");
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 5,
+        backoffMs: 10,
+        maxBackoffMs: 1_000,
+      });
+      monitor.start();
+
+      try {
+        await waitFor(() => mockGetLatestLedger.mock.calls.length >= 4);
+
+        // Jitter is 0–20% of the delay: 10 → (10, 12], 20 → (20, 24], ...
+        // The 10 ms values come from waitFor() polling and are filtered out.
+        const delays = setTimeoutSpy.mock.calls
+          .map((call) => call[1])
+          .filter((d): d is number => typeof d === "number" && d > 10 && d <= 1_200);
+        expect(delays.some((d) => d <= 12)).toBe(true);
+        expect(delays.some((d) => d > 20 && d <= 24)).toBe(true);
+      } finally {
+        monitor.stop();
+        setTimeoutSpy.mockRestore();
+      }
+    });
+
+    it("does not reconnect when the connection recovers before the threshold", async () => {
+      let calls = 0;
+      mockGetLatestLedger.mockImplementation(() => {
+        calls += 1;
+        return calls <= 2
+          ? Promise.reject(new Error("down"))
+          : Promise.resolve({ sequence: 100 });
+      });
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 5,
+        backoffMs: 10,
+        maxBackoffMs: 1_000,
+      });
+      const onReconnecting = jest.fn();
+      monitor.onReconnecting(onReconnecting);
+
+      monitor.start();
+      try {
+        await waitFor(() => mockGetLatestLedger.mock.calls.length >= 3);
+        expect(onReconnecting).not.toHaveBeenCalled();
+        expect(monitor.getReconnectAttempts()).toBe(0);
+      } finally {
+        monitor.stop();
+      }
+    });
+
+    it("keeps probing after the backoff cap instead of stopping permanently", async () => {
+      mockGetLatestLedger.mockRejectedValue(new Error("down"));
+      const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
+        intervalMs: 5,
+        backoffMs: 10,
+        maxBackoffMs: 10,
+      });
+      monitor.start();
+
+      await new Promise((r) => setTimeout(r, 200));
+      const checksAtCap = mockGetLatestLedger.mock.calls.length;
+      await new Promise((r) => setTimeout(r, 100));
+
+      expect(mockGetLatestLedger.mock.calls.length).toBeGreaterThan(checksAtCap);
       monitor.stop();
     });
   });

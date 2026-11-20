@@ -35,6 +35,13 @@ export interface DependencyCheck {
   latencyMs: number;
 }
 
+/**
+ * Maximum acceptable latency for a Stellar RPC ping. A ping that takes longer
+ * than this (or never responds at all) marks the dependency — and therefore
+ * the service — as unhealthy.
+ */
+export const STELLAR_RPC_LATENCY_THRESHOLD_MS = 5_000;
+
 export interface EventStreamCheck {
   status: "connected" | "disconnected" | "stopped";
   lastEventAgo: string;
@@ -133,18 +140,27 @@ export class HealthMonitor {
     }
   }
 
+  /**
+   * Ping the Stellar RPC on every health check. The measured round-trip is
+   * reported as `latencyMs`, and a ping slower than the 5 s threshold is
+   * treated as a failed dependency even when the request eventually succeeds.
+   */
   private async checkStellarRpc(): Promise<DependencyCheck> {
     const start = Date.now();
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 3000);
+      const timeout = setTimeout(() => ctrl.abort(), STELLAR_RPC_LATENCY_THRESHOLD_MS);
       await fetch(this.rpcUrl, {
         method: "POST",
         signal: ctrl.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestLedger", params: {} }),
       }).finally(() => clearTimeout(timeout));
-      return { status: "up", latencyMs: Date.now() - start };
+      const latencyMs = Date.now() - start;
+      return {
+        status: latencyMs > STELLAR_RPC_LATENCY_THRESHOLD_MS ? "down" : "up",
+        latencyMs,
+      };
     } catch {
       return { status: "down", latencyMs: Date.now() - start };
     }

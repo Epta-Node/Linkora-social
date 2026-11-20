@@ -15,7 +15,8 @@
  * list threaded through the same node objects stored in the Map.
  *
  * Stats (hits, misses, evictions) are exposed via `getStats()` for the
- * /metrics/cache endpoint.
+ * /metrics/cache endpoint and logged as an interval snapshot — hit/miss ratio
+ * and evictions — every five minutes by default.
  */
 
 import { logger } from "./logger.js";
@@ -42,11 +43,28 @@ export interface CacheStats {
   ttlMs: number;
 }
 
+/** Snapshot of one logging interval's activity. */
+export interface CacheIntervalStats {
+  hits: number;
+  misses: number;
+  /** Fraction of lookups served from the cache during the interval (0–1). */
+  hitRatio: number;
+  /** Entries evicted during the interval (LRU + TTL combined). */
+  evictions: number;
+  size: number;
+  maxSize: number;
+}
+
+/** Default interval between cache stat log lines: 5 minutes. */
+export const DEFAULT_CACHE_STATS_INTERVAL_MS = 5 * 60 * 1000;
+
 export interface AttestationCacheOptions {
   /** Maximum number of entries before LRU eviction kicks in. Default: 10 000. */
   maxSize: number;
   /** Milliseconds before an entry is considered stale. Default: 3 600 000 (1 h). */
   ttlMs: number;
+  /** How often to log hit/miss ratio and evictions. Default: 5 min; 0 disables logging. */
+  statsIntervalMs?: number;
 }
 
 // ── Implementation ────────────────────────────────────────────────────────────
@@ -66,10 +84,16 @@ export class AttestationCache<V> {
   /** "windowStart:windowEnd" key of the report window the cache now covers. */
   private windowKey: string | null = null;
 
-  // Stats counters
+  // Cumulative stats counters (exposed by getStats()).
   private hits = 0;
   private misses = 0;
   private evictions = 0;
+
+  // Per-interval counters for the periodic stats log line.
+  private intervalHits = 0;
+  private intervalMisses = 0;
+  private intervalEvictions = 0;
+  private statsTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: AttestationCacheOptions) {
     if (options.maxSize < 1) throw new RangeError("maxSize must be >= 1");
@@ -95,6 +119,9 @@ export class AttestationCache<V> {
     };
     this.head.next = this.tail;
     this.tail.prev = this.head;
+
+    const statsIntervalMs = options.statsIntervalMs ?? DEFAULT_CACHE_STATS_INTERVAL_MS;
+    if (statsIntervalMs > 0) this.startStatsLogging(statsIntervalMs);
   }
 
   // ── Public API ──────────────────────────────────────────────────────────────
@@ -108,6 +135,7 @@ export class AttestationCache<V> {
 
     if (!node) {
       this.misses++;
+      this.intervalMisses++;
       return undefined;
     }
 
@@ -115,12 +143,14 @@ export class AttestationCache<V> {
     if (this.isExpired(node)) {
       this.evictNode(node, "ttl");
       this.misses++;
+      this.intervalMisses++;
       return undefined;
     }
 
     // Promote to MRU (most-recently-used) position.
     this.moveToFront(node);
     this.hits++;
+    this.intervalHits++;
     return node.value;
   }
 
@@ -240,6 +270,48 @@ export class AttestationCache<V> {
     };
   }
 
+  /**
+   * Start periodic cache stats logging. Idempotent — calling it again replaces
+   * the existing timer. The timer is unref'd so it never delays shutdown.
+   *
+   * @returns A function that stops the periodic logging.
+   */
+  startStatsLogging(intervalMs = DEFAULT_CACHE_STATS_INTERVAL_MS): () => void {
+    this.stopStatsLogging();
+    this.statsTimer = setInterval(() => this.logStats(), intervalMs);
+    if (typeof this.statsTimer.unref === "function") this.statsTimer.unref();
+    return () => this.stopStatsLogging();
+  }
+
+  /** Stop periodic cache stats logging. */
+  stopStatsLogging(): void {
+    if (this.statsTimer !== null) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = null;
+    }
+  }
+
+  /**
+   * Log the current interval's hit/miss ratio and eviction count, then reset
+   * the interval counters. Cumulative `getStats()` totals are not affected.
+   */
+  logStats(): CacheIntervalStats {
+    const requests = this.intervalHits + this.intervalMisses;
+    const snapshot: CacheIntervalStats = {
+      hits: this.intervalHits,
+      misses: this.intervalMisses,
+      hitRatio: requests === 0 ? 0 : this.intervalHits / requests,
+      evictions: this.intervalEvictions,
+      size: this.map.size,
+      maxSize: this.maxSize,
+    };
+    logger.info(snapshot, "Attestation cache stats");
+    this.intervalHits = 0;
+    this.intervalMisses = 0;
+    this.intervalEvictions = 0;
+    return snapshot;
+  }
+
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   private isExpired(node: Node<V>): boolean {
@@ -258,6 +330,7 @@ export class AttestationCache<V> {
     this.removeNode(node);
     this.map.delete(node.key);
     this.evictions++;
+    this.intervalEvictions++;
     logger.debug({ key: node.key, reason }, "Attestation cache eviction");
   }
 
