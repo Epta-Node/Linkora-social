@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/hooks/useWallet";
-import { ConnectError } from "@/components/WalletProvider";
+import { ConnectError, FREIGHTER_INSTALL_URL } from "@/components/WalletProvider";
 import SearchBar from "@/components/SearchBar";
 import { BottomNav } from "@/components/mobile/BottomNav";
 import { useNotificationsContext } from "@/contexts/NotificationsContext";
@@ -28,7 +28,8 @@ function truncateAddress(address: string): string {
 
 export function NavBar() {
   const router = useRouter();
-  const { address, connected, network, connect, disconnect, isConnecting } = useWallet();
+  const { address, connected, network, connect, disconnect, isConnecting, isRetrying } =
+    useWallet();
   const {
     registerComposeHandler,
     unregisterComposeHandler,
@@ -104,7 +105,7 @@ export function NavBar() {
             <span className="text-amber-200/80">
               Install the{" "}
               <a
-                href="https://freighter.app"
+                href={FREIGHTER_INSTALL_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline font-semibold text-amber-300 hover:text-amber-200"
@@ -321,11 +322,17 @@ export function NavBar() {
               onClick={handleConnect}
               disabled={isConnecting}
               className="rounded-lg bg-violet-600 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-semibold text-white hover:bg-violet-500 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              aria-label={isConnecting ? "Connecting wallet…" : "Connect Freighter wallet"}
+              aria-label={
+                isRetrying
+                  ? "Retrying wallet connection…"
+                  : isConnecting
+                    ? "Connecting wallet…"
+                    : "Connect Freighter wallet"
+              }
               aria-busy={isConnecting}
               data-testid="connect-wallet"
             >
-              {isConnecting ? "Connecting…" : "Connect"}
+              {isRetrying ? "Retrying connection..." : isConnecting ? "Connecting…" : "Connect"}
             </button>
           )}
         </div>
