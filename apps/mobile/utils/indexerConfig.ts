@@ -1,3 +1,42 @@
+import {
+  deleteCustomIndexerUrl,
+  getCustomIndexerUrl,
+  setCustomIndexerUrl,
+} from "./secureStorage";
+
+/**
+ * Validates and normalizes an indexer URL. Requires https:// unless
+ * EXPO_PUBLIC_LOCAL_DEV=1 is set for local development.
+ */
+export function validateIndexerUrl(
+  raw: string,
+  env: Record<string, string | undefined> = process.env
+): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("Indexer URL cannot be empty.");
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid indexer URL format: "${trimmed}".`);
+  }
+
+  const allowInsecureLocal = env.EXPO_PUBLIC_LOCAL_DEV === "1";
+  const protocolOk =
+    parsed.protocol === "https:" || (allowInsecureLocal && parsed.protocol === "http:");
+  if (!protocolOk) {
+    throw new Error(
+      `Indexer URL must use https:// (got "${trimmed}"). ` +
+        "Set EXPO_PUBLIC_LOCAL_DEV=1 to allow http:// for local development only."
+    );
+  }
+
+  return trimmed.replace(/\/+$/, "");
+}
+
 /**
  * Resolves and validates the indexer base URL from EXPO_PUBLIC_INDEXER_URL.
  *
@@ -30,4 +69,31 @@ export function getIndexerBaseUrl(env: Record<string, string | undefined> = proc
   }
 
   return raw.replace(/\/$/, "");
+}
+
+export async function saveCustomIndexerUrl(
+  raw: string,
+  env: Record<string, string | undefined> = process.env
+): Promise<string> {
+  const normalized = validateIndexerUrl(raw, env);
+  await setCustomIndexerUrl(normalized);
+  return normalized;
+}
+
+export async function loadCustomIndexerUrl(): Promise<string | null> {
+  return getCustomIndexerUrl();
+}
+
+export async function clearCustomIndexerUrl(): Promise<void> {
+  await deleteCustomIndexerUrl();
+}
+
+export async function resolveIndexerBaseUrl(
+  env: Record<string, string | undefined> = process.env
+): Promise<string> {
+  const custom = await getCustomIndexerUrl();
+  if (custom) {
+    return validateIndexerUrl(custom, env);
+  }
+  return getIndexerBaseUrl(env);
 }

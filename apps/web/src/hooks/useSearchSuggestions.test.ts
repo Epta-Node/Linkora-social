@@ -18,10 +18,10 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-/** Let the trailing-edge debounce timer (300ms default) fire. */
+/** Let the trailing-edge debounce timer (200ms default) fire. */
 async function flushDebounce() {
   await act(async () => {
-    jest.advanceTimersByTime(400);
+    jest.advanceTimersByTime(200);
   });
 }
 
@@ -196,7 +196,7 @@ describe('useSearchSuggestions debounce', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('issues a trailing-edge request for a query that arrived during the debounce window', async () => {
+  it('issues a trailing-edge request after the 200ms debounce window', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ profiles: [] }));
 
     const { result } = renderHook(() => useSearchSuggestions());
@@ -207,7 +207,14 @@ describe('useSearchSuggestions debounce', () => {
       result.current.fetchSuggestions('alice');
     });
 
-    await flushDebounce();
+    await act(async () => {
+      jest.advanceTimersByTime(199);
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });

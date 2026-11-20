@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ProposalCard } from "@/components/governance/ProposalCard";
 import { useProposalList } from "@/hooks/useGovernance";
 import { isGovernanceConfigured } from "@/lib/governance";
+import { ProposalListSkeleton } from "./loading";
 
 export default function GovernancePage() {
   const { proposals, loading, error, page, hasNext, hasPrev, next, previous, refresh } =
@@ -58,16 +59,7 @@ export default function GovernancePage() {
           </div>
         )}
 
-        {loading && (
-          <div className="space-y-4" aria-hidden="true">
-            {[1, 2, 3].map((item) => (
-              <div
-                key={item}
-                className="h-56 animate-pulse rounded-2xl border border-[var(--border)] bg-[var(--muted)]/50"
-              />
-            ))}
-          </div>
-        )}
+        {loading && <ProposalListSkeleton count={3} />}
 
         {!loading && !error && proposals.length === 0 && (
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--muted)]/30 px-6 py-12 text-center">

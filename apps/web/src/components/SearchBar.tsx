@@ -94,6 +94,12 @@ export default function SearchBar({
 
   // Handle keyboard navigation
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      setIsFocused(false);
+      setActiveSuggestionIndex(-1);
+      return;
+    }
+
     const currentSuggestions = query.trim()
       ? suggestions
       : recentSearches.map((s: string) => ({ type: "recent" as const, value: s }));
@@ -114,9 +120,6 @@ export default function SearchBar({
         const selected = currentSuggestions[activeSuggestionIndex];
         handleSuggestionClick(selected);
       }
-    } else if (e.key === "Escape") {
-      setIsFocused(false);
-      setActiveSuggestionIndex(-1);
     }
   };
 
@@ -190,6 +193,7 @@ export default function SearchBar({
             onChange={(e) => {
               recordKeystroke(e.nativeEvent);
               setIsFocused(true);
+              setActiveSuggestionIndex(-1);
               setQuery(e.target.value);
               onQueryChange?.(e.target.value);
             }}
