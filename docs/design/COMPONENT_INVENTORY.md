@@ -502,3 +502,31 @@ Requirements that apply to every component in this inventory:
 - Remove entries for deleted components.
 - Update the token tables whenever `docs/design/tokens.json` changes.
 - Run the docs linter before merging: `npm run lint:docs`.
+
+
+---
+
+## Platform Sharing and Visual References
+
+The reusable components documented above are implemented under `apps/web/src/components/` and are React web components. They are **not imported as shared component source by the Expo/React Native application**. The mobile application has its own platform-native UI layer. The design language is shared through documented tokens and interaction/accessibility conventions, not by sharing DOM components.
+
+| Component | Web implementation | Shared component source with mobile? | Mobile relationship |
+| --- | --- | --- | --- |
+| Button | `apps/web/src/components/Button.tsx` | No | Implement the equivalent interaction with native controls and the shared design tokens. |
+| Input | `apps/web/src/components/Input.tsx` | No | Native text input equivalent; preserve label and validation behavior. |
+| Card | `apps/web/src/components/Card.tsx` | No | Native surface/container equivalent. |
+| Modal | `apps/web/src/components/Modal.tsx` | No | Native dialog or modal presentation equivalent. |
+| Badge | `apps/web/src/components/Badge.tsx` | No | Native status-label equivalent. |
+| Avatar | `apps/web/src/components/Avatar.tsx` | No | Native image/initials equivalent. |
+| Tooltip | `apps/web/src/components/Tooltip.tsx` | No | Use an accessible native/platform-appropriate hint where needed. |
+| Spinner | `apps/web/src/components/Spinner.tsx` | No | Native activity-indicator equivalent. |
+| Toast | `apps/web/src/components/Toast.tsx` | No | Native toast/announcement equivalent. |
+| Tabs | `apps/web/src/components/Tabs.tsx` | No | Native tab/navigation equivalent. |
+
+**Shared design source:** `docs/design/tokens.json` and `docs/design/tokens.css` define the web token contract; `apps/mobile/theme/tokens.ts` is the mobile theme mirror. Keep the values and semantic meaning aligned when either platform changes.
+
+### Visual examples
+
+There is currently no Storybook deployment or checked-in component screenshot set referenced by this repository. Until one is published, use the source-linked component examples in each entry above as the implementation reference and the token/theme examples in this document for visual behavior. The design overview's Figma link is a placeholder, not a published design file. Do not invent Storybook URLs or imply that a screenshot exists.
+
+A future Storybook or screenshot contribution should include, at minimum, default and interactive states, disabled/error/loading states where applicable, and light/dark examples. Link the published visual artifact from this section and keep it synchronized with the prop/variant tables.
