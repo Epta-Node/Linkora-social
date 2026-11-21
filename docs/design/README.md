@@ -467,3 +467,14 @@ GABC…1234  ⎘
 ---
 
 _Last updated by issue #163 — initial component library specification. Component inventory added in `COMPONENT_INVENTORY.md`._
+
+
+---
+
+## Component coverage and platform notes
+
+The exhaustive per-component reference is [COMPONENT_INVENTORY.md](./COMPONENT_INVENTORY.md). It records public props, defaults, variants, accessibility requirements, and copy-ready examples for Button, Input, Card, Modal, Badge, Avatar, Tooltip, Spinner, Toast, and Tabs.
+
+These are web React components, not shared source modules imported by the Expo/React Native app. Mobile uses platform-native equivalents; the cross-platform contract is the design token system, mirrored in `apps/mobile/theme/tokens.ts`. The inventory marks this distinction component by component.
+
+**Visual reference status:** no published Storybook or checked-in screenshot gallery is currently configured in this repository. Component source examples and token/theme examples are linked from the inventory; the Figma entry above remains a placeholder until a real design file is published. Do not treat the placeholder as a live design link.
