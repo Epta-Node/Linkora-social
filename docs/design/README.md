@@ -473,7 +473,7 @@ _Last updated by issue #163 — initial component library specification. Compone
 
 ## Component coverage and platform notes
 
-The exhaustive per-component reference is [COMPONENT_INVENTORY.md](./COMPONENT_INVENTORY.md). It records public props, defaults, variants, accessibility requirements, and copy-ready examples for Button, Input, Card, Modal, Badge, Avatar, Tooltip, Spinner, Toast, and Tabs.
+The exhaustive per-component reference is [COMPONENT_INVENTORY.md](./COMPONENT_INVENTORY.md). It inventories the current web and mobile component source trees, documents representative public props and variants, and links the source-level usage and Storybook story references.
 
 These are web React components, not shared source modules imported by the Expo/React Native app. Mobile uses platform-native equivalents; the cross-platform contract is the design token system, mirrored in `apps/mobile/theme/tokens.ts`. The inventory marks this distinction component by component.
 
