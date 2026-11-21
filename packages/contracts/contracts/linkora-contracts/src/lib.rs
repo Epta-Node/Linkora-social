@@ -1394,6 +1394,17 @@ impl LinkoraContract {
             .persistent()
             .remove(&StorageKey::Blocks(user.clone()));
 
+        // Clean up all likes received on the user's posts and reset their
+        // like counts so no orphaned Like entries remain after deletion.
+        let author_posts: Vec<u64> = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::AuthorPosts(user.clone()))
+            .unwrap_or_else(|| Vec::new(&env));
+        for post_id in author_posts.iter() {
+            Self::clear_post_likes(&env, post_id);
+        }
+
         // Tombstone for lazy cleanup
         let tombstone_key = StorageKey::DeletedProfile(user.clone());
         env.storage().persistent().set(&tombstone_key, &true);
@@ -5255,6 +5266,37 @@ impl LinkoraContract {
         env.storage().persistent().remove(&last_idx_key);
         env.storage().persistent().set(&count_key, &last);
         Self::bump(env, &count_key);
+    }
+
+    /// Remove every Like entry and likers-index entry for a post and reset
+    /// the post's `like_count` to zero. Used by `delete_profile` so likes
+    /// received on the deleted user's posts are not left orphaned.
+    fn clear_post_likes(env: &Env, post_id: u64) {
+        let likes_count_key = StorageKey::PostLikersCount(post_id);
+        let likes_count: u32 = env
+            .storage()
+            .persistent()
+            .get(&likes_count_key)
+            .unwrap_or(0);
+        for i in 0..likes_count {
+            let idx_key = StorageKey::PostLikersIdx(post_id, i);
+            if let Some(liker) = env.storage().persistent().get::<_, Address>(&idx_key) {
+                env.storage()
+                    .persistent()
+                    .remove(&StorageKey::Like(post_id, liker));
+            }
+            env.storage().persistent().remove(&idx_key);
+        }
+        env.storage().persistent().remove(&likes_count_key);
+
+        let post_key = StorageKey::Post(post_id);
+        if let Some(mut post) = env.storage().persistent().get::<_, Post>(&post_key) {
+            if post.like_count != 0 {
+                post.like_count = 0;
+                env.storage().persistent().set(&post_key, &post);
+                Self::bump(env, &post_key);
+            }
+        }
     }
 
     /// Clean up all associated storage for a tombstoned post.
