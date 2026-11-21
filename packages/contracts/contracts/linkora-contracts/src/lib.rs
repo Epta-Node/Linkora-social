@@ -10,11 +10,13 @@ use soroban_sdk::{
 use soroban_sdk::testutils::storage::Persistent as _;
 
 mod validation;
+mod upgrade_hardening;
 
 use validation::{
     validate_address_list, validate_amount, validate_content, validate_gov_parameter,
     validate_non_default_address, validate_pool_admin_count, validate_protocol_fee,
-    validate_report_verdict, validate_signature, validate_u32_range, validate_username,
+    validate_quorum_floor, validate_report_verdict, validate_signature, validate_u32_range,
+    validate_username,
     MAX_FEE_BPS, MAX_GOV_TIME_LOCK_LEDGERS, MAX_POOL_ADMINS, MAX_QUORUM,
 };
 
@@ -130,6 +132,11 @@ const LEDGER_THRESHOLD: u32 = 535_000 - 100;
 // TIP_COOLDOWN_LEDGERS: default per-tipper per-post cooldown (~1 day at 5s/ledger).
 
 const TIP_COOLDOWN_LEDGERS: u32 = 17_280;
+
+/// Default timelock for the hardening upgrade ceremony (~1 day).
+const DEFAULT_UPGRADE_TIMELOCK_LEDGERS: u32 = 17_280;
+const MAX_UPGRADE_TIMELOCK_LEDGERS: u32 = MAX_GOV_TIME_LOCK_LEDGERS;
+const MAX_BLOCK_REASON_LEN: u32 = 280;
 
 // ── Pagination Limit ──────────────────────────────────────────────────────────
 
@@ -271,6 +278,8 @@ pub struct ContractState {
     pub version: u32,
     /// Last known implementation hash. Updated on each successful upgrade.
     pub implementation_wasm_hash: Option<BytesN<32>>,
+    /// Ledgers that must pass before a proposed upgrade can execute.
+    pub upgrade_timelock_ledgers: u32,
 }
 
 #[contracttype]
@@ -571,6 +580,7 @@ pub struct BlockEvent {
     pub blocker: Address,
     #[topic]
     pub blocked: Address,
+    pub reason: Option<String>,
 }
 
 #[contractevent]
@@ -1150,6 +1160,7 @@ impl LinkoraContract {
             &ContractState {
                 version: 1,
                 implementation_wasm_hash: None,
+                upgrade_timelock_ledgers: DEFAULT_UPGRADE_TIMELOCK_LEDGERS,
             },
         );
 
@@ -2153,11 +2164,23 @@ impl LinkoraContract {
 
     // ── Block List ────────────────────────────────────────────────────────────
 
-    pub fn block_user(env: Env, blocker: Address, blocked: Address) {
+    pub fn block_user(
+        env: Env,
+        blocker: Address,
+        blocked: Address,
+        reason: Option<String>,
+    ) {
         Self::bump_instance(&env);
         blocker.require_auth();
         validate_non_default_address(&env, "blocker", &blocker);
         validate_non_default_address(&env, "blocked", &blocked);
+        if let Some(reason) = &reason {
+            require_with_error!(
+                &env,
+                reason.len() <= MAX_BLOCK_REASON_LEN,
+                "block reason must be at most 280 characters"
+            );
+        }
         require_with_error!(
             &env,
             blocker != blocked,
@@ -2184,6 +2207,7 @@ impl LinkoraContract {
             version: EVENT_VERSION,
             blocker,
             blocked,
+            reason,
         }
         .publish(&env);
     }
@@ -3234,6 +3258,41 @@ impl LinkoraContract {
             .unwrap_or(1u32)
     }
 
+    /// Configure the upgrade proposal timelock. Admin only.
+    pub fn set_upgrade_timelock(env: Env, admin: Address, timelock_ledgers: u32) {
+        Self::bump_instance(&env);
+        admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
+        validate_u32_range(
+            &env,
+            "upgrade_timelock_ledgers",
+            timelock_ledgers,
+            1,
+            MAX_UPGRADE_TIMELOCK_LEDGERS,
+        );
+
+        let mut state: ContractState = env
+            .storage()
+            .instance()
+            .get(&CONTRACT_STATE)
+            .unwrap_or(ContractState {
+                version: 1,
+                implementation_wasm_hash: None,
+                upgrade_timelock_ledgers: DEFAULT_UPGRADE_TIMELOCK_LEDGERS,
+            });
+        state.upgrade_timelock_ledgers = timelock_ledgers;
+        env.storage().instance().set(&CONTRACT_STATE, &state);
+    }
+
+    pub fn get_upgrade_timelock(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get::<Symbol, ContractState>(&CONTRACT_STATE)
+            .map(|state| state.upgrade_timelock_ledgers)
+            .unwrap_or(DEFAULT_UPGRADE_TIMELOCK_LEDGERS)
+    }
+
     // ── Governance ────────────────────────────────────────────────────────────
 
     pub fn gov_init_config(
@@ -3264,7 +3323,7 @@ impl LinkoraContract {
             1,
             u32::MAX,
         );
-        require_with_error!(&env, quorum_floor <= quorum, "floor must be <= quorum");
+        validate_quorum_floor(&env, quorum_floor, quorum);
         validate_u32_range(
             &env,
             "quorum_decay_rate_bps",
