@@ -4031,10 +4031,20 @@ fn test_pool_threshold_updated_event() {
         &1,
     );
 
-    // Verify event was emitted
+    let expected = PoolThresholdUpdatedEvent {
+        version: EVENT_VERSION,
+        pool_id: pool_id.clone(),
+        old_threshold: 2,
+        new_threshold: 1,
+    };
+    let expected_xdr = expected.to_xdr(&env, &client.address);
     assert!(
-        !env.events().all().events().is_empty(),
-        "PoolThresholdUpdatedEvent should be emitted"
+        env.events()
+            .all()
+            .events()
+            .iter()
+            .any(|event| *event == expected_xdr),
+        "PoolThresholdUpdatedEvent should contain both threshold values"
     );
 
     // Verify threshold was updated

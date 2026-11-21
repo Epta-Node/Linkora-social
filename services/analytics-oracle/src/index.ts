@@ -221,6 +221,63 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
   }
 }
 
+async function submitManualAttestation(
+  creatorAddress: string,
+  windowStart: bigint,
+  windowEnd: bigint
+): Promise<string> {
+  const stats = await fetchCreatorStats(db, windowStart, windowEnd);
+  const creatorStats = stats.find((row) => row.creatorAddress === creatorAddress);
+  if (!creatorStats) {
+    throw Object.assign(new Error("Creator has no analytics in the requested window"), {
+      code: "CREATOR_NOT_FOUND",
+    });
+  }
+
+  const report: AnalyticsReport = {
+    version: 1,
+    creator: Keypair.fromPublicKey(creatorAddress).rawPublicKey(),
+    windowStart,
+    windowEnd,
+    totalTips: creatorStats.totalTips,
+    postCount: creatorStats.postCount,
+    followerDelta: creatorStats.followerDelta,
+    uniqueTippers: creatorStats.uniqueTippers,
+  };
+  const reportCbor = encodeReport(report);
+  const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+  const txHash = await submitAttestation(
+    rpcServer,
+    NETWORK_PASSPHRASE,
+    CONTRACT_ID,
+    ORACLE_NAME,
+    reportCbor,
+    signature,
+    oracleSigner.keypair(),
+    creatorAddress,
+    windowStart,
+    windowEnd
+  );
+
+  attestationCache.set(creatorAddress, {
+    oracleName: ORACLE_NAME,
+    signerKey: oracleSigner.fingerprint(),
+    keyVersion: oracleSigner.keyVersion,
+    rotationEpoch: oracleSigner.rotationEpoch,
+    reportCbor,
+    reportHash: reportHash.toString("hex"),
+    signature,
+    txHash,
+    report,
+    submittedAt: Date.now(),
+  });
+  logger.info(
+    { creatorAddress, windowStart: windowStart.toString(), windowEnd: windowEnd.toString(), txHash },
+    "Manual creator attestation submitted"
+  );
+  return txHash;
+}
+
 async function scheduleLoop(currentLedger: bigint): Promise<void> {
   const windowStart =
     lastWindowEnd === BigInt(0) ? currentLedger - WINDOW_LEDGERS : lastWindowEnd + BigInt(1);
@@ -276,6 +333,7 @@ async function scheduleLoop(currentLedger: bigint): Promise<void> {
 
 const app = express();
 app.use(helmet());
+app.use(express.json());
 app.set("trust proxy", 1); // trust first proxy
 const startTime = Date.now();
 
@@ -372,6 +430,7 @@ app.use(
     keystore,
     invalidateCache: (fingerprint) => attestationCache.setSignerId(fingerprint),
     isReady: () => started,
+    submitManualAttestation,
   })
 );
 
