@@ -111,7 +111,7 @@ The replay route is mounted when the API has a PostgreSQL pool. It returns `appl
 | POST | `/api/notifications/register` | JSON: `{ address, token, platform }`; platform is `ios`, `android`, or `web` | 204 No Content; **StellarSig required** |
 | POST | `/api/notifications/deregister` | JSON: `{ address, token }` | 204 No Content; **StellarSig required** |
 | GET | `/api/notifications/preferences` | — | Current preference object; **StellarSig required** |
-| PUT | `/api/notifications/preferences` | JSON preferences and optional subscription | Updated preference object; **StellarSig required** |
+| POST | `/api/notifications/preferences` | JSON: `{ preferences, subscription? }` | 200: `{ success: true }`; **StellarSig required** |
 | GET | `/api/notifications/inbox/{address}` | `limit`, `cursor` | `{ notifications, has_more, next_cursor }` (PostgreSQL configuration required) |
 | POST | `/api/notifications/inbox/read-all` | — | `{ read_through }`; **StellarSig required** |
 | POST | `/api/messages` | JSON: `{ recipientAddress, encryptedContent }` | 202: `{ status: "accepted", from, to }`; **StellarSig required** |
