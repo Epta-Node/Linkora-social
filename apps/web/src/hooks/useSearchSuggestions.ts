@@ -17,7 +17,7 @@ interface UseSearchSuggestionsOptions {
 const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "";
 
 export function useSearchSuggestions({
-  debounceMs = 300,
+  debounceMs = 200,
   minQueryLength = 2,
   maxSuggestions = 5,
   leadingEdge = true,

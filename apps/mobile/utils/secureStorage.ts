@@ -12,6 +12,7 @@ const StorageKey = {
   WalletAddress: "wallet_address",
   ConnectionState: "connection_state",
   NetworkSettings: "network_settings",
+  IndexerUrl: "indexer_url",
   InstalledMiniApps: "mini_apps_installed",
   MasterKey: "secure_master_key_v2",
   SecretIndex: "secure_secret_index_v2",
@@ -27,6 +28,7 @@ const StorageKey = {
  */
 const GENERIC_STORAGE_KEYS: ReadonlySet<string> = new Set<string>([
   StorageKey.NetworkSettings,
+  StorageKey.IndexerUrl,
   StorageKey.InstalledMiniApps,
 ]);
 
@@ -179,6 +181,18 @@ export async function getNetworkSettings<T>(): Promise<T | null> {
 
 export async function deleteNetworkSettings(): Promise<void> {
   return deleteItem(StorageKey.NetworkSettings);
+}
+
+export async function setCustomIndexerUrl(url: string): Promise<void> {
+  return setItem(StorageKey.IndexerUrl, url);
+}
+
+export async function getCustomIndexerUrl(): Promise<string | null> {
+  return getItem<string>(StorageKey.IndexerUrl);
+}
+
+export async function deleteCustomIndexerUrl(): Promise<void> {
+  return deleteItem(StorageKey.IndexerUrl);
 }
 
 export { StorageKey };
