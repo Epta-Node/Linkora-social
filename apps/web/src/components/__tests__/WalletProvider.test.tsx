@@ -57,8 +57,9 @@ function TestConsumer() {
 }
 
 function renderWithProvider() {
+  // No backoff here: retry behaviour has its own tests below.
   return render(
-    <WalletProvider>
+    <WalletProvider retryDelaysMs={[]}>
       <TestConsumer />
     </WalletProvider>
   );
@@ -197,5 +198,80 @@ describe('WalletProvider.connect()', () => {
     await waitFor(() => {
       expect(btn).toHaveAttribute('aria-busy', 'false');
     });
+  });
+});
+
+describe('WalletProvider connection retries', () => {
+  function RetryConsumer({ onError }: { onError: (e: unknown) => void }) {
+    const { connect, isRetrying, address } = useWallet();
+    return (
+      <div>
+        <button data-testid="connect-btn" onClick={() => connect().catch(onError)}>
+          Connect
+        </button>
+        {isRetrying && <span data-testid="retrying">Retrying connection...</span>}
+        {address && <span data-testid="address">{address}</span>}
+      </div>
+    );
+  }
+
+  it('retries while Freighter is not ready and connects once it is', async () => {
+    const getPublicKey = jest
+      .fn()
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('')
+      .mockResolvedValue('GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37');
+    mockFreighterModule({ getPublicKey });
+    const onError = jest.fn();
+    render(
+      <WalletProvider retryDelaysMs={[30, 30, 30]}>
+        <RetryConsumer onError={onError} />
+      </WalletProvider>
+    );
+
+    await act(async () => {
+      await userEvent.click(screen.getByTestId('connect-btn'));
+    });
+    expect(await screen.findByTestId('retrying')).toBeInTheDocument();
+    expect(await screen.findByTestId('address')).toBeInTheDocument();
+    expect(screen.queryByTestId('retrying')).not.toBeInTheDocument();
+    expect(getPublicKey).toHaveBeenCalledTimes(3);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('gives up after 3 retries with a ConnectError', async () => {
+    const getPublicKey = jest.fn().mockResolvedValue('');
+    mockFreighterModule({ getPublicKey });
+    const onError = jest.fn();
+    render(
+      <WalletProvider retryDelaysMs={[1, 1, 1]}>
+        <RetryConsumer onError={onError} />
+      </WalletProvider>
+    );
+
+    await act(async () => {
+      await userEvent.click(screen.getByTestId('connect-btn'));
+    });
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(ConnectError);
+    expect((onError.mock.calls[0][0] as ConnectError).reason).toBe('no-address');
+    expect(getPublicKey).toHaveBeenCalledTimes(4);
+  });
+
+  it('never retries a declined prompt', async () => {
+    const requestAccess = jest.fn().mockRejectedValue(new Error('User declined'));
+    mockFreighterModule({ requestAccess });
+    const onError = jest.fn();
+    render(
+      <WalletProvider retryDelaysMs={[1, 1, 1]}>
+        <RetryConsumer onError={onError} />
+      </WalletProvider>
+    );
+
+    await act(async () => {
+      await userEvent.click(screen.getByTestId('connect-btn'));
+    });
+    await waitFor(() => expect(onError).toHaveBeenCalled());
+    expect(requestAccess).toHaveBeenCalledTimes(1);
   });
 });
