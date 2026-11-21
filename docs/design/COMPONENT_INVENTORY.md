@@ -530,3 +530,217 @@ The reusable components documented above are implemented under `apps/web/src/com
 There is currently no Storybook deployment or checked-in component screenshot set referenced by this repository. Until one is published, use the source-linked component examples in each entry above as the implementation reference and the token/theme examples in this document for visual behavior. The design overview's Figma link is a placeholder, not a published design file. Do not invent Storybook URLs or imply that a screenshot exists.
 
 A future Storybook or screenshot contribution should include, at minimum, default and interactive states, disabled/error/loading states where applicable, and light/dark examples. Link the published visual artifact from this section and keep it synchronized with the prop/variant tables.
+
+
+---
+
+## Audited source inventory (current repository)
+
+> **Source-of-truth correction:** The earlier conceptual examples in this document predate the current component layout. The catalog below was checked against the current `apps/web/src/components/` and `apps/mobile/components/` directories. Use these paths and the TypeScript declarations in each source file as the authoritative public API. Components are not shared React source across platforms; where noted, web and mobile have separate native implementations of the same product concept.
+
+### Web components at the component root
+
+| Component | Source | Responsibility / usage | Props and variants |
+| --- | --- | --- | --- |
+| AnimatedList | [AnimatedList.tsx](../../apps/web/src/components/AnimatedList.tsx) | Animated list presentation | See exported props in source |
+| AppSidebar | [AppSidebar.tsx](../../apps/web/src/components/AppSidebar.tsx) | Main application sidebar | See exported props in source |
+| CharacterCounter | [CharacterCounter.tsx](../../apps/web/src/components/CharacterCounter.tsx) | Composer character count; `ok`, `warning`, `limit` states | `contentLength`, `maxLength` |
+| CommandPalette | [CommandPalette.tsx](../../apps/web/src/components/CommandPalette.tsx) | Keyboard-driven command/search overlay | See exported props in source |
+| ComposeModal | [ComposeModal.tsx](../../apps/web/src/components/ComposeModal.tsx) | Post composition and publish flow | Optional `submitFn` injection |
+| ConsentBanner | [ConsentBanner.tsx](../../apps/web/src/components/ConsentBanner.tsx) | Consent/privacy notice | See exported props in source |
+| CreatePost | [CreatePost.tsx](../../apps/web/src/components/CreatePost.tsx) | Post submission helper/component | See exported types in source |
+| EmptyFeedState | [EmptyFeedState.tsx](../../apps/web/src/components/EmptyFeedState.tsx) | Empty feed state | See exported props in source |
+| ErrorBoundary | [ErrorBoundary.tsx](../../apps/web/src/components/ErrorBoundary.tsx) | Error containment and retry fallback | `children`, `fallback?`, `onReset?`, `onContactSupport?` |
+| Feed | [Feed.tsx](../../apps/web/src/components/Feed.tsx) | Feed list with optimistic interactions | `posts`, `loading?`, `onLike?`, `onTip?`, `likedPosts?` |
+| FollowList | [FollowList.tsx](../../apps/web/src/components/FollowList.tsx) | Followers/following list | See exported props in source |
+| InfiniteScroll | [InfiniteScroll.tsx](../../apps/web/src/components/InfiniteScroll.tsx) | Incremental list loading | See exported props in source |
+| InstallPromptBanner | [InstallPromptBanner.tsx](../../apps/web/src/components/InstallPromptBanner.tsx) | PWA install prompt | See exported props in source |
+| KeyboardShortcutsModal | [KeyboardShortcutsModal.tsx](../../apps/web/src/components/KeyboardShortcutsModal.tsx) | Keyboard shortcut help dialog | See exported props in source |
+| NavBar | [NavBar.tsx](../../apps/web/src/components/NavBar.tsx) | Main navigation | See exported props in source |
+| NavComposeButton | [NavComposeButton.tsx](../../apps/web/src/components/NavComposeButton.tsx) | Navigation entry point for composing | See exported props in source |
+| NotificationBell | [NotificationBell.tsx](../../apps/web/src/components/NotificationBell.tsx) | Notification menu and unread state | `tipToastThresholdXlm?` (default 10) |
+| NotificationPreferences | [NotificationPreferences.tsx](../../apps/web/src/components/NotificationPreferences.tsx) | Notification preference controls | See exported props in source |
+| PoolCard | [PoolCard.tsx](../../apps/web/src/components/PoolCard.tsx) | Pool balance/admin threshold card | `poolId`, `token`, `balance`, `adminCount`, `threshold` |
+| PoolDepositForm | [PoolDepositForm.tsx](../../apps/web/src/components/PoolDepositForm.tsx) | Pool deposit workflow | See exported props in source |
+| PoolWithdrawForm | [PoolWithdrawForm.tsx](../../apps/web/src/components/PoolWithdrawForm.tsx) | Pool withdrawal workflow | See exported props in source |
+| PostCard | [PostCard.tsx](../../apps/web/src/components/PostCard.tsx) | Post content, reactions and actions | `post`, `query?`, `onLike?`, `onTip?`, `onDelete?`, `isLiked?`, `isTipping?`, `isDeleting?`, `disabled?`, `priority?`, `imageSizes?`, `baseUrl?` |
+| PostComposeModal | [PostComposeModal.tsx](../../apps/web/src/components/PostComposeModal.tsx) | Post composer modal variant | See exported props in source |
+| ProfileCard | [ProfileCard.tsx](../../apps/web/src/components/ProfileCard.tsx) | Profile summary and follow state | `profile` |
+| ReturnToTop | [ReturnToTop.tsx](../../apps/web/src/components/ReturnToTop.tsx) | Scroll-to-top affordance | See exported props in source |
+| RichTextComposer | [RichTextComposer.tsx](../../apps/web/src/components/RichTextComposer.tsx) | Rich-text post editor | See exported props in source |
+| SearchBar | [SearchBar.tsx](../../apps/web/src/components/SearchBar.tsx) | Search input, suggestions and recent searches | `onSearch`, `onQueryChange?`, `placeholder?`, `initialValue?`, `className?`, `inputClassName?`, `buttonLabel?`, `inputRef?` |
+| ServiceWorkerRegistration | [ServiceWorkerRegistration.tsx](../../apps/web/src/components/ServiceWorkerRegistration.tsx) | PWA service-worker lifecycle | See exported props in source |
+| ThemeBootstrap | [ThemeBootstrap.tsx](../../apps/web/src/components/ThemeBootstrap.tsx) | Initial theme application | See exported props in source |
+| ThemeToggle | [ThemeToggle.tsx](../../apps/web/src/components/ThemeToggle.tsx) | User theme selection | See exported props in source |
+| ThirdPartyScripts | [ThirdPartyScripts.tsx](../../apps/web/src/components/ThirdPartyScripts.tsx) | Opt-in third-party script loading | See exported props in source |
+| TipModal | [TipModal.tsx](../../apps/web/src/components/TipModal.tsx) | Three-step on-chain tip flow | `postId`, `authorName`, `onClose`; optional token/flow props are declared in source |
+| VerificationBadge | [VerificationBadge.tsx](../../apps/web/src/components/VerificationBadge.tsx) | On-chain verification indicator | `level`, `subject` and declared verification level |
+| WalletProvider | [WalletProvider.tsx](../../apps/web/src/components/WalletProvider.tsx) | Wallet context/provider | Provider and hook API in source |
+
+### Web component subdirectories
+
+| Directory | Components | Purpose |
+| --- | --- | --- |
+| `analytics/` | [AnalyticsCards.tsx](../../apps/web/src/components/analytics/AnalyticsCards.tsx) | Analytics summary cards |
+| `branding/` | [AnimatedLogo.tsx](../../apps/web/src/components/branding/AnimatedLogo.tsx), [Logo.tsx](../../apps/web/src/components/branding/Logo.tsx), [LogoIcon.tsx](../../apps/web/src/components/branding/LogoIcon.tsx) | Brand marks and animation |
+| `cards/` | [MasonryCard.tsx](../../apps/web/src/components/cards/MasonryCard.tsx), [MasonryGrid.tsx](../../apps/web/src/components/cards/MasonryGrid.tsx) | Masonry content layout |
+| `dashboard/` | [DashboardHeader.tsx](../../apps/web/src/components/dashboard/DashboardHeader.tsx), [DashboardPostGrid.tsx](../../apps/web/src/components/dashboard/DashboardPostGrid.tsx), [LeftSidebar.tsx](../../apps/web/src/components/dashboard/LeftSidebar.tsx), [RightSidebar.tsx](../../apps/web/src/components/dashboard/RightSidebar.tsx) | Dashboard composition |
+| `feed/` | [FeedContainer.tsx](../../apps/web/src/components/feed/FeedContainer.tsx), [OptimisticPostCard.tsx](../../apps/web/src/components/feed/OptimisticPostCard.tsx) | Feed orchestration and optimistic post state |
+| `forms/` | [AutoResizeTextarea.tsx](../../apps/web/src/components/forms/AutoResizeTextarea.tsx), [FieldError.tsx](../../apps/web/src/components/forms/FieldError.tsx), [PostForm.tsx](../../apps/web/src/components/forms/PostForm.tsx), [PostServerForm.tsx](../../apps/web/src/components/forms/PostServerForm.tsx), [ProfileForm.tsx](../../apps/web/src/components/forms/ProfileForm.tsx), [SubmitButton.tsx](../../apps/web/src/components/forms/SubmitButton.tsx), [TipForm.tsx](../../apps/web/src/components/forms/TipForm.tsx), [TipServerForm.tsx](../../apps/web/src/components/forms/TipServerForm.tsx) | Form fields, validation and submission |
+| `governance/` | [Countdown.tsx](../../apps/web/src/components/governance/Countdown.tsx), [ProposalCard.tsx](../../apps/web/src/components/governance/ProposalCard.tsx), [ProposalDescription.tsx](../../apps/web/src/components/governance/ProposalDescription.tsx), [RichTextEditor.tsx](../../apps/web/src/components/governance/RichTextEditor.tsx), [StatusBadge.tsx](../../apps/web/src/components/governance/StatusBadge.tsx), [VoteConfirmDialog.tsx](../../apps/web/src/components/governance/VoteConfirmDialog.tsx), [VotePanel.tsx](../../apps/web/src/components/governance/VotePanel.tsx) | Governance proposals and voting UI |
+| `layout/` | [Header.tsx](../../apps/web/src/components/layout/Header.tsx), [MobileNav.tsx](../../apps/web/src/components/layout/MobileNav.tsx), [Sidebar.tsx](../../apps/web/src/components/layout/Sidebar.tsx) | Responsive application layout |
+| `mobile/` | [BottomNav.tsx](../../apps/web/src/components/mobile/BottomNav.tsx), [MobileFeed.tsx](../../apps/web/src/components/mobile/MobileFeed.tsx), [MobileHeader.tsx](../../apps/web/src/components/mobile/MobileHeader.tsx) | Mobile web presentation |
+| `modals/` | [CreatePostModal.tsx](../../apps/web/src/components/modals/CreatePostModal.tsx), [ModalBackdrop.tsx](../../apps/web/src/components/modals/ModalBackdrop.tsx), [WalletModal.tsx](../../apps/web/src/components/modals/WalletModal.tsx) | Dialog and wallet overlays |
+| `onboarding/` | [FundWalletState.tsx](../../apps/web/src/components/onboarding/FundWalletState.tsx), [GuidedTour.tsx](../../apps/web/src/components/onboarding/GuidedTour.tsx), [NoProfileState.tsx](../../apps/web/src/components/onboarding/NoProfileState.tsx), [NotConnectedState.tsx](../../apps/web/src/components/onboarding/NotConnectedState.tsx), [NotInstalledState.tsx](../../apps/web/src/components/onboarding/NotInstalledState.tsx), [OnboardingFlow.tsx](../../apps/web/src/components/onboarding/OnboardingFlow.tsx), [OnboardingGuard.tsx](../../apps/web/src/components/onboarding/OnboardingGuard.tsx), [StepIndicator.tsx](../../apps/web/src/components/onboarding/StepIndicator.tsx) | Wallet/profile onboarding states and flow |
+| `onboarding/wizard/` | [ExploreStep.tsx](../../apps/web/src/components/onboarding/wizard/ExploreStep.tsx), [FollowStep.tsx](../../apps/web/src/components/onboarding/wizard/FollowStep.tsx), [NotificationStep.tsx](../../apps/web/src/components/onboarding/wizard/NotificationStep.tsx), [OnboardingWizard.tsx](../../apps/web/src/components/onboarding/wizard/OnboardingWizard.tsx), [ProfileStep.tsx](../../apps/web/src/components/onboarding/wizard/ProfileStep.tsx), [WelcomeStep.tsx](../../apps/web/src/components/onboarding/wizard/WelcomeStep.tsx), [index.tsx](../../apps/web/src/components/onboarding/wizard/index.tsx) | Multi-step onboarding wizard |
+| `pools/` | [AdminList.tsx](../../apps/web/src/components/pools/AdminList.tsx), [DepositTab.tsx](../../apps/web/src/components/pools/DepositTab.tsx), [PoolCard.tsx](../../apps/web/src/components/pools/PoolCard.tsx), [PoolEmptyState.tsx](../../apps/web/src/components/pools/PoolEmptyState.tsx), [PoolTxConfirmDialog.tsx](../../apps/web/src/components/pools/PoolTxConfirmDialog.tsx), [ThresholdBadge.tsx](../../apps/web/src/components/pools/ThresholdBadge.tsx), [TxStatusBanner.tsx](../../apps/web/src/components/pools/TxStatusBanner.tsx), [WithdrawTab.tsx](../../apps/web/src/components/pools/WithdrawTab.tsx) | Pool administration, deposits and withdrawals |
+| `post/` | [CharacterCounter.tsx](../../apps/web/src/components/post/CharacterCounter.tsx), [LinkPreview.tsx](../../apps/web/src/components/post/LinkPreview.tsx), [MediaUpload.tsx](../../apps/web/src/components/post/MediaUpload.tsx), [PostComposer.tsx](../../apps/web/src/components/post/PostComposer.tsx) | Post composition and media |
+| `profile/` | [CreatorTokenPanel.tsx](../../apps/web/src/components/profile/CreatorTokenPanel.tsx), [FollowDrawer.tsx](../../apps/web/src/components/profile/FollowDrawer.tsx), [FollowServerButton.tsx](../../apps/web/src/components/profile/FollowServerButton.tsx), [ProfileImageUploader.tsx](../../apps/web/src/components/profile/ProfileImageUploader.tsx) | Profile details and follow actions |
+| `settings/` | [BlockListSection.tsx](../../apps/web/src/components/settings/BlockListSection.tsx), [DangerZoneSection.tsx](../../apps/web/src/components/settings/DangerZoneSection.tsx), [DmKeySection.tsx](../../apps/web/src/components/settings/DmKeySection.tsx), [GovernanceSection.tsx](../../apps/web/src/components/settings/GovernanceSection.tsx), [KeyboardShortcutsSection.tsx](../../apps/web/src/components/settings/KeyboardShortcutsSection.tsx), [NotificationsSection.tsx](../../apps/web/src/components/settings/NotificationsSection.tsx), [OnboardingSettings.tsx](../../apps/web/src/components/settings/OnboardingSettings.tsx), [ProfileSection.tsx](../../apps/web/src/components/settings/ProfileSection.tsx), [ThemeSection.tsx](../../apps/web/src/components/settings/ThemeSection.tsx), [WalletSection.tsx](../../apps/web/src/components/settings/WalletSection.tsx) | Settings sections |
+| `skeletons/` | [ExploreGridSkeleton.tsx](../../apps/web/src/components/skeletons/ExploreGridSkeleton.tsx), [FeedSkeleton.tsx](../../apps/web/src/components/skeletons/FeedSkeleton.tsx), [NotificationItemSkeleton.tsx](../../apps/web/src/components/skeletons/NotificationItemSkeleton.tsx), [PoolCardSkeleton.tsx](../../apps/web/src/components/skeletons/PoolCardSkeleton.tsx), [PostCardSkeleton.tsx](../../apps/web/src/components/skeletons/PostCardSkeleton.tsx), [ProfileHeaderSkeleton.tsx](../../apps/web/src/components/skeletons/ProfileHeaderSkeleton.tsx), [Skeleton.tsx](../../apps/web/src/components/skeletons/Skeleton.tsx), [index.ts](../../apps/web/src/components/skeletons/index.ts) | Loading placeholders |
+| `ui/` | [ResponsiveImage.tsx](../../apps/web/src/components/ui/ResponsiveImage.tsx), [Toaster.tsx](../../apps/web/src/components/ui/Toaster.tsx) | Shared web UI primitives |
+
+### Mobile component inventory
+
+Mobile components live under `apps/mobile/components/` and use React Native rather than DOM elements.
+
+| Component | Source | Purpose |
+| --- | --- | --- |
+| AnalyticsCard | [AnalyticsCard.tsx](../../apps/mobile/components/AnalyticsCard.tsx) | Analytics summary |
+| EmptyState | [EmptyState.tsx](../../apps/mobile/components/EmptyState.tsx) | Empty content state |
+| FollowButton | [FollowButton.tsx](../../apps/mobile/components/FollowButton.tsx) | Follow/unfollow action |
+| MiniAppIcon | [MiniAppIcon.tsx](../../apps/mobile/components/MiniAppIcon.tsx) | Mini-app icon |
+| PoolCard | [PoolCard.tsx](../../apps/mobile/components/PoolCard.tsx) | Pool summary |
+| PoolDepositForm | [PoolDepositForm.tsx](../../apps/mobile/components/PoolDepositForm.tsx) | Pool deposit |
+| PoolRow | [PoolRow.tsx](../../apps/mobile/components/PoolRow.tsx) | Compact pool row |
+| PoolWithdrawForm | [PoolWithdrawForm.tsx](../../apps/mobile/components/PoolWithdrawForm.tsx) | Pool withdrawal |
+| PostCard | [PostCard.tsx](../../apps/mobile/components/PostCard.tsx) | Post display and interaction |
+| ProfileHeader | [ProfileHeader.tsx](../../apps/mobile/components/ProfileHeader.tsx) | Profile header |
+| ProfileRow | [ProfileRow.tsx](../../apps/mobile/components/ProfileRow.tsx) | Compact profile row |
+| SearchBar | [SearchBar.tsx](../../apps/mobile/components/SearchBar.tsx) | Native search input |
+| TipModal | [TipModal.tsx](../../apps/mobile/components/TipModal.tsx) | Native tip flow |
+| TxToast | [TxToast.tsx](../../apps/mobile/components/TxToast.tsx) | Transaction feedback |
+| UserListItem | [UserListItem.tsx](../../apps/mobile/components/UserListItem.tsx) | User list row |
+| WalletButton | [WalletButton.tsx](../../apps/mobile/components/WalletButton.tsx) | Wallet connect action |
+| PoolCardSkeleton | [skeletons/PoolCardSkeleton.tsx](../../apps/mobile/components/skeletons/PoolCardSkeleton.tsx) | Pool loading placeholder |
+| PoolRowSkeleton | [skeletons/PoolRowSkeleton.tsx](../../apps/mobile/components/skeletons/PoolRowSkeleton.tsx) | Pool-row loading placeholder |
+| PostCardSkeleton | [skeletons/PostCardSkeleton.tsx](../../apps/mobile/components/skeletons/PostCardSkeleton.tsx) | Post loading placeholder |
+| ProfileCardSkeleton | [skeletons/ProfileCardSkeleton.tsx](../../apps/mobile/components/skeletons/ProfileCardSkeleton.tsx) | Profile loading placeholder |
+| ProfileHeaderSkeleton | [skeletons/ProfileHeaderSkeleton.tsx](../../apps/mobile/components/skeletons/ProfileHeaderSkeleton.tsx) | Profile-header loading placeholder |
+| SkeletonBase | [skeletons/SkeletonBase.tsx](../../apps/mobile/components/skeletons/SkeletonBase.tsx) | Base skeleton primitive |
+| EmptyState | [states/EmptyState.tsx](../../apps/mobile/components/states/EmptyState.tsx) | Reusable empty state |
+| ErrorState | [states/ErrorState.tsx](../../apps/mobile/components/states/ErrorState.tsx) | Reusable error state |
+
+### Cross-platform counterparts (separate implementations)
+
+| Web component | Mobile counterpart | Shared source? | Notes |
+| --- | --- | --- | --- |
+| `PoolCard` / `pools/PoolCard` | `PoolCard` | No | Same domain concept; separate React and React Native props/layouts |
+| `PoolDepositForm` | `PoolDepositForm` | No | Separate form implementation |
+| `PoolWithdrawForm` | `PoolWithdrawForm` | No | Separate form implementation |
+| `PostCard` | `PostCard` | No | Similar role; web and mobile Post models/props differ |
+| `SearchBar` | `SearchBar` | No | Web search supports suggestions/recent searches; mobile uses controlled native text input |
+| `TipModal` | `TipModal` | No | Separate platform-specific transaction UI |
+| `AnalyticsCards` | `AnalyticsCard` | No | Similar analytics role, distinct component API |
+| `FollowServerButton` | `FollowButton` | No | Similar follow action, separate data/interaction layer |
+| `PoolCardSkeleton` / `skeletons/PoolCardSkeleton` | `skeletons/PoolCardSkeleton` | No | Equivalent loading state |
+| `skeletons/PostCardSkeleton` | `skeletons/PostCardSkeleton` | No | Equivalent loading state |
+| `skeletons/ProfileHeaderSkeleton` | `skeletons/ProfileHeaderSkeleton` | No | Equivalent loading state |
+| `EmptyFeedState` | `EmptyState` / `states/EmptyState` | No | Equivalent empty-state pattern |
+
+### Public props, variants and usage examples
+
+The following high-traffic components expose these public contracts. For components not listed in this compact table, follow the exported `*Props` interface (or component parameter type) in the linked TSX source; update this inventory whenever that type changes.
+
+**PostCard (web)**
+
+- Required: `post: Post`
+- Optional: `query`, `onLike`, `onTip`, `onDelete`, `isLiked`, `isTipping`, `isDeleting`, `tourAnchor`, `disabled`, `priority`, `imageSizes`, `baseUrl`, `data-testid`.
+- `Post` includes `id`, `author`, `content`, optional username, counts, timestamps, image URL, and verification metadata.
+
+```tsx
+<PostCard post={post} isLiked={liked} onLike={handleLike} onTip={handleTip} />
+```
+
+**ProfileCard (web)**
+
+- Required: `profile: Profile`; the profile includes `address` and optional username, follower count, follow state, and verification metadata.
+
+```tsx
+<ProfileCard profile={profile} />
+```
+
+**PoolCard (web)**
+
+- Required: `poolId`, `token`, `balance`, `adminCount`, `threshold`. Balance accepts `bigint | number | string`.
+
+```tsx
+<PoolCard poolId={pool.id} token={pool.token} balance={pool.balance}
+  adminCount={pool.admins.length} threshold={pool.threshold} />
+```
+
+**SearchBar (web)**
+
+- Required callback: `onSearch(query)`; optional `onQueryChange`, placeholder/initial value, CSS class names, button label and forwarded input ref.
+
+```tsx
+<SearchBar onSearch={setSearch} onQueryChange={setQuery} placeholder="Search Linkora" />
+```
+
+**TipModal (web)**
+
+- Required: `postId`, `authorName`, `onClose`. It exposes the amount → preview → confirmation flow; its fee and token selection behavior is described in the source comments.
+
+```tsx
+<TipModal postId={post.id} authorName={post.username} onClose={closeTip} />
+```
+
+**ComposeModal (web)**
+
+- Optional `submitFn` allows the submit action to be injected for tests or alternate callers; defaults to the production `submitPost` function.
+
+```tsx
+<ComposeModal />
+```
+
+**ResponsiveImage (web)**
+
+- Extends Next.js `ImageProps` except that `sizes` is required and `quality`, `placeholder`, `blurDataURL`, `loading`, and `priority` are controlled by the wrapper.
+- Additional props: `priority?` and `deferOnSaveData?`.
+
+```tsx
+<ResponsiveImage src={imageUrl} alt="Post attachment" width={640} height={420}
+  sizes="(min-width: 672px) 640px, 100vw" />
+```
+
+**Variants and states**
+
+| Component | Variants / states |
+| --- | --- |
+| CharacterCounter | `ok`, `warning`, `limit` (derived from remaining characters) |
+| ErrorBoundary | built-in fallback or custom `fallback`; reset via `onReset` |
+| Toaster | `success`, `error`, `info` toast variants |
+| TipModal | amount, preview, confirmation steps |
+| ResponsiveImage | normal, priority, save-data placeholder/deferred-load states |
+| Skeleton components | loading placeholders with Storybook examples listed below |
+
+### Storybook / visual references
+
+The repository contains Storybook story source files for the following skeleton components. These provide live-preview definitions for their loading states when opened in the configured Storybook environment:
+
+- [ExploreGridSkeleton.stories.tsx](../../apps/web/src/components/skeletons/ExploreGridSkeleton.stories.tsx)
+- [FeedSkeleton.stories.tsx](../../apps/web/src/components/skeletons/FeedSkeleton.stories.tsx)
+- [NotificationItemSkeleton.stories.tsx](../../apps/web/src/components/skeletons/NotificationItemSkeleton.stories.tsx)
+- [PoolCardSkeleton.stories.tsx](../../apps/web/src/components/skeletons/PoolCardSkeleton.stories.tsx)
+- [PostCardSkeleton.stories.tsx](../../apps/web/src/components/skeletons/PostCardSkeleton.stories.tsx)
+- [ProfileHeaderSkeleton.stories.tsx](../../apps/web/src/components/skeletons/ProfileHeaderSkeleton.stories.tsx)
+
+These are source links, not hosted Storybook URLs or screenshots. No published Storybook deployment or screenshot gallery is currently linked in the repository. The design overview's Figma entry is still a placeholder. Add hosted preview URLs or committed screenshots when those assets are published; do not invent URLs.
+
+### Inventory maintenance
+
+- Add every new reusable component to the appropriate directory table in this inventory.
+- Record its required and optional props, defaults, variants/states, accessibility behavior, and a minimal usage snippet.
+- Update the counterpart table when an equivalent component is added to or removed from `apps/mobile/components/`.
+- Keep web and mobile design tokens aligned; do not label separately implemented components as shared source.
+- Exclude tests, stories, and barrel files from the component count, but link Storybook stories as visual references.
