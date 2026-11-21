@@ -61,6 +61,7 @@ export type IdempotencyClaimResult =
 
 class Database {
   private pool: Pool;
+  private stopPoolMonitoring: () => void;
 
   constructor(connectionString: string) {
     // Tunable via env (issue #888); defaults match the pre-existing values.
@@ -73,11 +74,13 @@ class Database {
     // pool.on('error') is required: without it, an idle client that dies
     // (e.g. Postgres restarting underneath it) crashes the process instead
     // of being logged and discarded.
-    attachPoolMonitoring(this.pool, {
+    const monitoring = attachPoolMonitoring(this.pool, {
       logger,
       serviceName: "dm-relay",
-      statsIntervalMs: optionalInt("DB_POOL_STATS_INTERVAL_MS", 0),
+      statsIntervalMs: optionalInt("DB_POOL_STATS_INTERVAL_MS", 30_000),
+      maxConnections: optionalInt("DB_POOL_MAX", 20),
     });
+    this.stopPoolMonitoring = monitoring.stop;
   }
 
   /** Current pool utilisation (active, idle, waiting) — issue #888. */
@@ -495,6 +498,7 @@ class Database {
   }
 
   async close(): Promise<void> {
+    this.stopPoolMonitoring();
     await this.pool.end();
   }
 }

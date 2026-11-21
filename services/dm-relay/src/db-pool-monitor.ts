@@ -24,6 +24,7 @@ export interface PoolLike {
   totalCount: number;
   idleCount: number;
   waitingCount: number;
+  options?: { max?: number };
 }
 
 export interface PoolMetrics {
@@ -100,8 +101,10 @@ export interface AttachPoolMonitoringOptions {
   logger: PoolLogger;
   /** Included on every log line so multi-pool deployments can tell them apart. */
   serviceName: string;
-  /** Logs pool utilisation on this interval. 0 (default) disables it. */
+  /** Logs pool utilisation on this interval. Defaults to 30 seconds. */
   statsIntervalMs?: number;
+  /** Maximum pool size used to calculate utilization. Defaults to pool.options.max. */
+  maxConnections?: number;
 }
 
 /**
@@ -115,7 +118,8 @@ export function attachPoolMonitoring(
   pool: Pool,
   options: AttachPoolMonitoringOptions
 ): { stop: () => void } {
-  const { logger, serviceName, statsIntervalMs = 0 } = options;
+  const { logger, serviceName, statsIntervalMs = 30_000 } = options;
+  const maxConnections = options.maxConnections ?? pool.options?.max;
 
   pool.on("error", (err) => {
     logger.error(
@@ -138,7 +142,14 @@ export function attachPoolMonitoring(
   let timer: NodeJS.Timeout | undefined;
   if (statsIntervalMs > 0) {
     timer = setInterval(() => {
-      logger.info({ service: serviceName, ...getPoolMetrics(pool) }, "Postgres pool stats");
+      const metrics = getPoolMetrics(pool);
+      const activeCount = Math.max(0, metrics.totalCount - metrics.idleCount);
+      const utilization = maxConnections ? activeCount / maxConnections : undefined;
+      const context = { service: serviceName, ...metrics, activeCount, maxConnections, utilization };
+      if (utilization !== undefined && utilization > 0.8) {
+        logger.warn(context, "Postgres pool utilization exceeded 80%");
+      }
+      logger.info(context, "Postgres pool stats");
     }, statsIntervalMs);
     timer.unref();
   }

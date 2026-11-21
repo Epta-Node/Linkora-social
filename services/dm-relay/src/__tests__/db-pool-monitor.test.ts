@@ -10,6 +10,7 @@ class FakePool extends EventEmitter {
   totalCount = 5;
   idleCount = 3;
   waitingCount = 0;
+  options = { max: 5 };
   query = jest.fn().mockResolvedValue({ rows: [{ "?column?": 1 }] });
 }
 
@@ -83,10 +84,35 @@ describe("attachPoolMonitoring", () => {
     expect(logger.calls.info[1][1]).toMatch(/removed/);
   });
 
-  it("does not start a stats timer by default", () => {
+  it("logs pool stats every 30 seconds by default and alerts above 80% utilization", () => {
+    jest.useFakeTimers();
+    try {
+      const pool = new FakePool();
+      pool.totalCount = 5;
+      pool.idleCount = 0;
+      const logger = fakeLogger();
+      const { stop } = attachPoolMonitoring(pool as any, { logger, serviceName: "test-service" });
+
+      jest.advanceTimersByTime(30_000);
+      expect(logger.calls.info).toHaveLength(1);
+      expect(logger.calls.info[0][1]).toMatch(/pool stats/);
+      expect(logger.calls.warn).toHaveLength(1);
+      expect(logger.calls.warn[0][1]).toMatch(/exceeded 80%/);
+
+      stop();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it("can stop the stats timer", () => {
     const pool = new FakePool();
     const logger = fakeLogger();
-    const { stop } = attachPoolMonitoring(pool as any, { logger, serviceName: "test-service" });
+    const { stop } = attachPoolMonitoring(pool as any, {
+      logger,
+      serviceName: "test-service",
+      statsIntervalMs: 0,
+    });
     stop(); // must be safe to call even with no timer
     expect(logger.calls.info).toHaveLength(0);
   });
