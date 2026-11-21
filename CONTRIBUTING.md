@@ -546,3 +546,67 @@ Before opening a PR, ensure:
 - 💬 **Telegram Community**: [t.me/+13csp8G4ccRhY2Zk](https://t.me/+13csp8G4ccRhY2Zk)
 - 🐛 **GitHub Issues**: [Epta-Node/Linkora-social/issues](https://github.com/Epta-Node/Linkora-social/issues)
 - 🔒 **Security Disclosures**: Please see [`SECURITY.md`](./SECURITY.md) for private reporting.
+
+
+---
+
+## Soroban Smart Contract Development
+
+This section supplements the general Rust and test setup above with the conventions expected for changes under `packages/contracts/`.
+
+### Toolchain and local environment
+
+1. Install Rust with rustup and select the stable toolchain: `rustup toolchain install stable` and `rustup default stable`.
+2. Install both WebAssembly targets used by this workspace: `rustup target add wasm32-unknown-unknown wasm32v1-none`.
+3. Install the Stellar CLI: `cargo install --locked stellar-cli`.
+4. From the repository root, install JavaScript workspace dependencies with `pnpm install`; then build contract artifacts and SDK bindings with `pnpm build:contracts` and `pnpm codegen`.
+5. Check the workspace's `rust-toolchain.toml`, Cargo manifests, and CI workflow before changing toolchain versions. Do not silently upgrade the Soroban SDK or Rust version as part of an unrelated feature.
+
+### Build and test contracts
+
+Run the full contract crate suite before submitting a contract change:
+
+```bash
+cd packages/contracts
+cargo test
+cargo check --workspace
+cargo build --workspace --target wasm32v1-none --release
+```
+
+From the monorepo root, the equivalent workspace test entry point is:
+
+```bash
+pnpm --filter contracts test
+```
+
+Add unit tests beside the contract implementation (the existing crate uses `src/test.rs` and Soroban's `Env::default()` test utilities). Tests should cover successful calls, authorization failures, invalid inputs, boundary values, storage initialization, and state changes. Use `mock_all_auths()` only when the test is intentionally exercising logic independently of authorization; add separate tests that prove the correct signer is required.
+
+### Guidelines for new contract functions
+
+- Keep each public entry point small and explicit. Validate caller authorization and all user-controlled inputs before mutating persistent state.
+- Define and document the function's arguments, return value, authorization rules, emitted events, and failure conditions.
+- Use the Soroban SDK types and storage APIs already established in the target contract; avoid introducing custom serialization or ad-hoc storage keys without a compatibility reason.
+- Make arithmetic checked and explicit. Define token units and precision, avoid lossy integer conversions, and test overflow, underflow, zero, and maximum supported values.
+- Emit stable, structured events for state transitions. Include enough identifiers for the indexer to reconstruct the change, but never put secrets or private message contents in events.
+- Preserve existing contract interfaces and storage layouts unless the issue explicitly requires a migration. Explain any breaking change and update SDK bindings and API/event documentation in the same PR.
+- Treat all cross-contract calls and external values as untrusted. Check returned results and ensure a failed call cannot leave partially updated state.
+- Prefer deterministic behavior. Do not depend on wall-clock time, random values, or network state unless the contract design explicitly requires it and the dependency is testable.
+- Add a focused regression test for every reported bug and keep tests independent of live RPC endpoints.
+
+### Property-based and fuzz testing
+
+Use the existing `proptest` integration tests in `packages/contracts/contracts/linkora-contracts/tests/` as the model for invariant-driven testing. Start with the relevant target, then run the broader suite:
+
+```bash
+cd packages/contracts
+cargo test -p linkora-contracts --test fuzz_social_graph
+cargo test -p linkora-contracts --test invariant_social_graph
+cargo test -p linkora-contracts --test fuzz_pools
+cargo test -p linkora-contracts --test fuzz_rent
+cargo test -p linkora-contracts --test fuzz_tip
+cargo test -p linkora-contracts --test fuzz_credential
+cargo test -p linkora-contracts --test fuzz_governance
+cargo test -p linkora-contracts --test fuzz_oracle
+```
+
+For a new fuzz target, generate valid and invalid call sequences, assert protocol invariants after every operation, and keep a minimized regression case for every discovered failure. Document any required feature flags and seed controls in the test module. See [the contract fuzzing guide](./packages/contracts/contracts/linkora-contracts/tests/FUZZING.md) for corpus and shrinking conventions.
