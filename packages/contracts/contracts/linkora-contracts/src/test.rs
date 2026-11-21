@@ -1062,6 +1062,22 @@ fn test_blocked_user_cannot_follow_blocker_no_relationship_created() {
 }
 
 #[test]
+fn test_batch_follow_prevalidates_blocked_targets_before_writing_edges() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    let alice = Address::generate(&env);
+    let allowed = Address::generate(&env);
+    let blocked = Address::generate(&env);
+    client.block_user(&blocked, &alice);
+
+    let result = client.try_batch_follow(&alice, &vec![&env, allowed.clone(), blocked]);
+    assert!(result.is_err());
+    assert_eq!(client.get_following(&alice, &0, &10).len(), 0);
+    assert_eq!(client.get_followers(&allowed, &0, &10).len(), 0);
+}
+
+#[test]
 fn test_like_post() {
     let env = Env::default();
     env.mock_all_auths();
@@ -1214,6 +1230,38 @@ fn test_create_pool_emits_event() {
         !env.events().all().events().is_empty(),
         "PoolCreatedEvent should be emitted"
     );
+}
+
+#[test]
+fn test_create_pool_accepts_maximum_admin_count() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    let token = setup_token(&env, &admin);
+    let mut admins = Vec::new(&env);
+    for _ in 0..MAX_POOL_ADMINS {
+        admins.push_back(Address::generate(&env));
+    }
+
+    let pool_id = symbol_short!("maxadmin");
+    client.create_pool(&admin, &pool_id, &token, &admins, &1);
+    assert_eq!(client.get_pool(&pool_id).unwrap().admins.len(), MAX_POOL_ADMINS);
+}
+
+#[test]
+#[should_panic(expected = "initial_admins must contain at most 10 addresses")]
+fn test_create_pool_rejects_admin_count_above_maximum() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    let token = setup_token(&env, &admin);
+    let mut admins = Vec::new(&env);
+    for _ in 0..=MAX_POOL_ADMINS {
+        admins.push_back(Address::generate(&env));
+    }
+
+    let pool_id = symbol_short!("toomany");
+    client.create_pool(&admin, &pool_id, &token, &admins, &1);
 }
 
 #[test]
@@ -9065,7 +9113,7 @@ fn test_gov_propose_vote_window_zero() {
 }
 
 #[test]
-#[should_panic(expected = "new_value must be between 1 and")]
+#[should_panic(expected = "time_lock_ledgers must be between 1 and 120960")]
 fn test_gov_propose_time_lock_zero() {
     let env = Env::default();
     env.mock_all_auths();
@@ -9073,6 +9121,38 @@ fn test_gov_propose_time_lock_zero() {
 
     let proposer = Address::generate(&env);
     client.gov_propose(&proposer, &GovParameter::GovTimeLock, &0, &None);
+}
+
+#[test]
+fn test_gov_propose_accepts_seven_day_time_lock_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _) = setup_governance(&env);
+    let proposer = Address::generate(&env);
+
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::GovTimeLock,
+        &(MAX_GOV_TIME_LOCK_LEDGERS as u64),
+        &None,
+    );
+    assert_eq!(proposal_id, 1);
+}
+
+#[test]
+#[should_panic(expected = "time_lock_ledgers must be between 1 and 120960")]
+fn test_gov_propose_rejects_time_lock_over_seven_days() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _) = setup_governance(&env);
+    let proposer = Address::generate(&env);
+
+    client.gov_propose(
+        &proposer,
+        &GovParameter::GovTimeLock,
+        &((MAX_GOV_TIME_LOCK_LEDGERS as u64) + 1),
+        &None,
+    );
 }
 
 #[test]

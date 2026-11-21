@@ -12,6 +12,9 @@ pub const MAX_CONTENT_LEN: u32 = 280;
 pub const MAX_PROTOCOL_AMOUNT: i128 = 1_000_000_000_000_000_000_000_000_000_000_000_000;
 pub const MAX_FEE_BPS: u32 = 10_000;
 pub const MAX_QUORUM: u32 = 100;
+pub const MAX_POOL_ADMINS: u32 = 10;
+/// Seven days at the protocol's five-second ledger cadence.
+pub const MAX_GOV_TIME_LOCK_LEDGERS: u32 = 120_960;
 const ZERO_ACCOUNT_ADDRESS: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const ZERO_CONTRACT_ADDRESS: &str = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4";
 
@@ -73,6 +76,14 @@ pub fn validate_address_list(env: &Env, label: &str, addresses: &Vec<Address>) {
             format!("{label}[{idx}] must not be the zero address")
         );
     }
+}
+
+pub fn validate_pool_admin_count(env: &Env, admins: &Vec<Address>) {
+    require_with_error!(
+        env,
+        admins.len() <= MAX_POOL_ADMINS,
+        format!("initial_admins must contain at most {MAX_POOL_ADMINS} addresses")
+    );
 }
 
 /// Ensures no duplicate addresses appear in the list. Duplicate signers could
