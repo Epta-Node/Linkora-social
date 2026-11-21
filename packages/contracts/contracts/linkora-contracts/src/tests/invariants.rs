@@ -361,6 +361,49 @@ fn invariant_no_orphaned_authored_posts_after_profile_deletion() {
     assert!(client.get_post(&post_id2).is_none());
 }
 
+// ── Issue #1900: likes received are cleaned up on profile deletion ──────────
+
+#[test]
+fn invariant_no_orphaned_likes_after_profile_deletion() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_test_env(&env);
+
+    let author = Address::generate(&env);
+    setup_profile(&client, &author, "author");
+    let post_id1 = client.create_post(&author, &String::from_str(&env, "post 1"));
+    let post_id2 = client.create_post(&author, &String::from_str(&env, "post 2"));
+
+    let liker1 = Address::generate(&env);
+    let liker2 = Address::generate(&env);
+    setup_profile(&client, &liker1, "liker1");
+    setup_profile(&client, &liker2, "liker2");
+    client.like_post(&liker1, &post_id1);
+    client.like_post(&liker2, &post_id1);
+    client.like_post(&liker1, &post_id2);
+    assert_eq!(client.get_like_count(&post_id1), 2);
+    assert_eq!(client.get_like_count(&post_id2), 1);
+
+    client.delete_profile(&author);
+
+    // Invariant: likes received are removed immediately on profile deletion
+    assert!(!client.has_liked(&liker1, &post_id1));
+    assert!(!client.has_liked(&liker2, &post_id1));
+    assert!(!client.has_liked(&liker1, &post_id2));
+    // Invariant: like counts are decremented to zero
+    assert_eq!(client.get_like_count(&post_id1), 0);
+    assert_eq!(client.get_like_count(&post_id2), 0);
+
+    client.batch_cleanup_profile(&author, &100);
+
+    // Invariant: still no orphaned likes after lazy cleanup completes
+    assert!(!client.has_liked(&liker1, &post_id1));
+    assert!(!client.has_liked(&liker2, &post_id1));
+    assert!(!client.has_liked(&liker1, &post_id2));
+    assert_eq!(client.get_like_count(&post_id1), 0);
+    assert_eq!(client.get_like_count(&post_id2), 0);
+}
+
 // ── Issue #1249: pool existence invariant ───────────────────────────────────
 //
 // These invariants verify that get_pool and get_pool_admins always
