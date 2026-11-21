@@ -13,8 +13,9 @@ mod validation;
 
 use validation::{
     validate_address_list, validate_amount, validate_content, validate_gov_parameter,
-    validate_non_default_address, validate_protocol_fee, validate_report_verdict,
-    validate_signature, validate_u32_range, validate_username, MAX_FEE_BPS, MAX_QUORUM,
+    validate_non_default_address, validate_pool_admin_count, validate_protocol_fee,
+    validate_report_verdict, validate_signature, validate_u32_range, validate_username,
+    MAX_FEE_BPS, MAX_GOV_TIME_LOCK_LEDGERS, MAX_POOL_ADMINS, MAX_QUORUM,
 };
 
 // ── Storage Key Enum ──────────────────────────────────────────────────────────
@@ -139,6 +140,7 @@ const MAX_PAGINATION_LIMIT: u32 = 50;
 
 /// Maximum number of posts accepted by `batch_create_post` in one call.
 const MAX_BATCH_POST_SIZE: u32 = 10;
+const MAX_BATCH_FOLLOW_SIZE: u32 = 10;
 /// Maximum raw post IDs scanned by `get_recent_posts` in one call.
 const MAX_RECENT_SCAN: u32 = 500;
 const MAX_CREDENTIAL_PROOF_DEPTH: u32 = 20;
@@ -1810,6 +1812,75 @@ impl LinkoraContract {
         .publish(&env);
     }
 
+    /// Follow a bounded set of users after validating every relationship.
+    /// An invalid or blocked target fails before the first edge is written.
+    pub fn batch_follow(env: Env, follower: Address, followees: Vec<Address>) {
+        Self::bump_instance(&env);
+        follower.require_auth();
+        validate_non_default_address(&env, "follower", &follower);
+        validate_address_list(&env, "followees", &followees);
+        require_with_error!(
+            &env,
+            followees.len() <= MAX_BATCH_FOLLOW_SIZE,
+            "batch size must be at most 10"
+        );
+        Self::require_not_paused(&env, PauseModule::Social);
+
+        let registered: Map<Address, bool> = env
+            .storage()
+            .instance()
+            .get(&REGISTERED_USERS)
+            .unwrap_or_else(|| Map::new(&env));
+
+        for followee in followees.iter() {
+            validate_non_default_address(&env, "followee", &followee);
+            require_with_error!(
+                &env,
+                follower != followee,
+                "follower and followee must be different"
+            );
+            require_with_error!(
+                &env,
+                !Self::is_blocked(env.clone(), followee.clone(), follower.clone())
+                    && !Self::is_blocked(env.clone(), follower.clone(), followee.clone()),
+                "blocked"
+            );
+
+            // Match follow()'s graph-expiry guards during preflight so a later
+            // item cannot fail this check after earlier edges were written.
+            for user in [follower.clone(), followee.clone()] {
+                if registered.contains_key(user.clone()) {
+                    for key in [
+                        StorageKey::FollowingCount(user.clone()),
+                        StorageKey::FollowersCount(user.clone()),
+                    ] {
+                        require_with_error!(
+                            &env,
+                            env.storage().persistent().has(&key),
+                            "graph entry expired - pay rent"
+                        );
+                        #[cfg(test)]
+                        {
+                            let mut ttl = env.storage().persistent().get_ttl(&key);
+                            if ttl > 10_000_000 {
+                                ttl = 0;
+                            }
+                            require_with_error!(
+                                &env,
+                                ttl > LEDGER_THRESHOLD,
+                                "graph entry expired - pay rent"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        for followee in followees.iter() {
+            Self::follow(env.clone(), follower.clone(), followee);
+        }
+    }
+
     pub fn unfollow(env: Env, follower: Address, followee: Address) {
         Self::bump_instance(&env);
         follower.require_auth();
@@ -2779,6 +2850,7 @@ impl LinkoraContract {
         validate_non_default_address(&env, "admin", &admin);
         validate_non_default_address(&env, "token", &token);
         validate_address_list(&env, "initial_admins", &initial_admins);
+        validate_pool_admin_count(&env, &initial_admins);
         Self::require_role(&env, &admin, Role::Admin);
         let key = StorageKey::Pool(pool_id.clone());
         assert!(!env.storage().persistent().has(&key), "pool exists");
@@ -3167,7 +3239,13 @@ impl LinkoraContract {
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
         validate_u32_range(&env, "quorum", quorum, 1, MAX_QUORUM);
-        validate_u32_range(&env, "time_lock_ledgers", time_lock_ledgers, 1, u32::MAX);
+        validate_u32_range(
+            &env,
+            "time_lock_ledgers",
+            time_lock_ledgers,
+            1,
+            MAX_GOV_TIME_LOCK_LEDGERS,
+        );
         validate_u32_range(
             &env,
             "vote_window_ledgers",
@@ -3234,9 +3312,14 @@ impl LinkoraContract {
             GovParameter::GovQuorum => {
                 validate_u32_range(&env, "new_value", new_value_u32, 1, MAX_QUORUM)
             }
-            GovParameter::GovTimeLock
-            | GovParameter::GovVoteWindow
-            | GovParameter::TipCooldownWindow => {
+            GovParameter::GovTimeLock => validate_u32_range(
+                &env,
+                "time_lock_ledgers",
+                new_value_u32,
+                1,
+                MAX_GOV_TIME_LOCK_LEDGERS,
+            ),
+            GovParameter::GovVoteWindow | GovParameter::TipCooldownWindow => {
                 validate_u32_range(&env, "new_value", new_value_u32, 1, u32::MAX)
             }
             GovParameter::Treasury => {
@@ -3508,7 +3591,13 @@ impl LinkoraContract {
             }
             GovParameter::GovTimeLock => {
                 let val = proposal.new_value as u32;
-                validate_u32_range(&env, "time_lock_ledgers", val, 1, u32::MAX);
+                validate_u32_range(
+                    &env,
+                    "time_lock_ledgers",
+                    val,
+                    1,
+                    MAX_GOV_TIME_LOCK_LEDGERS,
+                );
                 let mut cfg = config.clone();
                 cfg.time_lock_ledgers = val;
                 env.storage().persistent().set(&StorageKey::GovConfig, &cfg);

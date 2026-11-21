@@ -191,7 +191,7 @@ The `RawEventsRetentionManager` (`src/retention.ts`) runs on a configurable
 1. Creates the next partition bucket (one bucket ahead of the current cursor),
    so new writes never fall into the default partition.
 2. Drops any partition whose **entire ledger range** is older than
-   `RAW_EVENTS_RETENTION_LEDGERS` **and** whose every row has been processed
+   `RAW_EVENTS_RETENTION_DAYS` **and** whose every row has been processed
    (`processed_at IS NOT NULL`). Partitions with unprocessed rows are logged
    as warnings and skipped.
 
@@ -199,7 +199,7 @@ Relevant environment variables (all optional):
 
 | Variable                       | Default     | Description                                        |
 | ------------------------------ | ----------- | -------------------------------------------------- |
-| `RAW_EVENTS_RETENTION_LEDGERS` | `4000000`   | Ledgers to keep (≈ 231 days at mainnet cadence).   |
+| `RAW_EVENTS_RETENTION_DAYS`    | `7`         | Days to keep (converted to 17,280 ledgers per day).|
 | `RAW_EVENTS_PARTITION_SIZE`    | `1000000`   | Ledger range per bucket. Must match migration 017. |
 | `RAW_EVENTS_ARCHIVE_ONLY`      | `false`     | Set `true` to detach but not drop old partitions.  |
 | `RAW_EVENTS_RETENTION_CRON`    | `5 * * * *` | cron schedule for the retention job.               |

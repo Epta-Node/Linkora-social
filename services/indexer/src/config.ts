@@ -28,8 +28,7 @@
  *
  * Retention settings (raw_events partition management)
  * ──────────────────────────────────────────────────────
- * RAW_EVENTS_RETENTION_LEDGERS — Number of ledgers to keep before dropping old
- *                                partitions (default 4 000 000 ≈ 231 days).
+ * RAW_EVENTS_RETENTION_DAYS    — Days of raw events to retain (default 7).
  * RAW_EVENTS_PARTITION_SIZE    — Ledger range per partition bucket
  *                                (default 1 000 000).  Must match the value
  *                                used in migration 017.
@@ -70,6 +69,8 @@
 import os from "os";
 import { resolveRateLimitEnv } from "@linkora/types/src/rate-limit-env";
 import { logger } from "./logger";
+
+const LEDGERS_PER_DAY = 17_280; // 24 hours at 5 seconds per ledger
 
 export const DB_POOL_MAX_MIN = 2;
 export const DB_POOL_MAX_MAX = 20;
@@ -311,7 +312,7 @@ export function loadConfig(): IndexerConfig {
     },
 
     rawEventsRetention: {
-      retentionLedgers: optionalInt("RAW_EVENTS_RETENTION_LEDGERS", 4_000_000),
+      retentionLedgers: optionalInt("RAW_EVENTS_RETENTION_DAYS", 7) * LEDGERS_PER_DAY,
       partitionSize: optionalInt("RAW_EVENTS_PARTITION_SIZE", 1_000_000),
       archiveOnly: process.env.RAW_EVENTS_ARCHIVE_ONLY === "true",
       cronSchedule: process.env.RAW_EVENTS_RETENTION_CRON ?? "5 * * * *",
