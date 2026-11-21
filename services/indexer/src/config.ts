@@ -67,7 +67,52 @@
  *                               when not set. Omit both to run without caching.
  */
 
+import os from "os";
 import { resolveRateLimitEnv } from "@linkora/types/src/rate-limit-env";
+import { logger } from "./logger";
+
+export const DB_POOL_MAX_MIN = 2;
+export const DB_POOL_MAX_MAX = 20;
+
+export interface PoolConfigLogger {
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+}
+
+export function validateDbPoolConfig(
+  dbPool: DbPoolConfig,
+  options?: { cpuCount?: number; log?: PoolConfigLogger }
+): void {
+  if (
+    !Number.isInteger(dbPool.max) ||
+    dbPool.max < DB_POOL_MAX_MIN ||
+    dbPool.max > DB_POOL_MAX_MAX
+  ) {
+    throw new Error(
+      `DB_POOL_MAX must be an integer between ${DB_POOL_MAX_MIN} and ${DB_POOL_MAX_MAX}, got: ${dbPool.max}`
+    );
+  }
+
+  const cpuCount = options?.cpuCount ?? Math.max(1, os.cpus().length);
+  const log = options?.log ?? logger;
+
+  if (dbPool.max > cpuCount) {
+    log.warn(
+      { dbPoolMax: dbPool.max, cpuCount },
+      "DB_POOL_MAX exceeds available CPU core count; consider lowering pool size"
+    );
+  }
+
+  log.info(
+    {
+      max: dbPool.max,
+      idleTimeoutMs: dbPool.idleTimeoutMs,
+      connectionTimeoutMs: dbPool.connectionTimeoutMs,
+      cpuCount,
+    },
+    "Effective database connection pool configuration"
+  );
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -292,6 +337,8 @@ export function loadConfig(): IndexerConfig {
       `START_LEDGER must be a non-negative integer, got: ${process.env.START_LEDGER}`
     );
   }
+
+  validateDbPoolConfig(raw.dbPool);
 
   return raw;
 }

@@ -141,7 +141,17 @@ function RootNavigator() {
         <Stack.Screen name="connect" options={{ title: "Connect Wallet" }} />
         <Stack.Screen name="wallet/scan" options={{ title: "Scan WalletConnect QR" }} />
         <Stack.Screen name="wallet/qr" options={{ title: "WalletConnect QR" }} />
-        <Stack.Screen name="post/[id]" options={{ title: "Post" }} />
+        <Stack.Screen
+          name="post/[id]"
+          options={{
+            title: "Post",
+            gestureEnabled: true,
+            gestureDirection: "horizontal",
+            fullScreenGestureEnabled: false,
+            animation: "slide_from_right",
+            animationDuration: 250,
+          }}
+        />
         <Stack.Screen name="mini-app/[id]" options={{ title: "Mini App" }} />
         <Stack.Screen name="mini-app/create-post" options={{ title: "Create Post" }} />
         <Stack.Screen name="profile/[address]" options={{ title: "Profile" }} />
