@@ -1,6 +1,6 @@
 # Design System Component Inventory
 
-> Status: living document. Update this file whenever a component is added, removed, or its public API changes.
+ > Status: living document. The audited source inventory near the end of this file is authoritative for the current repository tree. Earlier conceptual examples are retained for historical context; when a path conflicts with the audited catalog, use the audited catalog and source file. Update this file whenever a component is added, removed, or its public API changes.
 
 This document is the single source of truth for the reusable components shipped in
 `apps/web/src/components/. It covers props, variants, accessibility requirements,
