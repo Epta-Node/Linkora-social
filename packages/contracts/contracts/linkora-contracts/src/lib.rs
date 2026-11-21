@@ -114,6 +114,7 @@ const PAUSED: Symbol = symbol_short!("PAUSED");
 const PAUSE_MASK: Symbol = symbol_short!("P_MASK");
 const APPEAL_CONFIG: Symbol = symbol_short!("APL_CFG");
 const GOV_APPEAL_COUNT: Symbol = symbol_short!("APL_CT");
+const REPORT_EXPIRY: Symbol = symbol_short!("RPT_EXP");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -151,6 +152,8 @@ const MAX_SUGGEST_SCAN: u32 = 200;
 
 /// Ledgers an author has to appeal a moderation decision (~2 days at 5s/ledger).
 const APPEAL_WINDOW_LEDGERS: u32 = 34_560;
+/// Default moderation report lifetime (~2 days at 5 seconds per ledger).
+const DEFAULT_REPORT_EXPIRY_LEDGERS: u32 = 34_560;
 
 /// How long governance token holders can vote on an appeal filed with
 /// `appeal_removal`: 7 days, measured with the ledger timestamp.
@@ -1007,6 +1010,7 @@ pub struct ReportDismissedEvent {
     pub post_id: u64,
     #[topic]
     pub reporter: Address,
+    pub reason: Symbol,
 }
 
 #[contractevent]
@@ -1145,6 +1149,9 @@ impl LinkoraContract {
             .instance()
             .set(&TIP_COOLDOWN_WINDOW, &TIP_COOLDOWN_LEDGERS);
         env.storage().instance().set(&MODERATION_SLASH_BPS, &0u32);
+        env.storage()
+            .instance()
+            .set(&REPORT_EXPIRY, &DEFAULT_REPORT_EXPIRY_LEDGERS);
         env.storage().instance().set(
             &CONTRACT_STATE,
             &ContractState {
@@ -3947,6 +3954,72 @@ impl LinkoraContract {
         .publish(&env);
     }
 
+    /// Configure how long a pending moderation report may remain unresolved.
+    /// Expired reports can be dismissed by anyone with `dismiss_expired_report`.
+    pub fn set_report_expiry_ledgers(env: Env, admin: Address, expiry_ledgers: u32) {
+        Self::bump_instance(&env);
+        admin.require_auth();
+        Self::require_role(&env, &admin, Role::Admin);
+        require_with_error!(&env, expiry_ledgers > 0, "report expiry must be positive");
+        env.storage()
+            .instance()
+            .set(&REPORT_EXPIRY, &expiry_ledgers);
+    }
+
+    pub fn get_report_expiry_ledgers(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&REPORT_EXPIRY)
+            .unwrap_or(DEFAULT_REPORT_EXPIRY_LEDGERS)
+    }
+
+    /// Dismiss a pending report after its configured expiry and send its stake
+    /// to the treasury. This is permissionless so stale reports can be cleaned
+    /// up without relying on the original reporter or a moderator.
+    pub fn dismiss_expired_report(env: Env, post_id: u64, reporter: Address) {
+        Self::bump_instance(&env);
+        validate_non_default_address(&env, "reporter", &reporter);
+        require_with_error!(&env, post_id > 0, "post id must be positive");
+
+        let report_key = StorageKey::Report(post_id, reporter);
+        let mut report: Report = env
+            .storage()
+            .persistent()
+            .get(&report_key)
+            .expect("report not found");
+        assert!(
+            report.status == ReportStatus::Pending,
+            "report already resolved"
+        );
+        let expiry = report
+            .created_ledger
+            .saturating_add(Self::get_report_expiry_ledgers(env.clone()));
+        assert!(env.ledger().sequence() >= expiry, "report has not expired");
+
+        let treasury: Address = env
+            .storage()
+            .instance()
+            .get(&TREASURY)
+            .expect("treasury not set");
+        token::Client::new(&env, &report.token).transfer(
+            &env.current_contract_address(),
+            &treasury,
+            &report.stake_amount,
+        );
+
+        report.status = ReportStatus::Dismissed;
+        env.storage().persistent().set(&report_key, &report);
+        Self::bump(&env, &report_key);
+        Self::adjust_reporter_reputation(&env, &report, -1);
+        ReportDismissedEvent {
+            version: EVENT_VERSION,
+            post_id,
+            reporter: report.reporter,
+            reason: symbol_short!("expired"),
+        }
+        .publish(&env);
+    }
+
     pub fn get_rent_expiry(env: Env, user: Address) -> u32 {
         validate_non_default_address(&env, "user", &user);
         #[cfg(test)]
@@ -4279,6 +4352,7 @@ impl LinkoraContract {
                     version: EVENT_VERSION,
                     post_id,
                     reporter: report.reporter.clone(),
+                    reason: symbol_short!("reviewed"),
                 }
                 .publish(&env);
             }
@@ -4290,16 +4364,12 @@ impl LinkoraContract {
         report.status = verdict;
         env.storage().persistent().set(&report_key, &report);
         Self::bump(&env, &report_key);
-        let reputation_key = StorageKey::ReporterReputation(report.reporter.clone());
-        let current: i32 = env.storage().persistent().get(&reputation_key).unwrap_or(0);
-        let next = match report.status {
-            ReportStatus::Upheld => current.saturating_add(1),
-            ReportStatus::Dismissed => current.saturating_sub(1),
-            ReportStatus::Pending => current,
-        }
-        .clamp(-100, 100);
-        env.storage().persistent().set(&reputation_key, &next);
-        Self::bump(&env, &reputation_key);
+        let reputation_delta = match report.status {
+            ReportStatus::Upheld => 1,
+            ReportStatus::Dismissed => -1,
+            ReportStatus::Pending => 0,
+        };
+        Self::adjust_reporter_reputation(&env, &report, reputation_delta);
     }
 
     pub fn get_reporter_reputation(env: Env, reporter: Address) -> i32 {
@@ -4308,6 +4378,17 @@ impl LinkoraContract {
             .persistent()
             .get(&StorageKey::ReporterReputation(reporter))
             .unwrap_or(0)
+    }
+
+    fn adjust_reporter_reputation(env: &Env, report: &Report, delta: i32) {
+        if delta == 0 {
+            return;
+        }
+        let reputation_key = StorageKey::ReporterReputation(report.reporter.clone());
+        let current: i32 = env.storage().persistent().get(&reputation_key).unwrap_or(0);
+        let next = current.saturating_add(delta).clamp(-100, 100);
+        env.storage().persistent().set(&reputation_key, &next);
+        Self::bump(env, &reputation_key);
     }
 
     /// File an appeal against a moderation decision. Only the removed post's

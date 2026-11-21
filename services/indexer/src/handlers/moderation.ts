@@ -17,6 +17,7 @@ export interface ReportDismissedEvent {
   reporter_address: string;
   moderator_address: string;
   moderator_notes?: string;
+  reason?: string;
 }
 
 export interface PostRemovedByModerationEvent {
@@ -71,7 +72,7 @@ export async function handleReportDismissed(
   event: ReportDismissedEvent,
   _context: ModerationEventContext
 ): Promise<void> {
-  const { post_id, reporter_address, moderator_address, moderator_notes } = event;
+  const { post_id, reporter_address, moderator_address, moderator_notes, reason } = event;
 
   try {
     await db.updateReportStatus(
@@ -83,7 +84,7 @@ export async function handleReportDismissed(
     );
 
     logger.info(
-      { postId: post_id.toString(), reporterAddress: reporter_address, moderatorAddress: moderator_address },
+      { postId: post_id.toString(), reporterAddress: reporter_address, moderatorAddress: moderator_address, reason },
       "Report dismissed"
     );
   } catch (error) {

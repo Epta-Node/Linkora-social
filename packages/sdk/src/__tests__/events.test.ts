@@ -399,7 +399,7 @@ describe("parseContractEvent", () => {
       ],
       ["PostReportedEvent", { post_id: 1, reporter: "GA", stake_amount: "5" }],
       ["PostRemovedByModerationEvent", { post_id: 1, reporter: "GA" }],
-      ["ReportDismissedEvent", { post_id: 1, reporter: "GA" }],
+      ["ReportDismissedEvent", { post_id: 1, reporter: "GA", reason: "reviewed" }],
     ];
 
     for (const [name, data] of fixtures) {
