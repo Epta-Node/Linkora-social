@@ -205,11 +205,7 @@ pub fn validate_u32_range(env: &Env, label: &str, value: u32, min: u32, max: u32
 }
 
 pub fn validate_quorum_floor(env: &Env, floor: u32, initial_quorum: u32) {
-    require_with_error!(
-        env,
-        floor >= 1,
-        "quorum decay floor must be at least 1"
-    );
+    require_with_error!(env, floor >= 1, "quorum decay floor must be at least 1");
     require_with_error!(
         env,
         floor <= initial_quorum,

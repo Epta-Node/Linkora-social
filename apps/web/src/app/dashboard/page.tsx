@@ -24,10 +24,7 @@ export default function DashboardPage() {
       }}
     >
       {/* 1. Left Sidebar Column (240px / drawer below 768px) */}
-      <LeftSidebar
-        mobileOpen={mobileNavOpen}
-        onCloseMobile={() => setMobileNavOpen(false)}
-      />
+      <LeftSidebar mobileOpen={mobileNavOpen} onCloseMobile={() => setMobileNavOpen(false)} />
 
       {/* 2. Main Content Area Column (Background #0F172A) */}
       <main

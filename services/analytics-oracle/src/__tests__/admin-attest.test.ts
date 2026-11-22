@@ -30,7 +30,9 @@ function post(
       (res) => {
         let raw = "";
         res.on("data", (chunk: Buffer) => (raw += chunk.toString()));
-        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: JSON.parse(raw || "{}") }));
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body: JSON.parse(raw || "{}") })
+        );
       }
     );
     req.on("error", reject);
@@ -39,7 +41,11 @@ function post(
 }
 
 function startServer(
-  submitManualAttestation: (creator: string, windowStart: bigint, windowEnd: bigint) => Promise<string>
+  submitManualAttestation: (
+    creator: string,
+    windowStart: bigint,
+    windowEnd: bigint
+  ) => Promise<string>
 ) {
   const app = express();
   app.use(express.json());

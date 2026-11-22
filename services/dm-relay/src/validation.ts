@@ -49,8 +49,6 @@ export function getSendMessageSchema(maxBytes?: number): z.ZodObject<any> {
   return _sendMessageSchema;
 }
 
-
-
 /**
  * @deprecated Use `getSendMessageSchema()` instead. Kept only so that
  * existing test imports don't break.

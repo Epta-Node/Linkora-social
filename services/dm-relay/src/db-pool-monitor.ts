@@ -145,7 +145,13 @@ export function attachPoolMonitoring(
       const metrics = getPoolMetrics(pool);
       const activeCount = Math.max(0, metrics.totalCount - metrics.idleCount);
       const utilization = maxConnections ? activeCount / maxConnections : undefined;
-      const context = { service: serviceName, ...metrics, activeCount, maxConnections, utilization };
+      const context = {
+        service: serviceName,
+        ...metrics,
+        activeCount,
+        maxConnections,
+        utilization,
+      };
       if (utilization !== undefined && utilization > 0.8) {
         logger.warn(context, "Postgres pool utilization exceeded 80%");
       }

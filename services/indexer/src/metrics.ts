@@ -202,7 +202,9 @@ export function metricsText(overrides?: MetricsSnapshotOverrides): string {
 
   for (const [eventType, stats] of processingLagMs.entries()) {
     const avgLag = stats.count > 0 ? stats.total / stats.count : 0;
-    lines.push(`# HELP processing_lag_ms_${eventType} Average processing lag for ${eventType} events\n`);
+    lines.push(
+      `# HELP processing_lag_ms_${eventType} Average processing lag for ${eventType} events\n`
+    );
     lines.push(`# TYPE processing_lag_ms_${eventType} gauge\n`);
     lines.push(`processing_lag_ms_${eventType} ${avgLag}\n`);
   }

@@ -5,6 +5,7 @@ import {
   FeedSkeleton,
   ProfileHeaderSkeleton,
   PoolCardSkeleton,
+  PoolDetailSkeleton,
   ExploreGridSkeleton,
   NotificationItemSkeleton,
 } from "@/components/skeletons";
@@ -51,6 +52,41 @@ describe("skeleton variants", () => {
   it("renders a PoolCardSkeleton", () => {
     const { getByTestId } = render(<PoolCardSkeleton />);
     expect(getByTestId("pool-card-skeleton")).toBeInTheDocument();
+  });
+
+  it("renders a PoolDetailSkeleton with independent shimmer blocks (#1852)", () => {
+    const { getByTestId, getAllByTestId } = render(<PoolDetailSkeleton />);
+
+    const root = getByTestId("pool-detail-skeleton");
+    expect(root).toHaveAttribute("aria-busy", "true");
+    expect(root).toHaveAttribute("aria-label", "Loading pool details");
+
+    const blocks = [
+      "pool-skeleton-balance",
+      "pool-skeleton-threshold",
+      "pool-skeleton-admins",
+      "pool-skeleton-tabs",
+    ].map((id) => getByTestId(id));
+    blocks.forEach((block) => expect(block.querySelector(".skeleton")).not.toBeNull());
+
+    // Each section shimmers on its own phase rather than as one slab.
+    const delays = blocks.map(
+      (block) => (block.querySelector(".skeleton") as HTMLElement).style.animationDelay
+    );
+    expect(new Set(delays).size).toBe(blocks.length);
+
+    expect(getAllByTestId("pool-skeleton-admin-row")).toHaveLength(3);
+  });
+
+  it("mirrors the pool detail dashboard layout", () => {
+    const { container } = render(<PoolDetailSkeleton />);
+    const dashboard = container.querySelector('[data-layout="pool-dashboard"]') as HTMLElement;
+
+    expect(dashboard).not.toBeNull();
+    expect(dashboard.style.gridTemplateColumns).toBe("340px 1fr");
+    // Two tabs: deposit and withdraw.
+    const tabs = container.querySelector('[data-testid="pool-skeleton-tabs"]') as HTMLElement;
+    expect((tabs.firstElementChild as HTMLElement).children).toHaveLength(2);
   });
 
   it("renders an ExploreGridSkeleton with the requested count", () => {

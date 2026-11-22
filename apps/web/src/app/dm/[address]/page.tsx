@@ -124,11 +124,11 @@ export default function DirectMessagePage() {
   useEffect(() => {
     if (keysReady && myAddress) {
       connectRelayWs(myAddress);
-      
+
       const unsubscribe = onRelayMessage((payload: any) => {
-        if (payload.type === 'new_message' && payload.sender === recipientAddress) {
+        if (payload.type === "new_message" && payload.sender === recipientAddress) {
           loadMessages();
-        } else if (payload.type === 'typing_status' && payload.sender === recipientAddress) {
+        } else if (payload.type === "typing_status" && payload.sender === recipientAddress) {
           setIsTyping(true);
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => {
@@ -301,7 +301,10 @@ export default function DirectMessagePage() {
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 text-sm text-red-400" role="alert">
+            <div
+              className="mb-4 rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 text-sm text-red-400"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -365,7 +368,10 @@ export default function DirectMessagePage() {
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="flex shrink-0 items-center justify-between border-b border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-400" role="alert">
+        <div
+          className="flex shrink-0 items-center justify-between border-b border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-400"
+          role="alert"
+        >
           <span>{error}</span>
           <button
             onClick={() => setError(null)}
@@ -449,7 +455,13 @@ export default function DirectMessagePage() {
       </div>
 
       {/* Screen reader announcement for newly received messages */}
-      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="dm-announcer">
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="dm-announcer"
+      >
         {announcement}
       </div>
 
@@ -471,7 +483,9 @@ export default function DirectMessagePage() {
           {/* aria-disabled (not disabled) keeps the button focusable for keyboard users */}
           <button
             type="submit"
-            aria-disabled={!newMessage.trim() || sending || !keysReady || recipientHasKeys === false}
+            aria-disabled={
+              !newMessage.trim() || sending || !keysReady || recipientHasKeys === false
+            }
             aria-label="Send message"
             className="shrink-0 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
           >
@@ -485,4 +499,3 @@ export default function DirectMessagePage() {
     </div>
   );
 }
-

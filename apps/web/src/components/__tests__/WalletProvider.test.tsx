@@ -11,10 +11,10 @@
  *  - connect() never returns without either persisting an address or throwing
  */
 
-import React from 'react';
-import { render, screen, act, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
-import { WalletProvider, ConnectError, useWallet } from '../WalletProvider';
+import React from "react";
+import { render, screen, act, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { WalletProvider, ConnectError, useWallet } from "../WalletProvider";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,7 +30,7 @@ function TestConsumer() {
     try {
       await connect();
     } catch (err) {
-      if (err instanceof ConnectError && err.reason === 'declined') {
+      if (err instanceof ConnectError && err.reason === "declined") {
         setDeclinedVisible(true);
       } else {
         setBannerVisible(true);
@@ -46,7 +46,7 @@ function TestConsumer() {
         data-testid="connect-btn"
         aria-busy={isConnecting}
       >
-        {isConnecting ? 'Connecting…' : 'Connect'}
+        {isConnecting ? "Connecting…" : "Connect"}
       </button>
       {address && <span data-testid="address">{address}</span>}
       {error && <span data-testid="error">{error}</span>}
@@ -85,10 +85,12 @@ type FreighterMock = {
 
 /** Replace jest.mock with a per-test dynamic import override via module factory. */
 function mockFreighterModule(overrides: FreighterMock) {
-  jest.doMock('@stellar/freighter-api', () => ({
+  jest.doMock("@stellar/freighter-api", () => ({
     requestAccess: jest.fn().mockResolvedValue(undefined),
-    getPublicKey: jest.fn().mockResolvedValue('GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'),
-    getNetwork: jest.fn().mockResolvedValue('TESTNET'),
+    getPublicKey: jest
+      .fn()
+      .mockResolvedValue("GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+    getNetwork: jest.fn().mockResolvedValue("TESTNET"),
     isConnected: jest.fn().mockResolvedValue(false),
     ...overrides,
   }));
@@ -103,68 +105,68 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('WalletProvider.connect()', () => {
-  it('persists address and clears error on success', async () => {
+describe("WalletProvider.connect()", () => {
+  it("persists address and clears error on success", async () => {
     mockFreighterModule({
-      getPublicKey: jest.fn().mockResolvedValue(
-        'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37'
-      ),
+      getPublicKey: jest
+        .fn()
+        .mockResolvedValue("GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"),
     });
 
     const { rerender: _rerender } = renderWithProvider();
-    const btn = screen.getByTestId('connect-btn');
+    const btn = screen.getByTestId("connect-btn");
 
     await act(async () => {
       await userEvent.click(btn);
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('address')).toBeInTheDocument();
+      expect(screen.getByTestId("address")).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('error')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('install-banner')).not.toBeInTheDocument();
+    expect(screen.queryByTestId("error")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("install-banner")).not.toBeInTheDocument();
   });
 
   it('throws ConnectError("declined") when user dismisses the Freighter prompt', async () => {
     mockFreighterModule({
-      requestAccess: jest.fn().mockRejectedValue(new Error('User rejected')),
+      requestAccess: jest.fn().mockRejectedValue(new Error("User rejected")),
     });
 
     renderWithProvider();
-    const btn = screen.getByTestId('connect-btn');
+    const btn = screen.getByTestId("connect-btn");
 
     await act(async () => {
       await userEvent.click(btn);
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('declined-msg')).toBeInTheDocument();
+      expect(screen.getByTestId("declined-msg")).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('install-banner')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('address')).not.toBeInTheDocument();
+    expect(screen.queryByTestId("install-banner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("address")).not.toBeInTheDocument();
   });
 
   it('throws ConnectError("not-installed") when the dynamic import fails', async () => {
     // Make the dynamic import throw to simulate a missing extension.
-    jest.doMock('@stellar/freighter-api', () => {
-      throw new Error('Cannot find module');
+    jest.doMock("@stellar/freighter-api", () => {
+      throw new Error("Cannot find module");
     });
 
     renderWithProvider();
-    const btn = screen.getByTestId('connect-btn');
+    const btn = screen.getByTestId("connect-btn");
 
     await act(async () => {
       await userEvent.click(btn);
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId('install-banner')).toBeInTheDocument();
+      expect(screen.getByTestId("install-banner")).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('declined-msg')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('address')).not.toBeInTheDocument();
+    expect(screen.queryByTestId("declined-msg")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("address")).not.toBeInTheDocument();
   });
 
-  it('sets isConnecting=true during the attempt and false afterwards', async () => {
+  it("sets isConnecting=true during the attempt and false afterwards", async () => {
     let resolveAccess!: () => void;
     const accessPromise = new Promise<void>((res) => {
       resolveAccess = res;
@@ -172,13 +174,13 @@ describe('WalletProvider.connect()', () => {
 
     mockFreighterModule({
       requestAccess: jest.fn().mockReturnValue(accessPromise),
-      getPublicKey: jest.fn().mockResolvedValue(
-        'GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37'
-      ),
+      getPublicKey: jest
+        .fn()
+        .mockResolvedValue("GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37"),
     });
 
     renderWithProvider();
-    const btn = screen.getByTestId('connect-btn');
+    const btn = screen.getByTestId("connect-btn");
 
     // Start the connect — do NOT await yet.
     act(() => {
@@ -187,7 +189,7 @@ describe('WalletProvider.connect()', () => {
 
     // The button should be disabled (aria-busy) while connecting.
     await waitFor(() => {
-      expect(btn).toHaveAttribute('aria-busy', 'true');
+      expect(btn).toHaveAttribute("aria-busy", "true");
     });
 
     // Let requestAccess resolve.
@@ -196,12 +198,12 @@ describe('WalletProvider.connect()', () => {
     });
 
     await waitFor(() => {
-      expect(btn).toHaveAttribute('aria-busy', 'false');
+      expect(btn).toHaveAttribute("aria-busy", "false");
     });
   });
 });
 
-describe('WalletProvider connection retries', () => {
+describe("WalletProvider connection retries", () => {
   function RetryConsumer({ onError }: { onError: (e: unknown) => void }) {
     const { connect, isRetrying, address } = useWallet();
     return (
@@ -215,12 +217,12 @@ describe('WalletProvider connection retries', () => {
     );
   }
 
-  it('retries while Freighter is not ready and connects once it is', async () => {
+  it("retries while Freighter is not ready and connects once it is", async () => {
     const getPublicKey = jest
       .fn()
-      .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('')
-      .mockResolvedValue('GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37');
+      .mockResolvedValueOnce("")
+      .mockResolvedValueOnce("")
+      .mockResolvedValue("GDQP2KPQGKIHYJGXNUIYOMHARUARCA7DJT5FO2FFOOKY3B2WSQHG4W37");
     mockFreighterModule({ getPublicKey });
     const onError = jest.fn();
     render(
@@ -230,17 +232,17 @@ describe('WalletProvider connection retries', () => {
     );
 
     await act(async () => {
-      await userEvent.click(screen.getByTestId('connect-btn'));
+      await userEvent.click(screen.getByTestId("connect-btn"));
     });
-    expect(await screen.findByTestId('retrying')).toBeInTheDocument();
-    expect(await screen.findByTestId('address')).toBeInTheDocument();
-    expect(screen.queryByTestId('retrying')).not.toBeInTheDocument();
+    expect(await screen.findByTestId("retrying")).toBeInTheDocument();
+    expect(await screen.findByTestId("address")).toBeInTheDocument();
+    expect(screen.queryByTestId("retrying")).not.toBeInTheDocument();
     expect(getPublicKey).toHaveBeenCalledTimes(3);
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it('gives up after 3 retries with a ConnectError', async () => {
-    const getPublicKey = jest.fn().mockResolvedValue('');
+  it("gives up after 3 retries with a ConnectError", async () => {
+    const getPublicKey = jest.fn().mockResolvedValue("");
     mockFreighterModule({ getPublicKey });
     const onError = jest.fn();
     render(
@@ -250,16 +252,16 @@ describe('WalletProvider connection retries', () => {
     );
 
     await act(async () => {
-      await userEvent.click(screen.getByTestId('connect-btn'));
+      await userEvent.click(screen.getByTestId("connect-btn"));
     });
     await waitFor(() => expect(onError).toHaveBeenCalled());
     expect(onError.mock.calls[0][0]).toBeInstanceOf(ConnectError);
-    expect((onError.mock.calls[0][0] as ConnectError).reason).toBe('no-address');
+    expect((onError.mock.calls[0][0] as ConnectError).reason).toBe("no-address");
     expect(getPublicKey).toHaveBeenCalledTimes(4);
   });
 
-  it('never retries a declined prompt', async () => {
-    const requestAccess = jest.fn().mockRejectedValue(new Error('User declined'));
+  it("never retries a declined prompt", async () => {
+    const requestAccess = jest.fn().mockRejectedValue(new Error("User declined"));
     mockFreighterModule({ requestAccess });
     const onError = jest.fn();
     render(
@@ -269,7 +271,7 @@ describe('WalletProvider connection retries', () => {
     );
 
     await act(async () => {
-      await userEvent.click(screen.getByTestId('connect-btn'));
+      await userEvent.click(screen.getByTestId("connect-btn"));
     });
     await waitFor(() => expect(onError).toHaveBeenCalled());
     expect(requestAccess).toHaveBeenCalledTimes(1);

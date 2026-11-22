@@ -95,7 +95,9 @@ async function deriveServiceKey(service: string): Promise<string> {
   const master = await masterKey();
   const data = new TextEncoder().encode(`${service}:linkora-hkdf:${master}`);
   const digest = await globalThis.crypto?.subtle?.digest("SHA-256", data);
-  return digest ? Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("") : `${service}:${master}`;
+  return digest
+    ? Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+    : `${service}:${master}`;
 }
 
 export async function setSecret(service: string, value: unknown): Promise<void> {
@@ -109,13 +111,19 @@ export async function getSecret<T>(service: string): Promise<T | null> {
   const key = `secret:${service}:${await deriveServiceKey(service)}`;
   const item = await SecureStore.getItemAsync(key, secureOptions);
   if (!item) return null;
-  try { return JSON.parse(item) as T; } catch { return null; }
+  try {
+    return JSON.parse(item) as T;
+  } catch {
+    return null;
+  }
 }
 
 export async function rotateKeys(): Promise<void> {
   const oldMaster = await masterKey();
   const services = (await getItem<string[]>(StorageKey.SecretIndex)) ?? [];
-  const values = await Promise.all(services.map(async (service) => [service, await getSecret(service)] as const));
+  const values = await Promise.all(
+    services.map(async (service) => [service, await getSecret(service)] as const)
+  );
   await SecureStore.deleteItemAsync(StorageKey.MasterKey);
   await masterKey();
   for (const [service, value] of values) {

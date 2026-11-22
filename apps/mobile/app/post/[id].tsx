@@ -1,6 +1,14 @@
 // Post detail screen — shows full content, like count, tip total, author info.
 import React, { useMemo, useState, useEffect } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from "react-native";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  ActivityIndicator,
+} from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 
@@ -157,21 +165,21 @@ export default function PostDetailScreen() {
       <>
         <Stack.Screen options={POST_DETAIL_SCREEN_OPTIONS} />
         <View style={[styles.container, styles.content]}>
-        <Text style={styles.label}>Post</Text>
-        <Text style={styles.id}>#{id}</Text>
-        <Text style={styles.placeholder} testID="post-detail-status">
-          {isError
-            ? "Couldn't reach the network."
-            : "Post not found. It may have been deleted, or the link may be wrong."}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading post"
-          onPress={() => void handleRetry()}
-          style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </Pressable>
+          <Text style={styles.label}>Post</Text>
+          <Text style={styles.id}>#{id}</Text>
+          <Text style={styles.placeholder} testID="post-detail-status">
+            {isError
+              ? "Couldn't reach the network."
+              : "Post not found. It may have been deleted, or the link may be wrong."}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading post"
+            onPress={() => void handleRetry()}
+            style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </Pressable>
         </View>
       </>
     );
@@ -302,7 +310,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       opacity: 0.56,
     },
     deleteButtonText: {
-      color: theme.colors.text.onBrand,
+      color: theme.colors.text.onSemantic,
       fontSize: 14,
       fontWeight: "800",
     },

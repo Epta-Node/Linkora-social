@@ -24,14 +24,14 @@ export class OfflineBroadcastQueue {
   }
 
   private initNetworkListener(): void {
-    if (typeof window !== 'undefined' && window.addEventListener) {
-      window.addEventListener('online', () => {
+    if (typeof window !== "undefined" && window.addEventListener) {
+      window.addEventListener("online", () => {
         void this.flushQueue();
       });
     }
   }
 
-  queueTransaction(signedXdr: string, operationType = 'contract_call'): QueuedTransaction {
+  queueTransaction(signedXdr: string, operationType = "contract_call"): QueuedTransaction {
     const item: QueuedTransaction = {
       id: `tx-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       signedXdr,

@@ -41,7 +41,13 @@ export function WalletButton({
       {isConnecting ? (
         <ActivityIndicator color={theme.colors.text.onBrand} size="small" />
       ) : (
-        <Text style={[styles.label, variant === "secondary" && styles.secondaryLabel]}>
+        <Text
+          style={[
+            styles.label,
+            variant === "secondary" && styles.secondaryLabel,
+            variant === "danger" && styles.dangerLabel,
+          ]}
+        >
           {label}
         </Text>
       )}
@@ -76,6 +82,9 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       color: theme.colors.text.onBrand,
       fontSize: 15,
       fontWeight: "700",
+    },
+    dangerLabel: {
+      color: theme.colors.text.onSemantic,
     },
     secondaryLabel: {
       color: theme.colors.text.primary,

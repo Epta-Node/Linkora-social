@@ -195,7 +195,9 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
     const windowStart = BigInt(start);
     const windowEnd = BigInt(end);
     if (windowEnd < windowStart) {
-      res.status(400).json({ error: { code: "INVALID_REQUEST", message: "Invalid ledger window" } });
+      res
+        .status(400)
+        .json({ error: { code: "INVALID_REQUEST", message: "Invalid ledger window" } });
       return;
     }
 
@@ -203,12 +205,18 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       const txHash = await deps.submitManualAttestation(creator, windowStart, windowEnd);
       res.json({ txHash });
     } catch (err) {
-      logger.error({ creator, windowStart: start, windowEnd: end, err }, "Manual attestation failed");
+      logger.error(
+        { creator, windowStart: start, windowEnd: end, err },
+        "Manual attestation failed"
+      );
       const status = (err as { code?: unknown })?.code === "CREATOR_NOT_FOUND" ? 404 : 502;
       res.status(status).json({
         error: {
           code: status === 404 ? "CREATOR_NOT_FOUND" : "ATTESTATION_SUBMISSION_FAILED",
-          message: status === 404 ? "No analytics found for this creator and window" : "Attestation submission failed",
+          message:
+            status === 404
+              ? "No analytics found for this creator and window"
+              : "Attestation submission failed",
         },
       });
     }

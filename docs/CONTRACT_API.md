@@ -46,59 +46,59 @@ storage is reserved for counters, configuration, roles, pause flags, and contrac
 
 ### 2.1 `StorageKey` variants
 
-| Variant | Key format | Value type |
-| --- | --- | --- |
-| `Post(u64)` | `(Post, post_id)` | `Post` |
-| `Profile(Address)` | `(Profile, user)` | `Profile` |
-| `Following(Address)` | `(Following, user)` | `Vec<Address>` legacy |
-| `Followers(Address)` | `(Followers, user)` | `Vec<Address>` legacy |
-| `Pool(Symbol)` | `(Pool, pool_id)` | `Pool` |
-| `Like(u64, Address)` | `(Like, post_id, user)` | `bool` |
-| `AuthorPosts(Address)` | `(AuthorPosts, author)` | `Vec<u64>` |
-| `Blocks(Address)` | `(Blocks, blocker)` | `Map<Address, ()>` |
-| `UsernameIndex(String)` | `(UsernameIndex, username)` | `Address` |
-| `TipCooldown(u64, Address, Address)` | `(TipCooldown, post_id, tipper, token)` | `u32` last tip ledger |
-| `Edge(Address, Address)` | `(Edge, follower, followee)` | `bool` |
-| `FollowingCount(Address)` | `(FollowingCount, user)` | `u32` |
-| `FollowersCount(Address)` | `(FollowersCount, user)` | `u32` |
-| `FollowingIdx(Address, u32)` | `(FollowingIdx, user, sequence)` | `Address` |
-| `FollowersIdx(Address, u32)` | `(FollowersIdx, user, sequence)` | `Address` |
-| `FollowingPos(Address, Address)` | `(FollowingPos, follower, followee)` | `u32` |
-| `FollowersPos(Address, Address)` | `(FollowersPos, followee, follower)` | `u32` |
-| `GraphMigrated(Address)` | `(GraphMigrated, user)` | `bool` |
-| `DmPublicKey(Address)` | `(DmPublicKey, user)` | `BytesN<32>` X25519 key |
-| `CredentialRoot(Address)` | `(CredentialRoot, user)` | `BytesN<32>` |
-| `NullifierSet(Address, u32, BytesN<32>)` | `(NullifierSet, user, epoch, nullifier)` | `bool` |
-| `CredentialEpoch(Address)` | `(CredentialEpoch, user)` | `u32` |
-| `CredentialAuthority` | `(CredentialAuthority)` | `BytesN<32>` Ed25519 authority |
-| `GovProposal(u64)` | `(GovProposal, proposal_id)` | `GovProposal` |
-| `GovVote(u64, Address)` | `(GovVote, proposal_id, voter)` | `bool` |
-| `GovConfig` | `(GovConfig)` | `GovConfig` |
-| `GovProposalCount` | `(GovProposalCount)` | `u64` |
-| `GovDelegation(Address)` | `(GovDelegation, delegator)` | `Address` |
-| `OracleKey(Symbol)` | `(OracleKey, oracle_name)` | `BytesN<32>` Ed25519 key |
-| `AttestationNullifier(BytesN<32>)` | `(AttestationNullifier, report_hash)` | `bool` |
-| `Report(u64, Address)` | `(Report, post_id, reporter)` | `Report` |
-| `ReportCount(u64)` | `(ReportCount, post_id)` | `u32` |
-| `ReporterReputation(Address)` | `(ReporterReputation, reporter)` | `i32` |
-| `DeletedPost(u64)` | `(DeletedPost, post_id)` | `bool` |
-| `DeletedProfile(Address)` | `(DeletedProfile, user)` | `bool` |
-| `PostLikersCount(u64)` | `(PostLikersCount, post_id)` | `u32` |
-| `PostLikersIdx(u64, u32)` | `(PostLikersIdx, post_id, sequence)` | `Address` |
-| `PostReportersIdx(u64, u32)` | `(PostReportersIdx, post_id, sequence)` | `Address` |
-| `PostTipCooldownsCount(u64)` | `(PostTipCooldownsCount, post_id)` | `u32` |
-| `PostTipCooldownsIdx(u64, u32)` | `(PostTipCooldownsIdx, post_id, sequence)` | `(Address, Address)` tipper/token |
-| `PostContentHash(u64)` | `(PostContentHash, post_id)` | `BytesN<32>` |
-| `CommittedPost(u64)` | `(CommittedPost, post_id)` | `CommittedPost` |
-| `RemovedPost(u64)` | `(RemovedPost, post_id)` | `Post` |
-| `ModerationRecord(u64)` | `(ModerationRecord, post_id)` | `ModerationRecord` |
-| `Appeal(u64)` | `(Appeal, post_id)` | `Appeal` |
-| `GovAppeal(u64)` | `(GovAppeal, appeal_id)` | `GovAppeal` |
-| `PostGovAppeal(u64)` | `(PostGovAppeal, post_id)` | `u64` appeal ID |
-| `GovAppealVote(u64, Address)` | `(GovAppealVote, appeal_id, voter)` | `AppealVote` |
-| `ModerationModerator(u64)` | `(ModerationModerator, post_id)` | `Address` |
-| `ModeratorBond(Address)` | `(ModeratorBond, moderator)` | `ModeratorBond` |
-| `ModeratorOpenAppeals(Address)` | `(ModeratorOpenAppeals, moderator)` | `u32` |
+| Variant                                  | Key format                                 | Value type                        |
+| ---------------------------------------- | ------------------------------------------ | --------------------------------- |
+| `Post(u64)`                              | `(Post, post_id)`                          | `Post`                            |
+| `Profile(Address)`                       | `(Profile, user)`                          | `Profile`                         |
+| `Following(Address)`                     | `(Following, user)`                        | `Vec<Address>` legacy             |
+| `Followers(Address)`                     | `(Followers, user)`                        | `Vec<Address>` legacy             |
+| `Pool(Symbol)`                           | `(Pool, pool_id)`                          | `Pool`                            |
+| `Like(u64, Address)`                     | `(Like, post_id, user)`                    | `bool`                            |
+| `AuthorPosts(Address)`                   | `(AuthorPosts, author)`                    | `Vec<u64>`                        |
+| `Blocks(Address)`                        | `(Blocks, blocker)`                        | `Map<Address, ()>`                |
+| `UsernameIndex(String)`                  | `(UsernameIndex, username)`                | `Address`                         |
+| `TipCooldown(u64, Address, Address)`     | `(TipCooldown, post_id, tipper, token)`    | `u32` last tip ledger             |
+| `Edge(Address, Address)`                 | `(Edge, follower, followee)`               | `bool`                            |
+| `FollowingCount(Address)`                | `(FollowingCount, user)`                   | `u32`                             |
+| `FollowersCount(Address)`                | `(FollowersCount, user)`                   | `u32`                             |
+| `FollowingIdx(Address, u32)`             | `(FollowingIdx, user, sequence)`           | `Address`                         |
+| `FollowersIdx(Address, u32)`             | `(FollowersIdx, user, sequence)`           | `Address`                         |
+| `FollowingPos(Address, Address)`         | `(FollowingPos, follower, followee)`       | `u32`                             |
+| `FollowersPos(Address, Address)`         | `(FollowersPos, followee, follower)`       | `u32`                             |
+| `GraphMigrated(Address)`                 | `(GraphMigrated, user)`                    | `bool`                            |
+| `DmPublicKey(Address)`                   | `(DmPublicKey, user)`                      | `BytesN<32>` X25519 key           |
+| `CredentialRoot(Address)`                | `(CredentialRoot, user)`                   | `BytesN<32>`                      |
+| `NullifierSet(Address, u32, BytesN<32>)` | `(NullifierSet, user, epoch, nullifier)`   | `bool`                            |
+| `CredentialEpoch(Address)`               | `(CredentialEpoch, user)`                  | `u32`                             |
+| `CredentialAuthority`                    | `(CredentialAuthority)`                    | `BytesN<32>` Ed25519 authority    |
+| `GovProposal(u64)`                       | `(GovProposal, proposal_id)`               | `GovProposal`                     |
+| `GovVote(u64, Address)`                  | `(GovVote, proposal_id, voter)`            | `bool`                            |
+| `GovConfig`                              | `(GovConfig)`                              | `GovConfig`                       |
+| `GovProposalCount`                       | `(GovProposalCount)`                       | `u64`                             |
+| `GovDelegation(Address)`                 | `(GovDelegation, delegator)`               | `Address`                         |
+| `OracleKey(Symbol)`                      | `(OracleKey, oracle_name)`                 | `BytesN<32>` Ed25519 key          |
+| `AttestationNullifier(BytesN<32>)`       | `(AttestationNullifier, report_hash)`      | `bool`                            |
+| `Report(u64, Address)`                   | `(Report, post_id, reporter)`              | `Report`                          |
+| `ReportCount(u64)`                       | `(ReportCount, post_id)`                   | `u32`                             |
+| `ReporterReputation(Address)`            | `(ReporterReputation, reporter)`           | `i32`                             |
+| `DeletedPost(u64)`                       | `(DeletedPost, post_id)`                   | `bool`                            |
+| `DeletedProfile(Address)`                | `(DeletedProfile, user)`                   | `bool`                            |
+| `PostLikersCount(u64)`                   | `(PostLikersCount, post_id)`               | `u32`                             |
+| `PostLikersIdx(u64, u32)`                | `(PostLikersIdx, post_id, sequence)`       | `Address`                         |
+| `PostReportersIdx(u64, u32)`             | `(PostReportersIdx, post_id, sequence)`    | `Address`                         |
+| `PostTipCooldownsCount(u64)`             | `(PostTipCooldownsCount, post_id)`         | `u32`                             |
+| `PostTipCooldownsIdx(u64, u32)`          | `(PostTipCooldownsIdx, post_id, sequence)` | `(Address, Address)` tipper/token |
+| `PostContentHash(u64)`                   | `(PostContentHash, post_id)`               | `BytesN<32>`                      |
+| `CommittedPost(u64)`                     | `(CommittedPost, post_id)`                 | `CommittedPost`                   |
+| `RemovedPost(u64)`                       | `(RemovedPost, post_id)`                   | `Post`                            |
+| `ModerationRecord(u64)`                  | `(ModerationRecord, post_id)`              | `ModerationRecord`                |
+| `Appeal(u64)`                            | `(Appeal, post_id)`                        | `Appeal`                          |
+| `GovAppeal(u64)`                         | `(GovAppeal, appeal_id)`                   | `GovAppeal`                       |
+| `PostGovAppeal(u64)`                     | `(PostGovAppeal, post_id)`                 | `u64` appeal ID                   |
+| `GovAppealVote(u64, Address)`            | `(GovAppealVote, appeal_id, voter)`        | `AppealVote`                      |
+| `ModerationModerator(u64)`               | `(ModerationModerator, post_id)`           | `Address`                         |
+| `ModeratorBond(Address)`                 | `(ModeratorBond, moderator)`               | `ModeratorBond`                   |
+| `ModeratorOpenAppeals(Address)`          | `(ModeratorOpenAppeals, moderator)`        | `u32`                             |
 
 Persistent keys are bumped to `LEDGER_THRESHOLD`/`LEDGER_BUMP` on writes and reads.
 Temporary tip-cooldown keys use the same lifecycle helpers in temporary storage.

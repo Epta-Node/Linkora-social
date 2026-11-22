@@ -81,10 +81,7 @@ export default function EditProfileScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
+      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <Text style={styles.heading}>Edit Profile</Text>
 
         <View style={styles.fieldGroup}>
@@ -124,7 +121,9 @@ export default function EditProfileScreen() {
           style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
           onPress={handleSubmit}
           disabled={submitting}
+          accessibilityRole="button"
           accessibilityLabel="Save profile"
+          accessibilityState={{ disabled: submitting, busy: submitting }}
         >
           {submitting ? (
             <ActivityIndicator color="#ffffff" />
@@ -146,6 +145,7 @@ export default function EditProfileScreen() {
                 const webUrl = process.env.EXPO_PUBLIC_WEB_URL ?? "https://linkora.social";
                 Linking.openURL(`${webUrl}/onboarding/creator`);
               }}
+              accessibilityRole="link"
               accessibilityLabel="Launch creator token wizard"
             >
               <Text style={styles.ctaButtonText}>Deploy creator token</Text>
@@ -157,6 +157,8 @@ export default function EditProfileScreen() {
           style={styles.cancelButton}
           onPress={() => router.back()}
           disabled={submitting}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel editing profile"
         >
           <Text style={styles.cancelText}>Cancel</Text>
         </TouchableOpacity>

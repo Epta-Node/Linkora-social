@@ -40,6 +40,9 @@ export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => 
       }}
       disabled={isLoading}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
+      accessibilityState={{ disabled: isLoading, busy: isLoading, selected: isFollowing }}
     >
       {isLoading ? (
         <ActivityIndicator color={isFollowing ? "#7C3AED" : "#FFFFFF"} size="small" />

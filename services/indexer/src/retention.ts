@@ -464,7 +464,7 @@ export async function pruneStaleNotifications(
   const cutoff = new Date(now.getTime() - cfg.retentionDays * 24 * 60 * 60 * 1000);
   let totalPruned = 0;
 
-  while (true) {
+  for (;;) {
     const deleted = await pruneNotificationsBatch(pool, cutoff, cfg.batchSize);
     if (deleted === 0) break;
 

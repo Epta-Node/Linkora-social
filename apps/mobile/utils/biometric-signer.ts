@@ -45,7 +45,9 @@ class BiometricSessionManager {
     this.lastActiveTimestamp = 0;
   }
 
-  async authenticateWithBiometrics(promptMessage = 'Authorize transaction with Face ID / Touch ID'): Promise<BiometricAuthResult> {
+  async authenticateWithBiometrics(
+    _promptMessage = "Authorize transaction with Face ID / Touch ID"
+  ): Promise<BiometricAuthResult> {
     try {
       // Check if session is already active and valid
       if (this.isSessionValid()) {
@@ -58,7 +60,7 @@ class BiometricSessionManager {
       if (!isAvailable) {
         return {
           success: false,
-          error: 'Biometric hardware not available',
+          error: "Biometric hardware not available",
           fallbackToWalletConnect: true,
         };
       }
@@ -71,7 +73,7 @@ class BiometricSessionManager {
     } catch (err) {
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Biometric authentication failed',
+        error: err instanceof Error ? err.message : "Biometric authentication failed",
         fallbackToWalletConnect: true,
       };
     }

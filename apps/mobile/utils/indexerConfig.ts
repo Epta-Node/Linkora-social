@@ -1,8 +1,4 @@
-import {
-  deleteCustomIndexerUrl,
-  getCustomIndexerUrl,
-  setCustomIndexerUrl,
-} from "./secureStorage";
+import { deleteCustomIndexerUrl, getCustomIndexerUrl, setCustomIndexerUrl } from "./secureStorage";
 
 /**
  * Validates and normalizes an indexer URL. Requires https:// unless

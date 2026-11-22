@@ -35,7 +35,7 @@ async function getXlmUsdPrice(): Promise<number> {
 
   try {
     const res = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd',
+      "https://api.coingecko.com/api/v3/simple/price?ids=stellar&vs_currencies=usd",
       { signal: AbortSignal.timeout(3000) }
     );
     if (res.ok) {
@@ -55,7 +55,7 @@ async function getXlmUsdPrice(): Promise<number> {
 export class FeeEstimator {
   private rpcUrl: string;
 
-  constructor(rpcUrl = 'https://soroban-testnet.stellar.org') {
+  constructor(rpcUrl = "https://soroban-testnet.stellar.org") {
     this.rpcUrl = rpcUrl;
   }
 

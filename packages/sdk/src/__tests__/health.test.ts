@@ -502,9 +502,7 @@ describe("ConnectionHealthMonitor", () => {
       let calls = 0;
       mockGetLatestLedger.mockImplementation(() => {
         calls += 1;
-        return calls <= 2
-          ? Promise.reject(new Error("down"))
-          : Promise.resolve({ sequence: 100 });
+        return calls <= 2 ? Promise.reject(new Error("down")) : Promise.resolve({ sequence: 100 });
       });
       const monitor = new ConnectionHealthMonitor("https://rpc.example.com", {
         intervalMs: 5,

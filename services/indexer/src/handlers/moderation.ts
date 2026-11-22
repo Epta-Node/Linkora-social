@@ -55,9 +55,15 @@ export async function handlePostReported(
       updated_at: now,
     });
 
-    logger.info({ postId: post_id.toString(), reporterAddress: reporter_address, reason }, "Post reported");
+    logger.info(
+      { postId: post_id.toString(), reporterAddress: reporter_address, reason },
+      "Post reported"
+    );
   } catch (error) {
-    logger.error({ postId: post_id.toString(), reporterAddress: reporter_address, err: error }, "Error handling PostReportedEvent");
+    logger.error(
+      { postId: post_id.toString(), reporterAddress: reporter_address, err: error },
+      "Error handling PostReportedEvent"
+    );
     throw error;
   }
 }
@@ -84,11 +90,19 @@ export async function handleReportDismissed(
     );
 
     logger.info(
-      { postId: post_id.toString(), reporterAddress: reporter_address, moderatorAddress: moderator_address, reason },
+      {
+        postId: post_id.toString(),
+        reporterAddress: reporter_address,
+        moderatorAddress: moderator_address,
+        reason,
+      },
       "Report dismissed"
     );
   } catch (error) {
-    logger.error({ postId: post_id.toString(), reporterAddress: reporter_address, err: error }, "Error handling ReportDismissedEvent");
+    logger.error(
+      { postId: post_id.toString(), reporterAddress: reporter_address, err: error },
+      "Error handling ReportDismissedEvent"
+    );
     throw error;
   }
 }
@@ -124,9 +138,15 @@ export async function handlePostRemovedByModeration(
       );
     }
 
-    logger.info({ postId: post_id.toString(), moderatorAddress: moderator_address, reason }, "Post removed by moderation");
+    logger.info(
+      { postId: post_id.toString(), moderatorAddress: moderator_address, reason },
+      "Post removed by moderation"
+    );
   } catch (error) {
-    logger.error({ postId: post_id.toString(), moderatorAddress: moderator_address, err: error }, "Error handling PostRemovedByModerationEvent");
+    logger.error(
+      { postId: post_id.toString(), moderatorAddress: moderator_address, err: error },
+      "Error handling PostRemovedByModerationEvent"
+    );
     throw error;
   }
 }

@@ -16,15 +16,15 @@
 
 ## Quick links
 
-| Section                               | Contents                                                                   |
-| ------------------------------------- | -------------------------------------------------------------------------- |
-| [Component inventory](#component-inventory) | Index of every component in `apps/web/src/components/`               |
-| [Design tokens](#design-tokens)       | Color, type, spacing, and shadow variables                                 |
-| [Atoms](#atoms)                       | Button, Input, Textarea, Badge, Avatar, Spinner, Icon                      |
-| [Molecules](#molecules)               | Post card, Profile card, Pool card, Transaction status, Toast, Modal shell |
-| [Organisms](#organisms)               | Feed list, Navigation bar, Wallet connect header, Tip modal, Compose modal |
-| [Dark mode](#dark-mode)               | Token overrides for `data-theme="dark"`                                    |
-| [Do/Don't examples](#dodont-examples) | Usage guidance per component                                               |
+| Section                                     | Contents                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------- |
+| [Component inventory](#component-inventory) | Index of every component in `apps/web/src/components/`                     |
+| [Design tokens](#design-tokens)             | Color, type, spacing, and shadow variables                                 |
+| [Atoms](#atoms)                             | Button, Input, Textarea, Badge, Avatar, Spinner, Icon                      |
+| [Molecules](#molecules)                     | Post card, Profile card, Pool card, Transaction status, Toast, Modal shell |
+| [Organisms](#organisms)                     | Feed list, Navigation bar, Wallet connect header, Tip modal, Compose modal |
+| [Dark mode](#dark-mode)                     | Token overrides for `data-theme="dark"`                                    |
+| [Do/Don't examples](#dodont-examples)       | Usage guidance per component                                               |
 
 ---
 
@@ -39,25 +39,25 @@ The full inventory lives in [`COMPONENT_INVENTORY.md`](./COMPONENT_INVENTORY.md)
 - Copy-pasteable usage snippet
 - Do / Don't guidance
 
-| Component         | File                                              | Category  | Inventory section                                                    |
-| ----------------- | ------------------------------------------------- | --------- | -------------------------------------------------------------------- |
-| Button            | `apps/web/src/components/Button.tsx`              | Atom      | [Button](./COMPONENT_INVENTORY.md#button)                            |
-| Input             | `apps/web/src/components/Input.tsx`               | Atom      | [Input](./COMPONENT_INVENTORY.md#input)                              |
-| Textarea          | `apps/web/src/components/Textarea.tsx`            | Atom      | [Textarea](./COMPONENT_INVENTORY.md#textarea)                        |
-| Badge             | `apps/web/src/components/Badge.tsx`               | Atom      | [Badge](./COMPONENT_INVENTORY.md#badge)                              |
-| Avatar            | `apps/web/src/components/Avatar.tsx`              | Atom      | [Avatar](./COMPONENT_INVENTORY.md#avatar)                            |
-| Spinner           | `apps/web/src/components/Spinner.tsx`             | Atom      | [Spinner](./COMPONENT_INVENTORY.md#spinner)                          |
-| PostCard          | `apps/web/src/components/PostCard.tsx`            | Molecule  | [Post card](./COMPONENT_INVENTORY.md#post-card)                      |
-| ProfileCard       | `apps/web/src/components/ProfileCard.tsx`         | Molecule  | [Profile card](./COMPONENT_INVENTORY.md#profile-card)                |
-| PoolCard          | `apps/web/src/components/PoolCard.tsx`            | Molecule  | [Pool card](./COMPONENT_INVENTORY.md#pool-card)                      |
-| TransactionStatus | `apps/web/src/components/TransactionStatus.tsx`   | Molecule  | [Transaction status](./COMPONENT_INVENTORY.md#transaction-status)    |
-| Toast             | `apps/web/src/components/Toast.tsx`               | Molecule  | [Toast notification](./COMPONENT_INVENTORY.md#toast-notification)    |
-| Modal             | `apps/web/src/components/Modal.tsx`               | Molecule  | [Modal shell](./COMPONENT_INVENTORY.md#modal-shell)                  |
-| FeedList          | `apps/web/src/components/FeedList.tsx`            | Organism  | [Feed list](./COMPONENT_INVENTORY.md#feed-list)                      |
-| NavigationBar     | `apps/web/src/components/NavigationBar.tsx`       | Organism  | [Navigation bar](./COMPONENT_INVENTORY.md#navigation-bar)            |
+| Component           | File                                              | Category | Inventory section                                                       |
+| ------------------- | ------------------------------------------------- | -------- | ----------------------------------------------------------------------- |
+| Button              | `apps/web/src/components/Button.tsx`              | Atom     | [Button](./COMPONENT_INVENTORY.md#button)                               |
+| Input               | `apps/web/src/components/Input.tsx`               | Atom     | [Input](./COMPONENT_INVENTORY.md#input)                                 |
+| Textarea            | `apps/web/src/components/Textarea.tsx`            | Atom     | [Textarea](./COMPONENT_INVENTORY.md#textarea)                           |
+| Badge               | `apps/web/src/components/Badge.tsx`               | Atom     | [Badge](./COMPONENT_INVENTORY.md#badge)                                 |
+| Avatar              | `apps/web/src/components/Avatar.tsx`              | Atom     | [Avatar](./COMPONENT_INVENTORY.md#avatar)                               |
+| Spinner             | `apps/web/src/components/Spinner.tsx`             | Atom     | [Spinner](./COMPONENT_INVENTORY.md#spinner)                             |
+| PostCard            | `apps/web/src/components/PostCard.tsx`            | Molecule | [Post card](./COMPONENT_INVENTORY.md#post-card)                         |
+| ProfileCard         | `apps/web/src/components/ProfileCard.tsx`         | Molecule | [Profile card](./COMPONENT_INVENTORY.md#profile-card)                   |
+| PoolCard            | `apps/web/src/components/PoolCard.tsx`            | Molecule | [Pool card](./COMPONENT_INVENTORY.md#pool-card)                         |
+| TransactionStatus   | `apps/web/src/components/TransactionStatus.tsx`   | Molecule | [Transaction status](./COMPONENT_INVENTORY.md#transaction-status)       |
+| Toast               | `apps/web/src/components/Toast.tsx`               | Molecule | [Toast notification](./COMPONENT_INVENTORY.md#toast-notification)       |
+| Modal               | `apps/web/src/components/Modal.tsx`               | Molecule | [Modal shell](./COMPONENT_INVENTORY.md#modal-shell)                     |
+| FeedList            | `apps/web/src/components/FeedList.tsx`            | Organism | [Feed list](./COMPONENT_INVENTORY.md#feed-list)                         |
+| NavigationBar       | `apps/web/src/components/NavigationBar.tsx`       | Organism | [Navigation bar](./COMPONENT_INVENTORY.md#navigation-bar)               |
 | WalletConnectHeader | `apps/web/src/components/WalletConnectHeader.tsx` | Organism | [Wallet connect header](./COMPONENT_INVENTORY.md#wallet-connect-header) |
-| TipModal          | `apps/web/src/components/TipModal.tsx`            | Organism  | [Tip modal](./COMPONENT_INVENTORY.md#tip-modal)                      |
-| ComposeModal      | `apps/web/src/components/ComposeModal.tsx`        | Organism  | [Compose modal](./COMPONENT_INVENTORY.md#compose-modal)              |
+| TipModal            | `apps/web/src/components/TipModal.tsx`            | Organism | [Tip modal](./COMPONENT_INVENTORY.md#tip-modal)                         |
+| ComposeModal        | `apps/web/src/components/ComposeModal.tsx`        | Organism | [Compose modal](./COMPONENT_INVENTORY.md#compose-modal)                 |
 
 > When adding a new component, add a row here **and** a full section in `COMPONENT_INVENTORY.md`. CI checks that every file in `apps/web/src/components/` is listed.
 
@@ -470,7 +470,6 @@ GABC…1234  ⎘
 ---
 
 _Last updated by issue #163 — initial component library specification. Component inventory added in `COMPONENT_INVENTORY.md`._
-
 
 ---
 

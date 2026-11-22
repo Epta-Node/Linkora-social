@@ -198,12 +198,7 @@ export function verifyWsAuth(address: string, timestamp: number, signature: stri
  * capacity and increments `droppedFrames`.  Returns `false` when the
  * connection should be terminated (too many cumulative drops).
  */
-function enqueue(
-  state: ClientState,
-  frame: string,
-  maxDepth: number,
-  maxDrops: number
-): boolean {
+function enqueue(state: ClientState, frame: string, maxDepth: number, maxDrops: number): boolean {
   if (state.sendQueue.length >= maxDepth) {
     state.sendQueue.shift(); // head-drop
     state.droppedFrames += 1;
@@ -261,8 +256,7 @@ export function attachWebSocketServer(
 
   const authRequired =
     opts.auth?.required ??
-    (process.env.WS_AUTH_REQUIRED === "true" ||
-      process.env.WS_AUTH_REQUIRED === "1");
+    (process.env.WS_AUTH_REQUIRED === "true" || process.env.WS_AUTH_REQUIRED === "1");
   const authDeadlineMs = opts.auth?.deadlineMs ?? authTimeoutMsFromEnv();
 
   const sendQueueDepth = opts.backpressure?.sendQueueDepth ?? DEFAULT_SEND_QUEUE_DEPTH;
@@ -317,10 +311,10 @@ export function attachWebSocketServer(
       const rawLength = Buffer.isBuffer(raw)
         ? raw.length
         : Array.isArray(raw)
-        ? raw.reduce((acc: number, b: Buffer) => acc + b.length, 0)
-        : typeof raw === "string"
-        ? Buffer.byteLength(raw)
-        : (raw as ArrayBuffer).byteLength;
+          ? raw.reduce((acc: number, b: Buffer) => acc + b.length, 0)
+          : typeof raw === "string"
+            ? Buffer.byteLength(raw)
+            : (raw as ArrayBuffer).byteLength;
 
       if (rawLength > maxPayloadBytes) {
         ws.close(CLOSE_MESSAGE_TOO_LARGE, "message too large");
@@ -473,9 +467,11 @@ function handleAuthFrame(
   if (!authRequired) {
     const { address, timestamp, signature } = msg;
     if (
-      typeof address === "string" && address.trim() !== "" &&
+      typeof address === "string" &&
+      address.trim() !== "" &&
       typeof timestamp === "number" &&
-      typeof signature === "string" && signature.trim() !== ""
+      typeof signature === "string" &&
+      signature.trim() !== ""
     ) {
       validateAndStoreAuth(ws, state, address, timestamp, signature);
     }
@@ -492,9 +488,11 @@ function handleAuthFrame(
   const { address, timestamp, signature } = msg;
 
   if (
-    typeof address !== "string" || address.trim() === "" ||
+    typeof address !== "string" ||
+    address.trim() === "" ||
     typeof timestamp !== "number" ||
-    typeof signature !== "string" || signature.trim() === ""
+    typeof signature !== "string" ||
+    signature.trim() === ""
   ) {
     sendError(ws, "auth frame requires string address, number timestamp, string signature");
     return;

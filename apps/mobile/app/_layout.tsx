@@ -28,7 +28,7 @@ import { ThemeProvider, useTheme } from "../theme/useTheme";
  *   linkora://dm/<address>
  *   https://linkora.social/<resource>/<id>  (universal links / App Links)
  */
-const LINKING_CONFIG = {
+export const LINKING_CONFIG = {
   prefixes: ["linkora://", "https://linkora.social", "https://www.linkora.social"],
   config: {
     screens: {

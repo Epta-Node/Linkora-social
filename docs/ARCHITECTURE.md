@@ -427,10 +427,10 @@ indexer.
 
 ### 4.3 WebSocket delivery failures
 
-| Failure point                                                  | Behaviour                                                                                 |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Client send queue full (default 256 frames)                    | Head-drop: the oldest undelivered frame is discarded; `droppedFrames` counter increments. |
-| Client accumulates > 1024 dropped frames                       | Connection is terminated (code 1008); client should reconnect and re-sync via REST.       |
+| Failure point                                                  | Behaviour                                                                                                            |
+| -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Client send queue full (default 256 frames)                    | Head-drop: the oldest undelivered frame is discarded; `droppedFrames` counter increments.                            |
+| Client accumulates > 1024 dropped frames                       | Connection is terminated (code 1008); client should reconnect and re-sync via REST.                                  |
 | Client never sends `auth` frame (when `WS_AUTH_REQUIRED=true`) | Connection closed with code 1008 after `authDeadlineMs` (`WS_AUTH_TIMEOUT_MS`, default 10 s); the timeout is logged. |
 
 ### 4.4 Frontend resilience

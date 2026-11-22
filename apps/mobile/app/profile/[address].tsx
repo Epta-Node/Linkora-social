@@ -76,7 +76,12 @@ export default function ProfileDetailScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable onPress={refresh} style={styles.retryButton} accessibilityRole="button">
+        <Pressable
+          onPress={refresh}
+          style={styles.retryButton}
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading profile"
+        >
           <Text style={styles.retryText}>Retry</Text>
         </Pressable>
       </View>

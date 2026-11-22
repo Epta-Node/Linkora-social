@@ -45,12 +45,12 @@ Alternatively, email the security team at **security@linkora.social** with the s
 | Patch / mitigation      | See table below   |
 | Public disclosure       | After patch ships |
 
-| Severity | Patch target          |
-| -------- | --------------------- |
-| Critical | 3 business days       |
-| High     | 7 business days       |
-| Medium   | 30 days               |
-| Low      | Next planned release  |
+| Severity | Patch target         |
+| -------- | -------------------- |
+| Critical | 3 business days      |
+| High     | 7 business days      |
+| Medium   | 30 days              |
+| Low      | Next planned release |
 
 We follow a **coordinated disclosure** model. We ask that you give us reasonable time to
 investigate and fix the issue before publishing details publicly.
@@ -102,9 +102,6 @@ public credit) for responsibly disclosed vulnerabilities at our discretion.
 
 We maintain a list of researchers who have responsibly disclosed vulnerabilities. If you
 would like to be recognised, let us know in your report.
-
-
-
 
 ---
 

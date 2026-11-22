@@ -9,11 +9,11 @@ The examples below use the public bridge shape returned by
 
 ## Methods and permissions
 
-| Method | Permission | Result |
-| --- | --- | --- |
-| `wallet.getAddress()` | none | Connected public Stellar address |
-| `wallet.signTransaction(xdr)` | `wallet.sign` | Signed XDR, or `UserRejectedError` |
-| `post.create(content)` | `post.create` | New post ID, or `null` when cancelled |
+| Method                        | Permission    | Result                                |
+| ----------------------------- | ------------- | ------------------------------------- |
+| `wallet.getAddress()`         | none          | Connected public Stellar address      |
+| `wallet.signTransaction(xdr)` | `wallet.sign` | Signed XDR, or `UserRejectedError`    |
+| `post.create(content)`        | `post.create` | New post ID, or `null` when cancelled |
 
 The older message-oriented host adapter exposes the same capabilities as
 `wallet.getAddress`, `wallet.sign`, `profile.get`, `profile.update`, and

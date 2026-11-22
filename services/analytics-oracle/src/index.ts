@@ -272,7 +272,12 @@ async function submitManualAttestation(
     submittedAt: Date.now(),
   });
   logger.info(
-    { creatorAddress, windowStart: windowStart.toString(), windowEnd: windowEnd.toString(), txHash },
+    {
+      creatorAddress,
+      windowStart: windowStart.toString(),
+      windowEnd: windowEnd.toString(),
+      txHash,
+    },
     "Manual creator attestation submitted"
   );
   return txHash;

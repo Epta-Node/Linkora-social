@@ -388,7 +388,10 @@ function strArray(value: unknown): string[] {
  * }
  * ```
  */
-export function parseContractEvent(raw: SorobanEvent, tokenFactoryId?: string): LinkoraEvent | null {
+export function parseContractEvent(
+  raw: SorobanEvent,
+  tokenFactoryId?: string
+): LinkoraEvent | null {
   try {
     const topics = decodeMany(raw.topics ?? raw.topic);
     const eventType = findEventType(topics);

@@ -174,7 +174,12 @@ export default function MiniAppHostScreen() {
         <View style={styles.errorOverlay}>
           <Text style={styles.errorTitle}>Failed to load</Text>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={handleReload}>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={handleReload}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading mini app"
+          >
             <Text style={styles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>

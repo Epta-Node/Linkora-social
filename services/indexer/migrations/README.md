@@ -26,7 +26,7 @@ Why it is hard rather than a convention:
 - Apply order is derived from the filename
   (`migrate.sh` and the test harness glob `*.sql` and sort them). Two files
   sharing a prefix (`006_a.sql`, `006_b.sql`) silently hand ordering to the
-  shell's sort collation, so a future `009_thing.sql` can be applied *before*
+  shell's sort collation, so a future `009_thing.sql` can be applied _before_
   the `009_dependency.sql` it needs. The failure surfaces as a
   missing-relation error against a partially migrated production database.
 - Renaming a file to "fix" its position silently changes what runs when.
@@ -197,12 +197,12 @@ The `RawEventsRetentionManager` (`src/retention.ts`) runs on a configurable
 
 Relevant environment variables (all optional):
 
-| Variable                       | Default     | Description                                        |
-| ------------------------------ | ----------- | -------------------------------------------------- |
-| `RAW_EVENTS_RETENTION_DAYS`    | `7`         | Days to keep (converted to 17,280 ledgers per day).|
-| `RAW_EVENTS_PARTITION_SIZE`    | `1000000`   | Ledger range per bucket. Must match migration 017. |
-| `RAW_EVENTS_ARCHIVE_ONLY`      | `false`     | Set `true` to detach but not drop old partitions.  |
-| `RAW_EVENTS_RETENTION_CRON`    | `5 * * * *` | cron schedule for the retention job.               |
+| Variable                    | Default     | Description                                         |
+| --------------------------- | ----------- | --------------------------------------------------- |
+| `RAW_EVENTS_RETENTION_DAYS` | `7`         | Days to keep (converted to 17,280 ledgers per day). |
+| `RAW_EVENTS_PARTITION_SIZE` | `1000000`   | Ledger range per bucket. Must match migration 017.  |
+| `RAW_EVENTS_ARCHIVE_ONLY`   | `false`     | Set `true` to detach but not drop old partitions.   |
+| `RAW_EVENTS_RETENTION_CRON` | `5 * * * *` | cron schedule for the retention job.                |
 
 ---
 

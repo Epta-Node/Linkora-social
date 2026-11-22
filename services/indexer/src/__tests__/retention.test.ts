@@ -412,9 +412,9 @@ describe("pruneNotificationsBatch", () => {
 
   it("throws when batchSize is 0", async () => {
     const pool = new FakePool();
-    await expect(
-      pruneNotificationsBatch(pool as never, new Date(), 0)
-    ).rejects.toThrow("batchSize must be > 0");
+    await expect(pruneNotificationsBatch(pool as never, new Date(), 0)).rejects.toThrow(
+      "batchSize must be > 0"
+    );
   });
 });
 

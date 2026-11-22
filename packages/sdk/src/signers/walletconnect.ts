@@ -7,20 +7,18 @@
 
 export interface WalletConnectDeepLinkConfig {
   wcUri: string;
-  targetWallet?: 'lobstr' | 'generic';
+  targetWallet?: "lobstr" | "generic";
 }
 
 export function isMobileEnvironment(): boolean {
-  if (typeof navigator === 'undefined') return false;
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-    navigator.userAgent
-  );
+  if (typeof navigator === "undefined") return false;
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
 export function generateWalletConnectDeepLink(config: WalletConnectDeepLinkConfig): string {
   const encodedUri = encodeURIComponent(config.wcUri);
 
-  if (config.targetWallet === 'lobstr') {
+  if (config.targetWallet === "lobstr") {
     return `lobstr://wc?uri=${encodedUri}`;
   }
 
@@ -29,7 +27,7 @@ export function generateWalletConnectDeepLink(config: WalletConnectDeepLinkConfi
 }
 
 export function openMobileWallet(deepLink: string): boolean {
-  if (typeof window !== 'undefined' && isMobileEnvironment()) {
+  if (typeof window !== "undefined" && isMobileEnvironment()) {
     window.location.href = deepLink;
     return true;
   }

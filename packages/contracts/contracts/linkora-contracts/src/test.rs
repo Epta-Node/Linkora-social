@@ -1245,7 +1245,10 @@ fn test_create_pool_accepts_maximum_admin_count() {
 
     let pool_id = symbol_short!("maxadmin");
     client.create_pool(&admin, &pool_id, &token, &admins, &1);
-    assert_eq!(client.get_pool(&pool_id).unwrap().admins.len(), MAX_POOL_ADMINS);
+    assert_eq!(
+        client.get_pool(&pool_id).unwrap().admins.len(),
+        MAX_POOL_ADMINS
+    );
 }
 
 #[test]
@@ -2131,13 +2134,12 @@ fn test_expired_report_is_auto_dismissed_and_emits_reason() {
         reason: symbol_short!("expired"),
     };
     let expected_xdr = expected.to_xdr(&env, &client.address);
-    assert!(
-        env.events()
-            .all()
-            .events()
-            .iter()
-            .any(|event| *event == expected_xdr)
-    );
+    assert!(env
+        .events()
+        .all()
+        .events()
+        .iter()
+        .any(|event| *event == expected_xdr));
 }
 
 #[test]

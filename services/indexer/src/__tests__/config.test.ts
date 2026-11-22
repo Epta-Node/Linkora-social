@@ -110,16 +110,14 @@ describe("loadConfig: connection pool + shutdown timeout", () => {
 
 describe("loadConfig: raw-events retention", () => {
   it("defaults to seven days and converts the period to ledgers", () => {
-    withEnv(
-      { ...REQUIRED_ENV, RAW_EVENTS_RETENTION_DAYS: undefined },
-      () => expect(loadConfig().rawEventsRetention.retentionLedgers).toBe(7 * 17_280)
+    withEnv({ ...REQUIRED_ENV, RAW_EVENTS_RETENTION_DAYS: undefined }, () =>
+      expect(loadConfig().rawEventsRetention.retentionLedgers).toBe(7 * 17_280)
     );
   });
 
   it("uses RAW_EVENTS_RETENTION_DAYS when configured", () => {
-    withEnv(
-      { ...REQUIRED_ENV, RAW_EVENTS_RETENTION_DAYS: "3" },
-      () => expect(loadConfig().rawEventsRetention.retentionLedgers).toBe(3 * 17_280)
+    withEnv({ ...REQUIRED_ENV, RAW_EVENTS_RETENTION_DAYS: "3" }, () =>
+      expect(loadConfig().rawEventsRetention.retentionLedgers).toBe(3 * 17_280)
     );
   });
 });

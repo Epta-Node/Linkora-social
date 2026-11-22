@@ -57,21 +57,35 @@ export function markFeedPostDeleted(postId: string | number): void {
 
 export interface UseFeedReturn {
   posts: Post[];
+  /** True only while the very first page is loading (skeleton state). */
   loading: boolean;
+  /** True while a pull-to-refresh reload of the first page is in flight. */
+  refreshing: boolean;
+  /** True while the next page is being fetched (footer spinner). */
+  loadingMore: boolean;
   error: string | null;
+  /** Set when fetching the next page failed; the cursor is left untouched. */
+  loadMoreError: string | null;
+  /** False once the indexer returned a short page — the end of the feed. */
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
 }
 
+type SyncMode = "initial" | "refresh" | "more";
+
 export function useFeed(): UseFeedReturn {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
 
   const { contractId, rpcUrl, network } = useNetworkContext();
 
+  // Number of indexer rows fetched so far — the offset of the next page.
   const offsetRef = useRef(0);
   const loadingRef = useRef(false);
   const loadedPostsRef = useRef(0);
@@ -85,62 +99,75 @@ export function useFeed(): UseFeedReturn {
     networkIdRef.current = network.id;
   }, [network.id]);
 
-  // Load posts from SQLite cache
-  const loadFromCache = useCallback(async (limit: number, replace: boolean) => {
-    try {
-      const offset = replace ? 0 : offsetRef.current;
-      const cached = await getCachedPosts(limit, offset);
+  const applyPosts = useCallback((next: Post[]) => {
+    setPosts(next);
+    loadedPostsRef.current = next.length;
+    postsLengthRef.current = next.length;
+  }, []);
 
-      setPosts((prev) => {
-        const next = replace ? cached : [...prev, ...cached];
-        offsetRef.current = next.length;
-        loadedPostsRef.current = next.length;
-        postsLengthRef.current = next.length;
-        return next;
-      });
-      setHasMore(cached.length >= limit);
-      hasMoreRef.current = cached.length >= limit;
+  const applyHasMore = useCallback((value: boolean) => {
+    hasMoreRef.current = value;
+    setHasMore(value);
+  }, []);
+
+  // Load the first page from the SQLite cache so the feed paints instantly.
+  const loadFromCache = useCallback(async () => {
+    try {
+      const cached = await getCachedPosts(PAGE_SIZE, 0);
+      applyPosts(cached);
+      offsetRef.current = cached.length;
     } catch (err) {
       console.warn("Failed to load posts from SQLite cache:", err);
     }
-  }, []);
+  }, [applyPosts]);
 
-  // Fetch from network, reconcile, and reload cache
+  // Fetch a page from the indexer, reconcile it into SQLite, then re-read the
+  // visible window from the cache.
   const syncWithNetwork = useCallback(
-    async (replace: boolean) => {
+    async (mode: SyncMode) => {
       if (loadingRef.current) return;
       loadingRef.current = true;
-      setLoading(true);
-      setError(null);
+      const replace = mode !== "more";
+      if (mode === "refresh") setRefreshing(true);
+      if (mode === "more") {
+        setLoadingMore(true);
+        setLoadMoreError(null);
+      } else {
+        setError(null);
+        setLoadMoreError(null);
+      }
       // Captured once, together with contractId/rpcUrl in this closure — see
-      // the dependency array below. Used to detect a network switch that
-      // happens while this call is still in flight (#1550).
+      // the dependency array below. Used to drop results from a call that was
+      // still in flight when the user switched networks (#1550).
       const startNetworkId = network.id;
 
       try {
-        // 1. Initialize DB if not done
         await initDatabase();
 
-        // 2. Fetch remote page and upsert to SQLite
         const offset = replace ? 0 : offsetRef.current;
-        await fetchAndCachePosts(PAGE_SIZE, offset, !replace);
+        const page = await fetchAndCachePosts(PAGE_SIZE, offset, !replace);
 
-        // 3. Evict stale rows periodically on initial refresh
+        if (networkIdRef.current !== startNetworkId) return;
+
         if (replace) {
           await evictStaleCache();
         }
 
-        // 4. Reload from SQLite (the entire loaded list so far, to refresh all visible posts)
-        const currentLoadedCount = replace ? PAGE_SIZE : loadedPostsRef.current + PAGE_SIZE;
-        const cached = await getCachedPosts(currentLoadedCount, 0);
-        setPosts(cached);
-        offsetRef.current = cached.length;
-        loadedPostsRef.current = cached.length;
-        postsLengthRef.current = cached.length;
-        setHasMore(cached.length >= currentLoadedCount);
-        hasMoreRef.current = cached.length >= currentLoadedCount;
+        // A short page means the indexer has nothing beyond it (#1851).
+        const reachedEnd = page.length < PAGE_SIZE;
+        offsetRef.current = offset + page.length;
 
-        // 5. Fire background sync for pending posts (only if wallet kit is available)
+        const windowSize = replace
+          ? Math.max(PAGE_SIZE, page.length)
+          : loadedPostsRef.current + page.length;
+        const cached = await getCachedPosts(windowSize, 0);
+
+        if (networkIdRef.current !== startNetworkId) return;
+
+        applyPosts(cached);
+        applyHasMore(!reachedEnd);
+
+        // Fire background sync for pending posts (only if wallet kit is available)
         const syncOptions = getSyncPendingPostsOptions(contractId, rpcUrl, network.id);
         if (syncOptions) {
           void syncPendingPosts(syncOptions).then(() => {
@@ -149,17 +176,23 @@ export function useFeed(): UseFeedReturn {
         }
       } catch (err) {
         console.warn("Network sync failed, displaying cached data:", err);
-        // Fallback: just load from cache if we haven't already
-        if (loadedPostsRef.current === 0) {
-          await loadFromCache(PAGE_SIZE, true);
+        if (mode === "more") {
+          // Keep the cursor where it was so a retry asks for the same page.
+          setLoadMoreError("Could not load more posts.");
+        } else {
+          if (loadedPostsRef.current === 0) {
+            await loadFromCache();
+          }
+          setError("Offline mode. Serving cached posts.");
         }
-        setError("Offline mode. Serving cached posts.");
       } finally {
         setLoading(false);
+        setRefreshing(false);
+        setLoadingMore(false);
         loadingRef.current = false;
       }
     },
-    [loadFromCache, contractId, rpcUrl, network.id]
+    [applyHasMore, applyPosts, loadFromCache, contractId, rpcUrl, network.id]
   );
 
   // Initial load
@@ -169,10 +202,11 @@ export function useFeed(): UseFeedReturn {
       await initDatabase();
       if (!active) return;
       // Load cache instantly
-      await loadFromCache(PAGE_SIZE, true);
-      setLoading(false);
+      await loadFromCache();
+      if (!active) return;
+      if (loadedPostsRef.current > 0) setLoading(false);
       // Trigger network sync in background
-      void syncWithNetwork(true);
+      void syncWithNetwork("initial");
     }
     init();
     return () => {
@@ -189,22 +223,29 @@ export function useFeed(): UseFeedReturn {
     return subscribeToFeedUpdates(async () => {
       const limit = Math.max(PAGE_SIZE, postsLengthRef.current);
       const cached = await getCachedPosts(limit, 0);
-      setPosts(cached);
-      offsetRef.current = cached.length;
-      loadedPostsRef.current = cached.length;
-      postsLengthRef.current = cached.length;
+      applyPosts(cached);
     });
-  }, []);
+  }, [applyPosts]);
 
   const loadMore = useCallback(() => {
-    if (!loadingRef.current && hasMoreRef.current) {
-      void syncWithNetwork(false);
+    if (!loadingRef.current && hasMoreRef.current && loadedPostsRef.current > 0) {
+      void syncWithNetwork("more");
     }
   }, [syncWithNetwork]);
 
   const refresh = useCallback(() => {
-    void syncWithNetwork(true);
+    void syncWithNetwork("refresh");
   }, [syncWithNetwork]);
 
-  return { posts, loading, error, hasMore, loadMore, refresh };
+  return {
+    posts,
+    loading,
+    refreshing,
+    loadingMore,
+    error,
+    loadMoreError,
+    hasMore,
+    loadMore,
+    refresh,
+  };
 }

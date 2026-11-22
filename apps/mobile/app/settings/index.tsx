@@ -126,12 +126,28 @@ export default function SettingsScreen(): JSXIElement {
         <Text style={styles.sectionLabel}>Appearance</Text>
         <View style={styles.buttonRow}>
           {(["system", "light", "dark"] as const).map((value) => (
-            <Pressable key={value} style={[styles.networkButton, preference === value && styles.networkButtonActive]} onPress={() => setPreference(value)} accessibilityRole="button" accessibilityState={{ selected: preference === value }}>
-              <Text style={[styles.networkButtonText, preference === value && styles.networkButtonTextActive]}>{value[0].toUpperCase() + value.slice(1)}</Text>
+            <Pressable
+              key={value}
+              style={[styles.networkButton, preference === value && styles.networkButtonActive]}
+              onPress={() => setPreference(value)}
+              accessibilityRole="button"
+              accessibilityLabel={`Use ${value} theme`}
+              accessibilityState={{ selected: preference === value }}
+            >
+              <Text
+                style={[
+                  styles.networkButtonText,
+                  preference === value && styles.networkButtonTextActive,
+                ]}
+              >
+                {value[0].toUpperCase() + value.slice(1)}
+              </Text>
             </Pressable>
           ))}
         </View>
-        <Text style={[styles.helperText, { color: theme.colors.text.secondary }]}>Theme preference: {preference}</Text>
+        <Text style={[styles.helperText, { color: theme.colors.text.secondary }]}>
+          Theme preference: {preference}
+        </Text>
       </View>
 
       {warning ? (

@@ -246,7 +246,8 @@ export class AttestationCache<V> {
    */
   beginWindow(windowStart: bigint, windowEnd: bigint): void {
     if (windowStart <= 0n) throw new RangeError("windowStart must be positive");
-    if (windowEnd <= windowStart) throw new RangeError("windowEnd must be greater than windowStart");
+    if (windowEnd <= windowStart)
+      throw new RangeError("windowEnd must be greater than windowStart");
     const key = `${windowStart}:${windowEnd}`;
     if (key === this.windowKey) return;
     this.clear();

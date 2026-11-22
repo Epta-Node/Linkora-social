@@ -9,15 +9,14 @@ use soroban_sdk::{
 #[cfg(test)]
 use soroban_sdk::testutils::storage::Persistent as _;
 
-mod validation;
 mod upgrade_hardening;
+mod validation;
 
 use validation::{
     validate_address_list, validate_amount, validate_content, validate_gov_parameter,
     validate_non_default_address, validate_pool_admin_count, validate_protocol_fee,
     validate_quorum_floor, validate_report_verdict, validate_signature, validate_u32_range,
-    validate_username,
-    MAX_FEE_BPS, MAX_GOV_TIME_LOCK_LEDGERS, MAX_POOL_ADMINS, MAX_QUORUM,
+    validate_username, MAX_FEE_BPS, MAX_GOV_TIME_LOCK_LEDGERS, MAX_POOL_ADMINS, MAX_QUORUM,
 };
 
 // ── Storage Key Enum ──────────────────────────────────────────────────────────
@@ -217,8 +216,14 @@ pub struct PoolFeeConfig {
 }
 
 fn validate_pool_fee_config(config: &PoolFeeConfig) {
-    assert!(config.management_fee_bps <= 10_000, "invalid management fee");
-    assert!(config.performance_fee_bps <= 10_000, "invalid performance fee");
+    assert!(
+        config.management_fee_bps <= 10_000,
+        "invalid management fee"
+    );
+    assert!(
+        config.performance_fee_bps <= 10_000,
+        "invalid performance fee"
+    );
     assert!(config.hurdle_rate_bps <= 10_000, "invalid hurdle rate");
 }
 
@@ -228,11 +233,7 @@ fn apply_bps(amount: i128, bps: u32) -> i128 {
 
 /// Calculate management and performance fees without multiplying two large
 /// i128 values. Performance fees apply only to profit above the hurdle.
-pub fn calculate_pool_fees(
-    principal: i128,
-    profit: i128,
-    config: &PoolFeeConfig,
-) -> (i128, i128) {
+pub fn calculate_pool_fees(principal: i128, profit: i128, config: &PoolFeeConfig) -> (i128, i128) {
     assert!(principal >= 0 && profit >= 0, "negative pool value");
     validate_pool_fee_config(config);
     let management_fee = apply_bps(principal, config.management_fee_bps);
@@ -2193,12 +2194,7 @@ impl LinkoraContract {
 
     // ── Block List ────────────────────────────────────────────────────────────
 
-    pub fn block_user(
-        env: Env,
-        blocker: Address,
-        blocked: Address,
-        reason: Option<String>,
-    ) {
+    pub fn block_user(env: Env, blocker: Address, blocked: Address, reason: Option<String>) {
         Self::bump_instance(&env);
         blocker.require_auth();
         validate_non_default_address(&env, "blocker", &blocker);
@@ -3301,15 +3297,15 @@ impl LinkoraContract {
             MAX_UPGRADE_TIMELOCK_LEDGERS,
         );
 
-        let mut state: ContractState = env
-            .storage()
-            .instance()
-            .get(&CONTRACT_STATE)
-            .unwrap_or(ContractState {
-                version: 1,
-                implementation_wasm_hash: None,
-                upgrade_timelock_ledgers: DEFAULT_UPGRADE_TIMELOCK_LEDGERS,
-            });
+        let mut state: ContractState =
+            env.storage()
+                .instance()
+                .get(&CONTRACT_STATE)
+                .unwrap_or(ContractState {
+                    version: 1,
+                    implementation_wasm_hash: None,
+                    upgrade_timelock_ledgers: DEFAULT_UPGRADE_TIMELOCK_LEDGERS,
+                });
         state.upgrade_timelock_ledgers = timelock_ledgers;
         env.storage().instance().set(&CONTRACT_STATE, &state);
     }
@@ -3690,13 +3686,7 @@ impl LinkoraContract {
             }
             GovParameter::GovTimeLock => {
                 let val = proposal.new_value as u32;
-                validate_u32_range(
-                    &env,
-                    "time_lock_ledgers",
-                    val,
-                    1,
-                    MAX_GOV_TIME_LOCK_LEDGERS,
-                );
+                validate_u32_range(&env, "time_lock_ledgers", val, 1, MAX_GOV_TIME_LOCK_LEDGERS);
                 let mut cfg = config.clone();
                 cfg.time_lock_ledgers = val;
                 env.storage().persistent().set(&StorageKey::GovConfig, &cfg);

@@ -38,7 +38,7 @@ pub struct UpgradeExecutedEvent {
 
 impl LinkoraContract {
     /// Propose an upgrade with a specific Wasm hash
-    /// 
+    ///
     /// Pins the hash at proposal time and starts the timelock.
     /// Re-proposing with a different hash restarts the timelock.
     pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
@@ -71,7 +71,7 @@ impl LinkoraContract {
     }
 
     /// Execute the upgrade, requiring exact hash match with proposal
-    /// 
+    ///
     /// Enforces:
     /// - Timelock has passed
     /// - Provided hash exactly matches proposed hash
@@ -105,7 +105,8 @@ impl LinkoraContract {
         }
 
         // Execute the upgrade
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
 
         // Remove the proposal to prevent re-execution
         env.storage().instance().remove(&UPGRADE_PROPOSAL);
@@ -141,7 +142,11 @@ impl LinkoraContract {
 
     /// Check if upgrade is ready to execute
     pub fn is_upgrade_ready(env: Env) -> bool {
-        if let Some(proposal) = env.storage().instance().get::<_, UpgradeProposal>(&UPGRADE_PROPOSAL) {
+        if let Some(proposal) = env
+            .storage()
+            .instance()
+            .get::<_, UpgradeProposal>(&UPGRADE_PROPOSAL)
+        {
             let current_ledger = env.ledger().sequence();
             let timelock = Self::get_upgrade_timelock(env.clone());
             let execute_after = proposal.proposed_at_ledger + timelock;
