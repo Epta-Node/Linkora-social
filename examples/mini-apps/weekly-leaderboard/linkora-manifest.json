@@ -1,0 +1,11 @@
+{
+  "name": "Weekly Leaderboard",
+  "version": "1.0.0",
+  "description": "Top tippers for the current week from the Linkora analytics oracle.",
+  "entry": "index.html",
+  "permissions": ["analytics:read", "profile:read"],
+  "author": "Linkora Contributors",
+  "homepage": "https://github.com/Epta-Node/Linkora-social",
+  "categories": ["analytics", "social"],
+  "minSdkVersion": "1.0.0"
+}

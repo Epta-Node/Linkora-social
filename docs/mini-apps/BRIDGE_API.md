@@ -9,16 +9,19 @@ The examples below use the public bridge shape returned by
 
 ## Methods and permissions
 
-| Method                        | Permission    | Result                                |
-| ----------------------------- | ------------- | ------------------------------------- |
-| `wallet.getAddress()`         | none          | Connected public Stellar address      |
-| `wallet.signTransaction(xdr)` | `wallet.sign` | Signed XDR, or `UserRejectedError`    |
-| `post.create(content)`        | `post.create` | New post ID, or `null` when cancelled |
+| Method                        | Permission             | Result                                |
+| ----------------------------- | ---------------------- | ------------------------------------- |
+| `wallet.getAddress()`         | none                   | Connected public Stellar address      |
+| `wallet.signTransaction(xdr)` | `wallet.sign`          | Signed XDR, or `UserRejectedError`    |
+| `post.create(content)`        | `post.create`          | New post ID, or `null` when cancelled |
+| `social.getFollowers({ address })` | `social.getFollowers` | Array of follower addresses |
+| `social.getFollowing({ address })` | `social.getFollowing` | Array of followed addresses |
 
 The older message-oriented host adapter exposes the same capabilities as
 `wallet.getAddress`, `wallet.sign`, `profile.get`, `profile.update`, and
 `post.create`. It additionally requires `profile.read` for `profile.get` and
-redacts secret-shaped fields from every response.
+redacts secret-shaped fields from every response. Follow-graph methods use
+`social.getFollowers` / `social.getFollowing` and require their matching permissions.
 
 ## JavaScript
 
@@ -62,6 +65,26 @@ behind the confirmation sheet; never inject a private key, bearer token, or
 unsigned-transaction result under the name `signedXdr`. The exact WebView
 injection mechanism is platform-specific, but the permission and approval
 rules are not.
+
+## Follow graph
+
+`social.getFollowers` and `social.getFollowing` read follow data from the Linkora SDK/indexer.
+
+- Params: `{ address: string }`
+- Returns: `Promise<string[]>`
+- Empty graph: returns `[]`
+- Network/HTTP failure: rejects with `BridgeError` code `MethodUnavailable` and a descriptive message
+
+```js
+const followers = await linkora.call("social.getFollowers", { address });
+const following = await linkora.call("social.getFollowing", { address });
+console.log(followers, following);
+```
+
+```ts
+const followers: string[] = await linkora.call("social.getFollowers", { address });
+const following: string[] = await linkora.call("social.getFollowing", { address });
+```
 
 ## Error handling
 

@@ -103,6 +103,26 @@ type BridgeHandler = (payload?: unknown) => Promise<unknown> | unknown;
 const SECRET_KEY_PATTERN =
   /^(token|authtoken|accesstoken|refreshtoken|idtoken|sessiontoken|creatortoken|bearer|authorization|apikey|apisecret|secret|password|passphrase|privatekey|seedkey|seedphrase|mnemonic|jwt|cookie)$/;
 
+const INDEXER_URL =
+  process.env.EXPO_PUBLIC_INDEXER_URL ??
+  process.env.NEXT_PUBLIC_INDEXER_URL ??
+  "http://localhost:3001";
+
+async function fetchFollowList(kind: "followers" | "following", address: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${INDEXER_URL}/api/follows/${address}/${kind}?limit=200`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = (await response.json()) as Record<string, unknown>;
+    const list = data[kind];
+    return Array.isArray(list) ? list.filter((v): v is string => typeof v === "string") : [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new BridgeError("MethodUnavailable", `Failed to fetch ${kind}: ${message}`);
+  }
+}
+
 function isSecretKey(key: string): boolean {
   return SECRET_KEY_PATTERN.test(key.toLowerCase().replace(/[-_]/g, ""));
 }
@@ -191,6 +211,20 @@ const DEFAULT_HANDLERS: Partial<Record<BridgePermission, BridgeHandler>> = {
     return { address, username: null };
   },
   "profile.update": async (payload) => payload,
+  "social.getFollowers": async (payload) => {
+    const address = (payload as { address?: unknown } | undefined)?.address;
+    if (typeof address !== "string" || !address) {
+      throw new BridgeError("MethodUnavailable", "social.getFollowers requires an address");
+    }
+    return await fetchFollowList("followers", address);
+  },
+  "social.getFollowing": async (payload) => {
+    const address = (payload as { address?: unknown } | undefined)?.address;
+    if (typeof address !== "string" || !address) {
+      throw new BridgeError("MethodUnavailable", "social.getFollowing requires an address");
+    }
+    return await fetchFollowList("following", address);
+  },
 };
 
 // #1552 — every wallet.* signing/sending call and post.create requires a
