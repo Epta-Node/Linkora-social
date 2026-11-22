@@ -127,6 +127,7 @@ The complete, organized documentation index lives at [`docs/INDEX.md`](./docs/IN
 | [Indexer Migrations](./services/indexer/migrations/README.md)      | Migration rules, reversibility policy, and testing                    |
 | [Mini Apps Developer Guide](./docs/mini-apps/DEVELOPER_GUIDE.md)   | Build and submit a Linkora mini app                                   |
 | [Mini Apps Bridge API](./docs/mini-apps/BRIDGE_API.md)             | Bridge method reference                                               |
+| [Troubleshooting](./docs/TROUBLESHOOTING.md)                       | Common Rust, Soroban CLI, pnpm, and PostgreSQL setup fixes             |
 | [Mini Apps Submission Guide](./docs/mini-apps/SUBMISSION_GUIDE.md) | Submission, security review, publication, and revocation              |
 | [Security Policy](./SECURITY.md)                                   | Vulnerability disclosure guidance                                     |
 | [Security Audit Reference](./docs/SECURITY_AUDIT.md)               | Threat model, pre-deployment checklist, and incident response runbook |
