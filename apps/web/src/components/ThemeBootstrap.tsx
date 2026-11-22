@@ -2,46 +2,61 @@
 
 import { useEffect } from "react";
 
-const THEME_STORAGE_KEY = "linkora_theme";
-const THEMES = ["light", "dark"] as const;
+export const THEME_STORAGE_KEY = "linkora_theme";
+export const THEMES = ["light", "dark", "system"] as const;
 
-type ThemePreference = (typeof THEMES)[number];
+/** The preference the user picked, including "system". */
+export type ThemePreference = (typeof THEMES)[number];
+/** The concrete theme that ends up on the page. */
+export type ResolvedTheme = "light" | "dark";
 
-function isThemePreference(value: string | null): value is ThemePreference {
-  return value === "light" || value === "dark";
+export function isThemePreference(value: string | null): value is ThemePreference {
+  return value === "light" || value === "dark" || value === "system";
 }
 
-export function applyThemePreference(theme: ThemePreference) {
-  document.documentElement.dataset.theme = theme;
-}
-
-export function getStoredThemePreference(): ThemePreference {
-  // Called during SSR by ThemeProvider's initial reducer state; `localStorage`
-  // does not exist on the server.
-  if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (isThemePreference(stored)) return stored;
-  if (typeof window.matchMedia === "function") {
+export function getSystemTheme(): ResolvedTheme {
+  if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
   return "light";
 }
 
-export function storeThemePreference(theme: ThemePreference) {
-  localStorage.setItem(THEME_STORAGE_KEY, theme);
-  applyThemePreference(theme);
+export function resolveTheme(preference: ThemePreference): ResolvedTheme {
+  return preference === "system" ? getSystemTheme() : preference;
+}
+
+/**
+ * Mirrors `preference` and `theme` onto <html> so CSS can respond to either:
+ * `data-theme` is always the resolved light/dark value and
+ * `data-theme-preference` keeps the user's choice (used by the switcher).
+ */
+export function applyThemePreference(preference: ThemePreference) {
+  const resolved = resolveTheme(preference);
+  const root = document.documentElement;
+  root.dataset.theme = resolved;
+  root.dataset.themePreference = preference;
+  root.style.colorScheme = resolved;
+}
+
+export function getStoredThemePreference(): ThemePreference {
+  // Called during SSR by ThemeProvider's initial reducer state; `localStorage`
+  // does not exist on the server.
+  if (typeof window === "undefined") return "system";
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return isThemePreference(stored) ? stored : "system";
+}
+
+export function storeThemePreference(preference: ThemePreference) {
+  localStorage.setItem(THEME_STORAGE_KEY, preference);
+  applyThemePreference(preference);
 }
 
 export function ThemeBootstrap() {
   useEffect(() => {
-    // Only apply if the inline script in layout.tsx hasn't already set it
-    if (!document.documentElement.dataset.theme) {
-      applyThemePreference(getStoredThemePreference());
-    }
+    // The inline script in layout.tsx has already painted the correct theme;
+    // this keeps the DOM in sync if that script was skipped or storage changed.
+    applyThemePreference(getStoredThemePreference());
   }, []);
 
   return null;
 }
-
-export { THEME_STORAGE_KEY };
-export type { ThemePreference };

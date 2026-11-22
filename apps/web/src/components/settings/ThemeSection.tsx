@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   getStoredThemePreference,
   storeThemePreference,
+  THEMES,
   type ThemePreference,
 } from "@/components/ThemeBootstrap";
 import { useFeatureFlag } from "@/lib/featureFlags";
@@ -46,7 +47,7 @@ export function ThemeSection() {
             role="group"
             aria-label="Choose theme"
           >
-            {(["light", "dark"] as const).map((option) => (
+            {THEMES.map((option) => (
               <button
                 key={option}
                 type="button"
@@ -58,7 +59,7 @@ export function ThemeSection() {
                 }`}
                 aria-pressed={theme === option}
               >
-                {option === "light" ? "Light" : "Dark"}
+                {option.charAt(0).toUpperCase() + option.slice(1)}
               </button>
             ))}
           </div>

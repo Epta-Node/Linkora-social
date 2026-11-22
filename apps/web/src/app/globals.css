@@ -186,6 +186,27 @@ body {
     sans-serif;
 }
 
+/* Cross-fade background / text colours when the theme changes.
+ * Transitions are disabled entirely for reduced-motion users. */
+body,
+header,
+main,
+footer {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body,
+  header,
+  main,
+  footer {
+    transition: none;
+  }
+}
+
 @keyframes pageFadeSlideIn {
   from {
     opacity: 0;
