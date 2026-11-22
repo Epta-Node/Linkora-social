@@ -9,14 +9,17 @@ use soroban_sdk::{
 #[cfg(test)]
 use soroban_sdk::testutils::storage::Persistent as _;
 
+mod errors;
 mod upgrade_hardening;
 mod validation;
+
+use errors::ContractError;
 
 use validation::{
     validate_address_list, validate_amount, validate_content, validate_gov_parameter,
     validate_non_default_address, validate_pool_admin_count, validate_protocol_fee,
     validate_quorum_floor, validate_report_verdict, validate_signature, validate_u32_range,
-    validate_username, MAX_FEE_BPS, MAX_GOV_TIME_LOCK_LEDGERS, MAX_POOL_ADMINS, MAX_QUORUM,
+    validate_username, MAX_FEE_BPS, MAX_GOV_TIME_LOCK_LEDGERS, MAX_QUORUM,
 };
 
 // ── Storage Key Enum ──────────────────────────────────────────────────────────
@@ -32,6 +35,7 @@ pub enum StorageKey {
     Like(u64, Address), // persistent: (post_id, user) -> bool
     AuthorPosts(Address), // persistent: author -> Vec<u64> of post IDs
     Blocks(Address),    // persistent: blocker -> Map<Address, ()>
+    BlockedBy(Address), // persistent: blocked -> Map<Address, ()> reverse index
     UsernameIndex(String), // persistent: username -> owner Address (reverse index for uniqueness)
     TipCooldown(u64, Address, Address), // temporary: (post_id, tipper, token) -> last-tip ledger sequence number
     // ── Adjacency-set social graph (ADR-001) ──────────────────────────────
@@ -116,6 +120,7 @@ const PAUSE_MASK: Symbol = symbol_short!("P_MASK");
 const APPEAL_CONFIG: Symbol = symbol_short!("APL_CFG");
 const GOV_APPEAL_COUNT: Symbol = symbol_short!("APL_CT");
 const REPORT_EXPIRY: Symbol = symbol_short!("RPT_EXP");
+const OPEN_REPORT_COUNT: Symbol = symbol_short!("OPEN_RPT");
 
 // ── TTL Constants ─────────────────────────────────────────────────────────────
 //
@@ -160,6 +165,7 @@ const MAX_SUGGEST_SCAN: u32 = 200;
 const APPEAL_WINDOW_LEDGERS: u32 = 34_560;
 /// Default moderation report lifetime (~2 days at 5 seconds per ledger).
 const DEFAULT_REPORT_EXPIRY_LEDGERS: u32 = 34_560;
+const MAX_OPEN_REPORTS: u32 = 10;
 
 /// How long governance token holders can vote on an appeal filed with
 /// `appeal_removal`: 7 days, measured with the ledger timestamp.
@@ -339,14 +345,14 @@ pub enum GovStatus {
 }
 
 #[contracttype]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProposalMetadata {
     /// Short title of the proposal (max 100 chars)
     pub title: String,
     /// Detailed description of the proposal (max 1000 chars)
     pub description: String,
-    /// Rationale and supporting evidence (max 5000 chars)
-    pub rationale: Option<String>,
+    /// Optional rationale and supporting evidence (max 5000 chars; empty means absent)
+    pub rationale: String,
 }
 
 #[contracttype]
@@ -361,12 +367,18 @@ pub struct GovProposal {
     pub votes_against: u32,
     pub created_ledger: u32,
     pub time_lock_ledgers: u32,
+    /// Governance configuration snapshotted when the proposal was created.
+    pub vote_window_ledgers: u32,
+    pub quorum: u32,
+    pub quorum_decay_rate_bps: u32,
+    pub quorum_floor: u32,
     pub status: GovStatus,
     /// Proposal expiry window in ledgers from creation (Issue #1663).
     /// Proposals cannot be executed after this window closes, preventing indefinite execution.
     pub expiry_ledgers: u32,
-    /// Proposal metadata: title, description, and rationale (Issue #1665)
-    pub metadata: Option<ProposalMetadata>,
+    /// Proposal metadata: title, description, and rationale (Issue #1665).
+    /// All fields empty means the proposal was submitted without metadata.
+    pub metadata: ProposalMetadata,
 }
 
 #[contracttype]
@@ -1002,6 +1014,56 @@ pub struct AttestationVerifiedEvent {
     pub window_end: u64,
 }
 
+/// Emitted when a new analytics oracle is registered.
+///
+/// `ledger` is the ledger sequence at registration time and serves as the
+/// event's timestamp.
+#[contractevent]
+#[derive(Clone)]
+pub struct OracleRegisteredEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub oracle_name: Symbol,
+    pub pubkey: BytesN<32>,
+    pub ledger: u32,
+}
+
+/// Emitted after a bounded profile cleanup pass.
+#[contractevent]
+#[derive(Clone)]
+pub struct ProfileCleanupEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub user: Address,
+    pub entries_removed: u32,
+}
+
+/// Emitted after a bounded post cleanup pass.
+#[contractevent]
+#[derive(Clone)]
+pub struct PostCleanupEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub post_id: u64,
+    pub entries_removed: u32,
+}
+
+/// Emitted when an existing analytics oracle's public key is rotated.
+#[contractevent]
+#[derive(Clone)]
+pub struct OracleRotatedEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub oracle_name: Symbol,
+    pub old_pubkey: BytesN<32>,
+    pub new_pubkey: BytesN<32>,
+    pub ledger: u32,
+}
+
 #[contractevent]
 #[derive(Clone)]
 pub struct PostReportedEvent {
@@ -1233,7 +1295,17 @@ impl LinkoraContract {
 
         let mut roles = Self::get_roles(&env);
         let current = roles.get(account.clone()).unwrap_or(0);
-        let updated = current & !Self::role_mask(role);
+        let mask = Self::role_mask(role);
+        if current & mask != 0 && matches!(role, Role::Admin | Role::Upgrader) {
+            let mut holders = 0u32;
+            for (_, holder_roles) in roles.iter() {
+                if holder_roles & mask != 0 {
+                    holders += 1;
+                }
+            }
+            require_with_error!(&env, holders > 1, "cannot revoke last role holder");
+        }
+        let updated = current & !mask;
         roles.set(account.clone(), updated);
         env.storage().instance().set(&ROLES, &roles);
 
@@ -1422,6 +1494,25 @@ impl LinkoraContract {
         env.storage()
             .persistent()
             .remove(&StorageKey::CredentialRoot(user.clone()));
+
+        let reverse_block_key = StorageKey::BlockedBy(user.clone());
+        let blocked_by: Map<Address, ()> = env
+            .storage()
+            .persistent()
+            .get(&reverse_block_key)
+            .unwrap_or_else(|| Map::new(&env));
+        for (blocker, _) in blocked_by.iter() {
+            let blocker_key = StorageKey::Blocks(blocker);
+            let mut blocks: Map<Address, ()> = env
+                .storage()
+                .persistent()
+                .get(&blocker_key)
+                .unwrap_or_else(|| Map::new(&env));
+            blocks.remove(user.clone());
+            env.storage().persistent().set(&blocker_key, &blocks);
+            Self::bump(&env, &blocker_key);
+        }
+        env.storage().persistent().remove(&reverse_block_key);
         env.storage()
             .persistent()
             .remove(&StorageKey::Blocks(user.clone()));
@@ -1550,6 +1641,13 @@ impl LinkoraContract {
         if f_count == 0 && following_count == 0 && author_posts.is_empty() {
             env.storage().persistent().remove(&tombstone_key);
         }
+
+        ProfileCleanupEvent {
+            version: EVENT_VERSION,
+            user,
+            entries_removed,
+        }
+        .publish(&env);
     }
 
     pub fn get_address_by_username(env: Env, username: String) -> Option<Address> {
@@ -1572,6 +1670,11 @@ impl LinkoraContract {
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
+        require_with_error!(
+            &env,
+            pubkey != BytesN::from_array(&env, &[0u8; 32]),
+            "authority_pubkey must not be an all-zero or malformed public key"
+        );
         let key = StorageKey::CredentialAuthority;
         let old_authority: Option<BytesN<32>> = env.storage().persistent().get(&key);
         env.storage().persistent().set(&key, &pubkey);
@@ -1597,6 +1700,11 @@ impl LinkoraContract {
         user.require_auth();
         validate_non_default_address(&env, "user", &user);
         validate_signature(&env, "signature", &signature);
+        require_with_error!(
+            &env,
+            new_root != BytesN::from_array(&env, &[0u8; 32]),
+            "new_root must not be an all-zero or malformed public key"
+        );
 
         let authority_key = StorageKey::CredentialAuthority;
         let authority_pubkey: BytesN<32> = env
@@ -2222,6 +2330,16 @@ impl LinkoraContract {
         env.storage().persistent().set(&key, &blocks);
         Self::bump(&env, &key);
 
+        let reverse_key = StorageKey::BlockedBy(blocked.clone());
+        let mut blocked_by: Map<Address, ()> = env
+            .storage()
+            .persistent()
+            .get(&reverse_key)
+            .unwrap_or(Map::new(&env));
+        blocked_by.set(blocker.clone(), ());
+        env.storage().persistent().set(&reverse_key, &blocked_by);
+        Self::bump(&env, &reverse_key);
+
         // Clean up follow relationships between blocker and blocked
         Self::cleanup_follow_on_block(&env, &blocker, &blocked);
 
@@ -2257,6 +2375,21 @@ impl LinkoraContract {
         blocks.remove(blocked.clone());
         env.storage().persistent().set(&key, &blocks);
         Self::bump(&env, &key);
+
+        let reverse_key = StorageKey::BlockedBy(blocked.clone());
+        let mut blocked_by: Map<Address, ()> = env
+            .storage()
+            .persistent()
+            .get(&reverse_key)
+            .unwrap_or(Map::new(&env));
+        blocked_by.remove(blocker.clone());
+        if blocked_by.is_empty() {
+            env.storage().persistent().remove(&reverse_key);
+        } else {
+            env.storage().persistent().set(&reverse_key, &blocked_by);
+            Self::bump(&env, &reverse_key);
+        }
+
         UnblockEvent {
             version: EVENT_VERSION,
             blocker,
@@ -2519,7 +2652,6 @@ impl LinkoraContract {
         Self::bump(&env, &post_key);
 
         env.storage().persistent().remove(&key);
-        Self::bump(&env, &key);
 
         PostRevealedEvent {
             version: EVENT_VERSION,
@@ -2680,6 +2812,13 @@ impl LinkoraContract {
         if likes_count == 0 && reports_count == 0 && tc_count == 0 {
             env.storage().persistent().remove(&tombstone_key);
         }
+
+        PostCleanupEvent {
+            version: EVENT_VERSION,
+            post_id,
+            entries_removed,
+        }
+        .publish(&env);
     }
 
     pub fn get_posts_by_author(env: Env, author: Address, offset: u32, limit: u32) -> Vec<u64> {
@@ -2740,6 +2879,10 @@ impl LinkoraContract {
     pub fn like_post(env: Env, user: Address, post_id: u64) {
         Self::bump_instance(&env);
         user.require_auth();
+        Self::like_post_inner(env, user, post_id);
+    }
+
+    fn like_post_inner(env: Env, user: Address, post_id: u64) {
         validate_non_default_address(&env, "user", &user);
         require_with_error!(&env, post_id > 0, "post id must be positive");
         Self::require_not_paused(&env, PauseModule::Posts);
@@ -2785,6 +2928,27 @@ impl LinkoraContract {
             post_id,
         }
         .publish(&env);
+    }
+
+    /// Like several posts in one invocation. Duplicate likes are skipped.
+    /// Returns the number of newly applied likes.
+    pub fn batch_like(env: Env, user: Address, post_ids: Vec<u64>) -> u32 {
+        Self::bump_instance(&env);
+        user.require_auth();
+        let mut applied = 0u32;
+        for post_id in post_ids.iter() {
+            let already_liked = Self::has_liked(env.clone(), user.clone(), post_id);
+            Self::like_post_inner(env.clone(), user.clone(), post_id);
+            if !already_liked
+                && env
+                    .storage()
+                    .persistent()
+                    .has(&StorageKey::Like(post_id, user.clone()))
+            {
+                applied += 1;
+            }
+        }
+        applied
     }
 
     pub fn get_like_count(env: Env, post_id: u64) -> u64 {
@@ -2916,7 +3080,7 @@ impl LinkoraContract {
         assert!(!env.storage().persistent().has(&key), "pool exists");
         assert!(
             threshold > 0 && threshold <= initial_admins.len(),
-            "invalid threshold"
+            "threshold cannot exceed admin count"
         );
 
         // Clone admins for event payload before moving into storage
@@ -3019,6 +3183,15 @@ impl LinkoraContract {
             .expect("pool not found");
 
         assert!(signers.len() >= pool.threshold, "insufficient signers");
+        let mut seen_signers: Map<Address, ()> = Map::new(&env);
+        for signer in signers.iter() {
+            require_with_error!(
+                &env,
+                !seen_signers.contains_key(signer.clone()),
+                "signers must not contain duplicate addresses"
+            );
+            seen_signers.set(signer.clone(), ());
+        }
         for signer in signers.iter() {
             assert!(
                 pool.admins.iter().any(|x| x == signer),
@@ -3070,15 +3243,13 @@ impl LinkoraContract {
         result
     }
 
-    pub fn get_pool_admins(env: Env, pool_id: Symbol) -> Vec<Address> {
+    pub fn get_pool_admins(env: Env, pool_id: Symbol) -> Option<Vec<Address>> {
         let key = StorageKey::Pool(pool_id);
-        let pool: Pool = env
-            .storage()
-            .persistent()
-            .get(&key)
-            .expect("pool not found");
-        Self::bump(&env, &key);
-        pool.admins
+        let pool: Option<Pool> = env.storage().persistent().get(&key);
+        if pool.is_some() {
+            Self::bump(&env, &key);
+        }
+        pool.map(|p| p.admins)
     }
 
     pub fn add_pool_admin(env: Env, signers: Vec<Address>, pool_id: Symbol, new_admin: Address) {
@@ -3225,11 +3396,6 @@ impl LinkoraContract {
             new_fee_bps: fee_bps,
         }
         .publish(&env);
-        EmergencyBypassEvent {
-            version: EVENT_VERSION,
-            action: symbol_short!("set_fee"),
-        }
-        .publish(&env);
     }
 
     pub fn set_treasury(env: Env, admin: Address, treasury: Address) {
@@ -3246,11 +3412,6 @@ impl LinkoraContract {
             name: symbol_short!("treas_upd"),
             old_treasury,
             new_treasury: treasury,
-        }
-        .publish(&env);
-        EmergencyBypassEvent {
-            version: EVENT_VERSION,
-            action: symbol_short!("set_tres"),
         }
         .publish(&env);
     }
@@ -3387,7 +3548,7 @@ impl LinkoraContract {
         parameter: GovParameter,
         new_value: u64,
         new_address: Option<Address>,
-        metadata: Option<ProposalMetadata>,
+        metadata: ProposalMetadata,
     ) -> u64 {
         Self::bump_instance(&env);
         Self::require_not_paused(&env, PauseModule::Governance);
@@ -3429,25 +3590,25 @@ impl LinkoraContract {
             validate_non_default_address(&env, "new_address", address);
         }
 
-        // Validate proposal metadata (Issue #1665)
-        if let Some(meta) = &metadata {
+        let has_metadata = !metadata.title.is_empty()
+            || !metadata.description.is_empty()
+            || !metadata.rationale.is_empty();
+        if has_metadata {
             require_with_error!(
                 &env,
-                !meta.title.is_empty() && meta.title.len() <= 100,
+                !metadata.title.is_empty() && metadata.title.len() <= 100,
                 "proposal title must be 1-100 characters"
             );
             require_with_error!(
                 &env,
-                !meta.description.is_empty() && meta.description.len() <= 1000,
+                !metadata.description.is_empty() && metadata.description.len() <= 1000,
                 "proposal description must be 1-1000 characters"
             );
-            if let Some(rationale) = &meta.rationale {
-                require_with_error!(
-                    &env,
-                    !rationale.is_empty() && rationale.len() <= 5000,
-                    "proposal rationale must be 1-5000 characters"
-                );
-            }
+            require_with_error!(
+                &env,
+                metadata.rationale.len() <= 5000,
+                "proposal rationale must be at most 5000 characters"
+            );
         }
 
         let config_key = StorageKey::GovConfig;
@@ -3471,6 +3632,10 @@ impl LinkoraContract {
             votes_against: 0,
             created_ledger: env.ledger().sequence(),
             time_lock_ledgers: config.time_lock_ledgers,
+            vote_window_ledgers: config.vote_window_ledgers,
+            quorum: config.quorum,
+            quorum_decay_rate_bps: config.quorum_decay_rate_bps,
+            quorum_floor: config.quorum_floor,
             status: GovStatus::Active,
             expiry_ledgers: config.proposal_expiry_ledgers,
             metadata,
@@ -3502,11 +3667,6 @@ impl LinkoraContract {
         require_with_error!(&env, proposal_id > 0, "proposal id must be positive");
 
         let config_key = StorageKey::GovConfig;
-        let config: GovConfig = env
-            .storage()
-            .persistent()
-            .get(&config_key)
-            .expect("governance not configured");
         Self::bump(&env, &config_key);
 
         let proposal_key = StorageKey::GovProposal(proposal_id);
@@ -3519,7 +3679,7 @@ impl LinkoraContract {
         assert!(proposal.status == GovStatus::Active, "proposal not active");
 
         let current_ledger = env.ledger().sequence();
-        let vote_deadline = proposal.created_ledger + config.vote_window_ledgers;
+        let vote_deadline = proposal.created_ledger + proposal.vote_window_ledgers;
         assert!(current_ledger <= vote_deadline, "vote window closed");
 
         let vote_key = StorageKey::GovVote(proposal_id, voter.clone());
@@ -3577,11 +3737,6 @@ impl LinkoraContract {
 
     pub fn effective_quorum(env: Env, proposal_id: u64) -> u32 {
         let config_key = StorageKey::GovConfig;
-        let config: GovConfig = env
-            .storage()
-            .persistent()
-            .get(&config_key)
-            .expect("governance not configured");
         Self::bump(&env, &config_key);
 
         let proposal_key = StorageKey::GovProposal(proposal_id);
@@ -3596,11 +3751,11 @@ impl LinkoraContract {
             .ledger()
             .sequence()
             .saturating_sub(proposal.created_ledger);
-        let decay = (elapsed as u64 * config.quorum_decay_rate_bps as u64 / 10_000) as u32;
-        let decayed_quorum = config.quorum.saturating_sub(decay);
+        let decay = (elapsed as u64 * proposal.quorum_decay_rate_bps as u64 / 10_000) as u32;
+        let decayed_quorum = proposal.quorum.saturating_sub(decay);
 
-        if decayed_quorum < config.quorum_floor {
-            config.quorum_floor
+        if decayed_quorum < proposal.quorum_floor {
+            proposal.quorum_floor
         } else {
             decayed_quorum
         }
@@ -3629,7 +3784,7 @@ impl LinkoraContract {
         assert!(proposal.status == GovStatus::Active, "proposal not active");
 
         let current_ledger = env.ledger().sequence();
-        let vote_end = proposal.created_ledger + config.vote_window_ledgers;
+        let vote_end = proposal.created_ledger + proposal.vote_window_ledgers;
         let execution_after = vote_end as u64 + proposal.time_lock_ledgers as u64;
         assert!(
             (current_ledger as u64) >= execution_after,
@@ -3677,7 +3832,7 @@ impl LinkoraContract {
                 validate_u32_range(&env, "quorum", val, 1, MAX_QUORUM);
                 require_with_error!(
                     &env,
-                    val >= config.quorum_floor,
+                    val >= proposal.quorum_floor,
                     "quorum must be >= quorum_floor"
                 );
                 let mut cfg = config.clone();
@@ -3742,7 +3897,7 @@ impl LinkoraContract {
         assert!(proposal.status == GovStatus::Active, "proposal not active");
 
         let current_ledger = env.ledger().sequence();
-        let vote_end = proposal.created_ledger + config.vote_window_ledgers;
+        let vote_end = proposal.created_ledger + proposal.vote_window_ledgers;
         let time_lock_end = vote_end + config.time_lock_ledgers;
         assert!(
             current_ledger >= vote_end && current_ledger < time_lock_end,
@@ -3791,15 +3946,58 @@ impl LinkoraContract {
 
     // ── Analytics Oracle ──────────────────────────────────────────────────────
 
-    /// Register or rotate an Ed25519 oracle public key. Admin only.
+    /// Register a new Ed25519 oracle public key. Admin only.
+    ///
+    /// Re-registering an existing name is rejected; use `rotate_oracle` to
+    /// replace a key. Emits `OracleRegisteredEvent` with the oracle name,
+    /// public key, and the current ledger number.
     pub fn register_oracle(env: Env, admin: Address, name: Symbol, pubkey: BytesN<32>) {
         Self::bump_instance(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
-        let key = StorageKey::OracleKey(name);
+        let key = StorageKey::OracleKey(name.clone());
+        require_with_error!(
+            &env,
+            !env.storage().persistent().has(&key),
+            "oracle already registered; use rotate_oracle"
+        );
         env.storage().persistent().set(&key, &pubkey);
         Self::bump(&env, &key);
+        OracleRegisteredEvent {
+            version: EVENT_VERSION,
+            oracle_name: name,
+            pubkey,
+            ledger: env.ledger().sequence(),
+        }
+        .publish(&env);
+    }
+
+    /// Rotate the Ed25519 public key for an existing oracle. Admin only.
+    ///
+    /// Emits `OracleRotatedEvent` with the old and new public keys and the
+    /// current ledger number.
+    pub fn rotate_oracle(env: Env, admin: Address, name: Symbol, new_pubkey: BytesN<32>) {
+        Self::bump_instance(&env);
+        admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
+        let key = StorageKey::OracleKey(name.clone());
+        let old_pubkey: BytesN<32> = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("oracle not registered");
+        env.storage().persistent().set(&key, &new_pubkey);
+        Self::bump(&env, &key);
+        OracleRotatedEvent {
+            version: EVENT_VERSION,
+            oracle_name: name,
+            old_pubkey,
+            new_pubkey,
+            ledger: env.ledger().sequence(),
+        }
+        .publish(&env);
     }
 
     /// Verify a signed analytics attestation.
@@ -3890,6 +4088,16 @@ impl LinkoraContract {
         ContractUpgraded { new_wasm_hash }.publish(&env);
     }
 
+    pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+        Self::propose_upgrade_impl(env, admin, new_wasm_hash);
+    }
+
+    pub fn execute_upgrade(env: Env, admin: Address) {
+        let proposal =
+            Self::get_upgrade_proposal_impl(env.clone()).expect("no upgrade proposal found");
+        Self::execute_upgrade_pinned(env, admin, proposal.new_wasm_hash);
+    }
+
     // ── Storage Rent Lifecycle Management ─────────────────────────────────────
 
     pub fn pay_rent(env: Env, user: Address, token: Address, amount: i128) {
@@ -3899,17 +4107,35 @@ impl LinkoraContract {
         validate_non_default_address(&env, "token", &token);
         validate_amount(&env, "rent amount", amount);
 
+        let profile: Profile = env
+            .storage()
+            .persistent()
+            .get(&StorageKey::Profile(user.clone()))
+            .expect("profile not found");
+        require_with_error!(
+            &env,
+            profile.creator_token == token,
+            "token must match profile creator token"
+        );
+
         let rent_rate_bps = Self::get_rent_rate_bps(env.clone());
         assert!(rent_rate_bps > 0, "rent rate bps must be positive");
 
         let decimals = token::Client::new(&env, &token).decimals();
         let mut base = 1_i128;
         for _ in 0..decimals {
-            base = base.checked_mul(10).expect("decimals overflow");
+            base = base
+                .checked_mul(10)
+                .unwrap_or_else(|| env.panic_with_error(ContractError::MathOverflow));
         }
 
-        let divisor = (rent_rate_bps as i128) * base;
-        let ledgers_to_extend = (amount * 10_000) / divisor;
+        let divisor = (rent_rate_bps as i128)
+            .checked_mul(base)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::MathOverflow));
+        let scaled_amount = amount
+            .checked_mul(10_000)
+            .unwrap_or_else(|| env.panic_with_error(ContractError::MathOverflow));
+        let ledgers_to_extend = scaled_amount / divisor;
         assert!(ledgers_to_extend > 0, "amount too small for rent rate");
 
         // Collect token payment to Treasury
@@ -3984,6 +4210,21 @@ impl LinkoraContract {
         }
 
         assert!(stake_amount > 0, "stake amount must be positive");
+
+        let open_count: u32 = env
+            .storage()
+            .instance()
+            .get(&OPEN_REPORT_COUNT)
+            .unwrap_or(0);
+        require_with_error!(
+            &env,
+            open_count < MAX_OPEN_REPORTS,
+            "open reports limit reached"
+        );
+        env.storage()
+            .instance()
+            .set(&OPEN_REPORT_COUNT, &(open_count + 1));
+
         token::Client::new(&env, &token).transfer(
             &reporter,
             env.current_contract_address(),
@@ -4081,6 +4322,7 @@ impl LinkoraContract {
         report.status = ReportStatus::Dismissed;
         env.storage().persistent().set(&report_key, &report);
         Self::bump(&env, &report_key);
+        Self::decrement_open_report_count(&env);
         Self::adjust_reporter_reputation(&env, &report, -1);
         ReportDismissedEvent {
             version: EVENT_VERSION,
@@ -4435,6 +4677,7 @@ impl LinkoraContract {
         report.status = verdict;
         env.storage().persistent().set(&report_key, &report);
         Self::bump(&env, &report_key);
+        Self::decrement_open_report_count(&env);
         let reputation_delta = match report.status {
             ReportStatus::Upheld => 1,
             ReportStatus::Dismissed => -1,
@@ -4449,6 +4692,19 @@ impl LinkoraContract {
             .persistent()
             .get(&StorageKey::ReporterReputation(reporter))
             .unwrap_or(0)
+    }
+
+    fn decrement_open_report_count(env: &Env) {
+        let count: u32 = env
+            .storage()
+            .instance()
+            .get(&OPEN_REPORT_COUNT)
+            .unwrap_or(0);
+        if count > 0 {
+            env.storage()
+                .instance()
+                .set(&OPEN_REPORT_COUNT, &(count - 1));
+        }
     }
 
     fn adjust_reporter_reputation(env: &Env, report: &Report, delta: i32) {

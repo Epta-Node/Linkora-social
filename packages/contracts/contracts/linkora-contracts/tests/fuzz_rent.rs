@@ -15,7 +15,9 @@
 use linkora_contracts::{LinkoraContract, LinkoraContractClient};
 use proptest::prelude::*;
 use soroban_sdk::{
-    testutils::Address as _, token::StellarAssetClient, Address, Env, String as SdkString,
+    testutils::{Address as _, Ledger},
+    token::StellarAssetClient,
+    Address, Env, String as SdkString,
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -66,6 +68,7 @@ proptest! {
         let mut prev_expiry = client.get_rent_expiry(&user);
 
         for &amount in &amounts {
+            env.ledger().with_mut(|l| l.sequence_number += 1);
             StellarAssetClient::new(&env, &token).mint(&user, &amount);
             client.pay_rent(&user, &token, &amount);
 
@@ -76,10 +79,6 @@ proptest! {
                 prev_expiry, new_expiry
             );
             prev_expiry = new_expiry;
-
-            // Advance ledger slightly to ensure multiple payments don't
-            // collide on the same ledger sequence.
-            env.ledger().with_mut(|l| l.sequence_number += 1);
         }
     }
 

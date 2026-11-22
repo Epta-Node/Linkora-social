@@ -2,7 +2,7 @@
 
 use linkora_contracts::{LinkoraContract, LinkoraContractClient};
 use proptest::prelude::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, String as SdkString};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 // Property-based tests for social graph integrity
 // These tests verify that the follow/unfollow/block invariants hold
@@ -11,7 +11,7 @@ use soroban_sdk::{testutils::Address as _, Address, Env, String as SdkString};
 fn setup_contract() -> (Env, LinkoraContractClient<'static>) {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register_contract(None, LinkoraContract);
+    let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(&env, &contract_id);
 
     let admin = Address::generate(&env);
@@ -19,11 +19,6 @@ fn setup_contract() -> (Env, LinkoraContractClient<'static>) {
     client.initialize(&admin, &treasury, &500);
 
     (env, client)
-}
-
-fn set_profile(env: &Env, client: &LinkoraContractClient, user: &Address, username: &str) {
-    let creator_token = Address::generate(env);
-    client.set_profile(user, &SdkString::from_str(env, username), &creator_token);
 }
 
 proptest! {
@@ -34,9 +29,6 @@ proptest! {
         let (env, client) = setup_contract();
         let alice = Address::generate(&env);
         let bob = Address::generate(&env);
-
-        set_profile(&env, &client, &alice, "alice");
-        set_profile(&env, &client, &bob, "bob");
 
         let mut expected_following = false;
 
@@ -65,9 +57,6 @@ proptest! {
         let alice = Address::generate(&env);
         let bob = Address::generate(&env);
 
-        set_profile(&env, &client, &alice, "alice");
-        set_profile(&env, &client, &bob, "bob");
-
         // Follow first
         client.follow(&alice, &bob);
 
@@ -75,7 +64,7 @@ proptest! {
 
         for &should_block in &ops {
             if should_block {
-                client.block_user(&alice, &bob);
+                client.block_user(&alice, &bob, &None);
                 expected_blocked = true;
             } else {
                 client.unblock_user(&alice, &bob);
@@ -99,14 +88,10 @@ proptest! {
         let (env, client) = setup_contract();
         let target = Address::generate(&env);
 
-        set_profile(&env, &client, &target, "target");
-
         let mut followers = Vec::new();
 
-        for i in 0..num_followers {
+        for _ in 0..num_followers {
             let follower = Address::generate(&env);
-            let username = format!("user{}", i);
-            set_profile(&env, &client, &follower, &username);
             client.follow(&follower, &target);
             followers.push(follower);
         }
@@ -131,14 +116,10 @@ proptest! {
         let (env, client) = setup_contract();
         let blocker = Address::generate(&env);
 
-        set_profile(&env, &client, &blocker, "blocker");
-
         let mut users = Vec::new();
 
-        for i in 0..num_initial_follows {
+        for _ in 0..num_initial_follows {
             let user = Address::generate(&env);
-            let username = format!("user{}", i);
-            set_profile(&env, &client, &user, &username);
 
             // Mutual follow
             client.follow(&blocker, &user);
@@ -148,7 +129,7 @@ proptest! {
         }
 
         let blocked_user = &users[block_index];
-        client.block_user(&blocker, blocked_user);
+        client.block_user(&blocker, blocked_user, &None);
 
         let blocker_following = client.get_following(&blocker, &0, &50);
         prop_assert!(!blocker_following.contains(blocked_user),

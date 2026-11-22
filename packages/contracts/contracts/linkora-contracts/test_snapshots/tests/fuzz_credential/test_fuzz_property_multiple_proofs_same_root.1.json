@@ -133,6 +133,33 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "CredentialEpoch"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 535000
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "CredentialRoot"
                   },
                   {
@@ -166,6 +193,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "0101010101010101010101010101010101010101010101010101010101010101"
                   }
                 ]
@@ -194,6 +224,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "0202020202020202020202020202020202020202020202020202020202020202"
@@ -226,6 +259,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "0303030303030303030303030303030303030303030303030303030303030303"
                   }
                 ]
@@ -254,6 +290,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "0404040404040404040404040404040404040404040404040404040404040404"
@@ -286,6 +325,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "0505050505050505050505050505050505050505050505050505050505050505"
                   }
                 ]
@@ -314,6 +356,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "0606060606060606060606060606060606060606060606060606060606060606"
@@ -346,6 +391,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "0707070707070707070707070707070707070707070707070707070707070707"
                   }
                 ]
@@ -374,6 +422,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "0808080808080808080808080808080808080808080808080808080808080808"
@@ -406,6 +457,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "0909090909090909090909090909090909090909090909090909090909090909"
                   }
                 ]
@@ -434,6 +488,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
@@ -487,6 +544,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "upgrade_timelock_ledgers"
+                            },
+                            "val": {
+                              "u32": 17280
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "version"
                             },
                             "val": {
@@ -514,22 +579,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "MAX_BIO"
-                      },
-                      "val": {
-                        "u32": 500
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "MAX_POST"
-                      },
-                      "val": {
-                        "u32": 280
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "MOD_SL_B"
                       },
                       "val": {
@@ -551,6 +600,14 @@
                             }
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "RPT_EXP"
+                      },
+                      "val": {
+                        "u32": 34560
                       }
                     },
                     {
@@ -665,6 +722,9 @@
             "topics": [
               {
                 "symbol": "credential_verified_event"
+              },
+              {
+                "u32": 1
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"

@@ -127,6 +127,33 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "CredentialEpoch"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 535000
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "CredentialRoot"
                   },
                   {
@@ -160,6 +187,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a"
                   }
                 ]
@@ -190,6 +220,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "1414141414141414141414141414141414141414141414141414141414141414"
                   }
                 ]
@@ -218,6 +251,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e"
@@ -271,6 +307,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "upgrade_timelock_ledgers"
+                            },
+                            "val": {
+                              "u32": 17280
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "version"
                             },
                             "val": {
@@ -298,22 +342,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "MAX_BIO"
-                      },
-                      "val": {
-                        "u32": 500
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "MAX_POST"
-                      },
-                      "val": {
-                        "u32": 280
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "MOD_SL_B"
                       },
                       "val": {
@@ -335,6 +363,14 @@
                             }
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "RPT_EXP"
+                      },
+                      "val": {
+                        "u32": 34560
                       }
                     },
                     {
