@@ -6,6 +6,7 @@ import {
   useKeyboardShortcutsContext,
 } from "@/contexts/KeyboardShortcutsContext";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -49,17 +50,14 @@ jest.mock("@/components/branding/Logo", () => ({
   Logo: () => <span>Logo</span>,
 }));
 
-jest.mock("@/components/ThemeBootstrap", () => ({
-  getStoredThemePreference: () => "light",
-  storeThemePreference: jest.fn(),
-}));
-
 function Wrapper({ children }: { children: React.ReactNode }) {
   return (
-    <KeyboardShortcutsProvider>
-      {children}
-      <KeyboardShortcutsModal />
-    </KeyboardShortcutsProvider>
+    <ThemeProvider>
+      <KeyboardShortcutsProvider>
+        {children}
+        <KeyboardShortcutsModal />
+      </KeyboardShortcutsProvider>
+    </ThemeProvider>
   );
 }
 
@@ -70,12 +68,8 @@ describe("NavBar — keyboard shortcuts entry point (#1636)", () => {
         <NavBar />
       </Wrapper>
     );
-    expect(
-      screen.getByTestId("keyboard-shortcuts-entry")
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Keyboard shortcuts" })
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("keyboard-shortcuts-entry")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Keyboard shortcuts" })).toBeInTheDocument();
   });
 
   it("opens the keyboard shortcuts modal when the button is clicked", () => {
