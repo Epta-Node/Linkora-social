@@ -21,13 +21,22 @@ const client = new LinkoraClient({
   horizonUrl: process.env.HORIZON_URL!,
 });
 
+const walletAddress = "G...";
+const creatorAddress = "G...";
+const creatorToken = "C...";
+const tipToken = "C...";
+
 const profile = await client.getProfile(walletAddress);
-const post = await client.createPost("Hello from Linkora");
-await client.follow(creatorAddress);
-await client.tip(creatorAddress, tokenAddress, 1_000_000n);
+const profileXdr = client.setProfile(walletAddress, "alice", creatorToken);
+const postXdr = client.createPost(walletAddress, "Hello from Linkora");
+const followXdr = client.follow(walletAddress, creatorAddress);
+const tipXdr = client.tip(walletAddress, 123n, tipToken, 1_000_000n);
 ```
 
-Write methods require a configured signer or wallet adapter. Read methods can be called with only the RPC configuration.
+These write helpers build operation XDR. Use the corresponding `prepare*Tx` methods
+when you need a fully submittable transaction with the correct account sequence,
+simulation, and fee. Write methods require a configured signer or wallet adapter;
+read methods can be called with only the RPC configuration.
 
 ## JavaScript
 
@@ -41,10 +50,16 @@ const client = new LinkoraClient({
   horizonUrl: process.env.HORIZON_URL,
 });
 
+const walletAddress = "G...";
+const creatorAddress = "G...";
+const creatorToken = "C...";
+const tipToken = "C...";
+
 const profile = await client.getProfile(walletAddress);
-const post = await client.createPost("Hello from Linkora");
-await client.follow(creatorAddress);
-await client.tip(creatorAddress, tokenAddress, 1000000n);
+const profileXdr = client.setProfile(walletAddress, "alice", creatorToken);
+const postXdr = client.createPost(walletAddress, "Hello from Linkora");
+const followXdr = client.follow(walletAddress, creatorAddress);
+const tipXdr = client.tip(walletAddress, 123n, tipToken, 1000000n);
 ```
 
 Handle rejected simulations and submitted transaction failures at the app boundary:
