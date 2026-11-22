@@ -5,7 +5,9 @@ export type BridgePermission =
   | "profile.get"
   | "profile.read"
   | "profile.update"
-  | "post.create";
+  | "post.create"
+  | "social.getFollowers"
+  | "social.getFollowing";
 
 export type BridgeErrorCode = "PermissionDenied" | "UserRejected" | "MethodUnavailable";
 

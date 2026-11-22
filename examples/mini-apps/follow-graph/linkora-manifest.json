@@ -1,0 +1,11 @@
+{
+  "name": "Follow Graph",
+  "version": "1.0.0",
+  "description": "Display followers and following for a connected Linkora account.",
+  "entry": "index.html",
+  "permissions": ["wallet.getAddress", "social.getFollowers", "social.getFollowing"],
+  "author": "Linkora Contributors",
+  "homepage": "https://github.com/Epta-Node/Linkora-social",
+  "categories": ["social"],
+  "minSdkVersion": "1.0.0"
+}

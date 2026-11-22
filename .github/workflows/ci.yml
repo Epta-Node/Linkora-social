@@ -83,6 +83,34 @@ jobs:
       - name: Build Storybook (validates skeleton stories)
         run: pnpm --filter apps-web build-storybook
 
+  e2e:
+    name: Web E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter apps-web exec playwright install --with-deps chromium
+
+      - name: Build web app
+        run: pnpm --filter apps-web build
+
+      - name: Run Playwright tests
+        run: pnpm --filter apps-web test:e2e
+
   codegen:
     name: Contract bindings are up to date
     runs-on: ubuntu-latest

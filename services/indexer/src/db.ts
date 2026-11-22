@@ -260,6 +260,7 @@ export interface Database {
     cursor?: string;
     contract_id?: string;
     topic?: string;
+    type?: string;
   }): Promise<{ events: ChainEvent[]; nextCursor: string | null }>;
 
   getFeed?(filters: {

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Weekly Leaderboard — Linkora Mini App</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; background: #0b1220; color: #e2e8f0; }
+      main { max-width: 760px; margin: 0 auto; padding: 24px; }
+      .card { background: #111827; border: 1px solid #243041; border-radius: 14px; padding: 20px; }
+      .row { display: grid; grid-template-columns: 56px 56px 1fr 120px; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #243041; }
+      .row:last-child { border-bottom: 0; }
+      .avatar { width: 40px; height: 40px; border-radius: 999px; background: #334155; object-fit: cover; }
+      .muted { color: #94a3b8; }
+      .empty { padding: 24px 0; text-align: center; color: #94a3b8; }
+      .error { color: #fca5a5; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="card">
+        <h1>Weekly Leaderboard</h1>
+        <p class="muted">Top tippers for the current week. Auto-refreshes every 60 seconds.</p>
+        <div id="status" class="muted"></div>
+        <div id="list"></div>
+      </div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

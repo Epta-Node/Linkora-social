@@ -311,7 +311,16 @@ export function createPostsRouter(
         res.status(err.statusCode).json(err.toJSON(req.context?.requestId));
         return;
       }
-      res.json(post);
+      const tipTotal = post.tip_total.toString();
+      res.json({
+        ...post,
+        id: post.id.toString(),
+        tip_total: tipTotal,
+        stats: {
+          tip_count: 1,
+          tip_total: tipTotal,
+        },
+      });
     }
   );
 

@@ -1345,8 +1345,9 @@ export class PostgresDatabase implements Database {
     cursor?: string;
     contract_id?: string;
     topic?: string;
+    type?: string;
   }): Promise<{ events: import("./db").ChainEvent[]; nextCursor: string | null }> {
-    const { limit, cursor, contract_id, topic } = filters;
+    const { limit, cursor, contract_id, topic, type } = filters;
 
     const params: unknown[] = [];
     const conditions: string[] = [];
@@ -1377,8 +1378,9 @@ export class PostgresDatabase implements Database {
       conditions.push(`contract_id = $${params.length}`);
     }
 
-    if (topic !== undefined) {
-      params.push(topic);
+    const topicFilter = topic ?? type;
+    if (topicFilter !== undefined) {
+      params.push(topicFilter);
       conditions.push(`topic[1] = $${params.length}`);
     }
 
