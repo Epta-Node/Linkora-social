@@ -101,6 +101,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "upgrade_timelock_ledgers"
+                            },
+                            "val": {
+                              "u32": 17280
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "version"
                             },
                             "val": {
@@ -128,22 +136,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "MAX_BIO"
-                      },
-                      "val": {
-                        "u32": 500
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "MAX_POST"
-                      },
-                      "val": {
-                        "u32": 280
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "MOD_SL_B"
                       },
                       "val": {
@@ -165,6 +157,14 @@
                             }
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "RPT_EXP"
+                      },
+                      "val": {
+                        "u32": 34560
                       }
                     },
                     {
@@ -261,6 +261,9 @@
                 "symbol": "fee_updated_event"
               },
               {
+                "u32": 1
+              },
+              {
                 "symbol": "fee_upd"
               }
             ],
@@ -283,29 +286,6 @@
                   }
                 }
               ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    },
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "emergency_bypass_event"
-              },
-              {
-                "symbol": "set_fee"
-              }
-            ],
-            "data": {
-              "map": []
             }
           }
         }

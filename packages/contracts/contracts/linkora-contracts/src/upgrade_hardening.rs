@@ -6,7 +6,6 @@
 use crate::*;
 
 const UPGRADE_PROPOSAL: Symbol = symbol_short!("UPG_PROP");
-const UPGRADE_TIMELOCK_LEDGERS: u32 = DEFAULT_UPGRADE_TIMELOCK_LEDGERS;
 
 #[contracttype]
 #[derive(Clone)]
@@ -41,7 +40,7 @@ impl LinkoraContract {
     ///
     /// Pins the hash at proposal time and starts the timelock.
     /// Re-proposing with a different hash restarts the timelock.
-    pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+    pub fn propose_upgrade_impl(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
         Self::bump_instance(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
@@ -77,7 +76,7 @@ impl LinkoraContract {
     /// - Provided hash exactly matches proposed hash
     /// - Proposal exists
     /// - Can only be executed once per proposal
-    pub fn execute_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
+    pub fn execute_upgrade_pinned(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
         Self::bump_instance(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
@@ -122,12 +121,12 @@ impl LinkoraContract {
     }
 
     /// Get current upgrade proposal if exists
-    pub fn get_upgrade_proposal(env: Env) -> Option<UpgradeProposal> {
+    pub fn get_upgrade_proposal_impl(env: Env) -> Option<UpgradeProposal> {
         env.storage().instance().get(&UPGRADE_PROPOSAL)
     }
 
     /// Cancel pending upgrade proposal (admin only)
-    pub fn cancel_upgrade(env: Env, admin: Address) {
+    pub fn cancel_upgrade_impl(env: Env, admin: Address) {
         Self::bump_instance(&env);
         admin.require_auth();
         validate_non_default_address(&env, "admin", &admin);
@@ -141,7 +140,7 @@ impl LinkoraContract {
     }
 
     /// Check if upgrade is ready to execute
-    pub fn is_upgrade_ready(env: Env) -> bool {
+    pub fn is_upgrade_ready_impl(env: Env) -> bool {
         if let Some(proposal) = env
             .storage()
             .instance()

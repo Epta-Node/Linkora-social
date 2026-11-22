@@ -283,6 +283,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "upgrade_timelock_ledgers"
+                            },
+                            "val": {
+                              "u32": 17280
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "version"
                             },
                             "val": {
@@ -306,22 +314,6 @@
                       },
                       "val": {
                         "bool": true
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "MAX_BIO"
-                      },
-                      "val": {
-                        "u32": 500
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "MAX_POST"
-                      },
-                      "val": {
-                        "u32": 280
                       }
                     },
                     {
@@ -355,6 +347,14 @@
                             }
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "RPT_EXP"
+                      },
+                      "val": {
+                        "u32": 34560
                       }
                     },
                     {

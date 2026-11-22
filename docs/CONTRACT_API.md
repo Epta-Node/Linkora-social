@@ -10,6 +10,7 @@
 
 1. [Stellar HTTP Authentication (v1)](#1-stellar-http-authentication-v1)
 2. [Soroban Storage Layout](#2-soroban-storage-layout)
+   - [Contract Error Codes](#contract-error-codes)
 3. [The Signed Message](#3-the-signed-message)
 4. [Canonical Path](#4-canonical-path)
 5. [Body Hash](#5-body-hash)
@@ -102,6 +103,63 @@ storage is reserved for counters, configuration, roles, pause flags, and contrac
 
 Persistent keys are bumped to `LEDGER_THRESHOLD`/`LEDGER_BUMP` on writes and reads.
 Temporary tip-cooldown keys use the same lifecycle helpers in temporary storage.
+
+### Contract Error Codes
+
+`ContractError` codes are stable client-facing identifiers. A triggering example is the
+smallest call sequence that should be treated as that error class by clients. Some current
+validation paths still panic with a string message; map those messages to the closest code
+below until they are migrated to typed errors.
+
+| Code | Variant | Triggering example |
+| --- | --- | --- |
+| 100 | `AlreadyInitialized` | Call `initialize` a second time after the first call sets `INIT`. |
+| 101 | `NotInitialized` | Call an admin-only entry point before `initialize`. |
+| 102 | `UsernameTaken` | Call `set_profile` with a username already owned by another address. |
+| 103 | `UsernameTooShort` | Call `set_profile` with a two-character username. |
+| 104 | `UsernameTooLong` | Call `set_profile` with a 33-character username. |
+| 105 | `ContentTooLong` | Call `create_post` with 281 characters of content. |
+| 106 | `ContentEmpty` | Call `create_post` with an empty content string. |
+| 107 | `Blocked` | Call `follow`, `tip_post`, or `like_post` across an existing block edge. |
+| 108 | `NotBlocked` | Call `unblock_user` for a user who was never blocked. |
+| 109 | `Unauthorized` | Call a permission-gated entry point without its generic caller permission. |
+| 110 | `PostNotFound` | Call `get_post` with an ID that has no `Post` record. |
+| 111 | `ProfileNotFound` | Call a profile-dependent entry point for an address with no profile. |
+| 112 | `PoolNotFound` | Call `pool_deposit` with an unregistered pool symbol. |
+| 113 | `PoolExists` | Call `create_pool` twice with the same symbol. |
+| 114 | `InvalidThreshold` | Call `create_pool` with threshold `0` or `3` for two admins. |
+| 115 | `InsufficientSigners` | Call `pool_withdraw` with one signer when the pool threshold is two. |
+| 116 | `UnauthorizedSigner` | Include an address outside the pool admin set in `pool_withdraw`. |
+| 117 | `LowBalance` | Withdraw more from a pool than its token balance. |
+| 118 | `WrongToken` | Deposit a token that does not match the pool's registered token. |
+| 119 | `AlreadyPaused` | Pause a module that is already paused. |
+| 120 | `NotPaused` | Unpause a module that is running. |
+| 121 | `ContractPaused` | Call an entry point whose module pause flag is set. |
+| 122 | `AlreadyFollowing` | Call `follow` twice for the same follower/followee pair. |
+| 123 | `NotFollowing` | Call `unfollow` when no follow edge exists. |
+| 124 | `SelfInteractionNotAllowed` | Like, tip, or follow your own post or address. |
+| 125 | `InvalidAmount` | Tip with amount `0` or an amount above the protocol maximum. |
+| 126 | `TipCooldownActive` | Tip the same post again before the tipper cooldown ledger passes. |
+| 127 | `InvalidCooldown` | Configure a governance or tip cooldown outside its allowed range. |
+| 128 | `GraphEntryExpired` | Traverse a follow-graph edge whose TTL lapsed before it was bumped. |
+| 129 | `UnauthorizedRole` | Call `register_oracle` as an address without `Role::Admin`. |
+| 130 | `PoolAdminNotFound` | Remove an address that is not in the pool admin list. |
+| 131 | `PoolAdminExists` | Add an address already present in the pool admin list. |
+| 132 | `ProposalNotFound` | Call `gov_vote` with an unused proposal ID. |
+| 133 | `ProposalExpired` | Vote or execute after the proposal's vote window closes. |
+| 134 | `TimeLockNotExpired` | Execute before `created_ledger + vote_window + time_lock`. |
+| 135 | `QuorumNotMet` | Execute a proposal with one approval and two rejections at 60% quorum. |
+| 136 | `AlreadyVoted` | Call `gov_vote` twice from the same voter on one proposal. |
+| 137 | `ReportNotFound` | Resolve a post/reporter pair with no stored report. |
+| 138 | `InvalidVerdict` | Resolve a report with `ReportStatus::Pending`. |
+| 139 | `InvalidPostId` | Call a post entry point with ID `0`. |
+| 140 | `ZeroAddress` | Pass the all-zero account or contract address to a validator. |
+| 141 | `CannotRemoveLastAdmin` | Revoke `Role::Admin` from the final admin. |
+| 142 | `CannotRemoveLastUpgrader` | Revoke `Role::Upgrader` from the final upgrader. |
+| 143 | `MathOverflow` | Convert or multiply an amount past the `i128`/`u32` protocol bound. |
+
+`RentError::Expired` (code `1`) is reserved for the storage-rent guard path when an entry's
+TTL lapsed before it could be bumped.
 
 ## 1. Stellar HTTP Authentication (v1)
 

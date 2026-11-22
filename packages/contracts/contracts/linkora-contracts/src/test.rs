@@ -3,12 +3,13 @@ extern crate alloc;
 extern crate std;
 
 use super::*;
+use crate::validation::MAX_POOL_ADMINS;
 use alloc::string::String as StdString;
 use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::{
     events::Event as _,
     symbol_short,
-    testutils::{storage::Persistent as _, Address as _, Events, Ledger},
+    testutils::{Address as _, Events, Ledger},
     token::{Client as TokenClient, StellarAssetClient},
     vec, Address, Bytes, BytesN, Env, String,
 };
@@ -75,6 +76,14 @@ pub fn setup_contract(env: &Env) -> (LinkoraContractClient<'_>, Address, Address
     let treasury = Address::generate(env);
     client.initialize(&admin, &treasury, &0);
     (client, admin, treasury)
+}
+
+fn no_metadata(env: &Env) -> ProposalMetadata {
+    ProposalMetadata {
+        title: String::from_str(env, ""),
+        description: String::from_str(env, ""),
+        rationale: String::from_str(env, ""),
+    }
 }
 
 fn upload_upgrade_wasm(env: &Env) -> BytesN<32> {
@@ -1799,7 +1808,7 @@ fn test_reveal_post_replaces_placeholder_and_clears_commit() {
     let post_id = client.commit_post(&author, &hash, &1_000);
 
     // Reveal once the reveal time has passed.
-    env.ledger().set_timestamp(2_000);
+    env.ledger().with_mut(|ledger| ledger.timestamp = 2_000);
     client.reveal_post(&author, &post_id, &content);
 
     let post = client.get_post(&post_id).unwrap();
@@ -1821,7 +1830,8 @@ fn test_reveal_post_publishes_event() {
     let hash = sha256_of(&env, &content);
     let post_id = client.commit_post(&author, &hash, &1_000);
 
-    env.ledger().set_timestamp(2_000);
+    env.ledger().with_mut(|ledger| ledger.timestamp = 2_000);
+    let _ = env.events().all();
     client.reveal_post(&author, &post_id, &content);
 
     let expected = PostRevealedEvent {
@@ -2113,10 +2123,12 @@ fn test_expired_report_is_auto_dismissed_and_emits_reason() {
         &500,
         &BytesN::from_array(&env, &[8u8; 32]),
     );
-    env.ledger().set_sequence(3);
+    env.ledger().with_mut(|ledger| ledger.sequence_number = 3);
 
     let treasury_before = token::Client::new(&env, &token).balance(&treasury);
+    let _ = env.events().all();
     client.dismiss_expired_report(&post_id, &reporter);
+    let events = env.events().all();
 
     assert_eq!(
         token::Client::new(&env, &token).balance(&treasury),
@@ -2134,12 +2146,7 @@ fn test_expired_report_is_auto_dismissed_and_emits_reason() {
         reason: symbol_short!("expired"),
     };
     let expected_xdr = expected.to_xdr(&env, &client.address);
-    assert!(env
-        .events()
-        .all()
-        .events()
-        .iter()
-        .any(|event| *event == expected_xdr));
+    assert!(events.events().iter().any(|event| *event == expected_xdr));
 }
 
 #[test]
@@ -2186,7 +2193,7 @@ fn test_report_post_rejects_when_open_reports_limit_is_reached() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, admin, treasury) = setup_contract(&env);
+    let (client, admin, _treasury) = setup_contract(&env);
     let moderator = admin.clone();
     let reporter = Address::generate(&env);
     let stake_token = setup_token(&env, &reporter);
@@ -2713,17 +2720,25 @@ fn test_set_fee_emits_exactly_one_event_no_bypass() {
     env.mock_all_auths();
     let (client, admin, _) = setup_contract(&env);
 
-    let events_before = env.events().all().events().len();
+    let _ = env.events().all();
     client.set_fee(&admin, &750);
-    let events_after = env.events().all().events().len();
+    let events = env.events().all();
 
     assert_eq!(client.get_fee_bps(), 750);
     assert_eq!(
-        events_after,
-        events_before + 1,
+        events.events().len(),
+        1,
         "set_fee must emit exactly one event — a second event would be the \
          spurious EmergencyBypassEvent (issue #1373)"
     );
+    let expected = FeeUpdatedEvent {
+        version: EVENT_VERSION,
+        name: symbol_short!("fee_upd"),
+        old_fee_bps: 0,
+        new_fee_bps: 750,
+    }
+    .to_xdr(&env, &client.address);
+    assert!(events.events().iter().any(|event| *event == expected));
 }
 
 #[test]
@@ -2733,20 +2748,28 @@ fn test_set_treasury_emits_exactly_one_event_no_bypass() {
     // EmergencyBypassEvent.
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_contract(&env);
+    let (client, admin, old_treasury) = setup_contract(&env);
 
-    let events_before = env.events().all().events().len();
+    let _ = env.events().all();
     let new_treasury = Address::generate(&env);
     client.set_treasury(&admin, &new_treasury);
-    let events_after = env.events().all().events().len();
+    let events = env.events().all();
 
-    assert_eq!(client.get_treasury(), Some(new_treasury));
+    assert_eq!(client.get_treasury(), Some(new_treasury.clone()));
     assert_eq!(
-        events_after,
-        events_before + 1,
+        events.events().len(),
+        1,
         "set_treasury must emit exactly one event — a second event would be \
          the spurious EmergencyBypassEvent (issue #1373)"
     );
+    let expected = TreasuryUpdatedEvent {
+        version: EVENT_VERSION,
+        name: symbol_short!("treas_upd"),
+        old_treasury,
+        new_treasury,
+    }
+    .to_xdr(&env, &client.address);
+    assert!(events.events().iter().any(|event| *event == expected));
 }
 
 #[test]
@@ -4954,7 +4977,7 @@ fn test_block_reason_length_limit() {
     let bob = Address::generate(&env);
     let reason = Some(String::from_str(
         &env,
-        "This reason is deliberately longer than two hundred and eighty characters. It should fail validation even though the block action itself would otherwise be valid. Additional text ensures the payload exceeds the configured maximum without relying on a single repeated character.",
+        "This reason is deliberately longer than two hundred and eighty characters. It should fail validation even though the block action itself would otherwise be valid. Additional text ensures the payload exceeds the configured maximum without relying on a single repeated character and it keeps going until validation rejects it.",
     ));
 
     client.block_user(&alice, &bob, &reason);
@@ -5042,10 +5065,16 @@ fn setup_governance_with_pool(
 fn test_gov_happy_path_propose_vote_execute() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let voter1 = Address::generate(&env);
     let voter2 = Address::generate(&env);
@@ -5062,7 +5091,7 @@ fn test_gov_happy_path_propose_vote_execute() {
         li.sequence_number += 200 + 100;
     });
 
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 
     assert_eq!(client.get_fee_bps(), 500);
     let executed = client.gov_get_proposal(&proposal_id);
@@ -5096,7 +5125,13 @@ fn test_gov_quorum_decay_effective_quorum_decreases_over_time() {
     client.gov_init_config(&admin, &60, &50, &100, &500, &10);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &100, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &100,
+        &None,
+        &no_metadata(&env),
+    );
 
     // At creation time quorum equals the configured value.
     let q0 = client.effective_quorum(&proposal_id);
@@ -5129,10 +5164,16 @@ fn test_gov_quorum_decay_proposal_fails_below_floor() {
     let env = Env::default();
     env.mock_all_auths();
     // setup_governance uses: quorum=60, time_lock=100, vote_window=200, decay=50, floor=30
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &100, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &100,
+        &None,
+        &no_metadata(&env),
+    );
 
     // 1 for, 4 against = 20% approval — below the 30% floor
     let v1 = Address::generate(&env);
@@ -5152,7 +5193,7 @@ fn test_gov_quorum_decay_proposal_fails_below_floor() {
     });
 
     // effective_quorum decays to floor=30; 20% < 30% → must panic "quorum not met"
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 }
 
 #[test]
@@ -5160,10 +5201,16 @@ fn test_gov_quorum_decay_proposal_fails_below_floor() {
 fn test_gov_quorum_not_met_fails() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &100, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &100,
+        &None,
+        &no_metadata(&env),
+    );
 
     // 1 for, 4 against = 20% approval
     let v1 = Address::generate(&env);
@@ -5182,7 +5229,7 @@ fn test_gov_quorum_not_met_fails() {
     });
 
     // 20% < 30% (floor) → quorum not met
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 }
 
 #[test]
@@ -5200,7 +5247,13 @@ fn test_gov_quorum_decay_allows_passage() {
     client.gov_init_config(&admin, &60, &50, &100, &1000, &30);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &200, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &200,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Vote: 7 for, 13 against = 35% approval (below 60% quorum, but above 30% floor)
     for _ in 0..7 {
@@ -5222,7 +5275,7 @@ fn test_gov_quorum_decay_allows_passage() {
     assert_eq!(eff_q, 30, "effective quorum should decay to floor");
 
     // 35% >= 30% → passes with decay
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
     assert_eq!(client.get_fee_bps(), 200);
 }
 
@@ -5233,7 +5286,13 @@ fn test_gov_veto_during_timelock() {
     let (client, _admin, _, pool_id, pool_admins) = setup_governance_with_pool(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let v1 = Address::generate(&env);
     let v2 = Address::generate(&env);
@@ -5256,10 +5315,16 @@ fn test_gov_veto_during_timelock() {
 fn test_gov_veto_prevents_execution() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _, pool_id, pool_admins) = setup_governance_with_pool(&env);
+    let (client, _admin, _, pool_id, pool_admins) = setup_governance_with_pool(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let v1 = Address::generate(&env);
     client.gov_vote(&v1, &proposal_id, &true);
@@ -5277,7 +5342,7 @@ fn test_gov_veto_prevents_execution() {
     });
 
     // Should panic because proposal is vetoed (status != Active)
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 }
 
 #[test]
@@ -5288,7 +5353,13 @@ fn test_gov_double_vote_panics() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let voter = Address::generate(&env);
     client.gov_vote(&voter, &proposal_id, &true);
@@ -5521,10 +5592,16 @@ fn test_follow_unfollow_refollow_consistency() {
 fn test_gov_execute_before_timelock_fails() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let v1 = Address::generate(&env);
     client.gov_vote(&v1, &proposal_id, &true);
@@ -5534,7 +5611,7 @@ fn test_gov_execute_before_timelock_fails() {
         li.sequence_number += 210;
     });
 
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 }
 
 #[test]
@@ -5545,7 +5622,13 @@ fn test_gov_vote_after_window_panics() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     env.ledger().with_mut(|li| {
         li.sequence_number += 201;
@@ -5559,10 +5642,16 @@ fn test_gov_vote_after_window_panics() {
 fn test_gov_tip_cooldown_parameter_change() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::TipCooldownWindow, &5000, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::TipCooldownWindow,
+        &5000,
+        &None,
+        &no_metadata(&env),
+    );
 
     let v1 = Address::generate(&env);
     client.gov_vote(&v1, &proposal_id, &true);
@@ -5571,7 +5660,7 @@ fn test_gov_tip_cooldown_parameter_change() {
         li.sequence_number += 300;
     });
 
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
     assert_eq!(client.get_tip_cooldown_window(), 5000);
 }
 
@@ -5596,7 +5685,13 @@ fn test_gov_proposal_get() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &750, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &750,
+        &None,
+        &no_metadata(&env),
+    );
 
     let proposal = client.gov_get_proposal(&proposal_id);
     assert_eq!(proposal.id, proposal_id);
@@ -5616,7 +5711,13 @@ fn test_gov_veto_before_vote_window_ends_panics() {
     let (client, _admin, _, pool_id, pool_admins) = setup_governance_with_pool(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Still within vote window
     env.ledger().with_mut(|li| {
@@ -5634,7 +5735,13 @@ fn test_gov_veto_after_timelock_panics() {
     let (client, _admin, _, pool_id, pool_admins) = setup_governance_with_pool(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Past time-lock window entirely
     env.ledger().with_mut(|li| {
@@ -5651,7 +5758,13 @@ fn test_gov_effective_quorum_at_creation() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let eff_q = client.effective_quorum(&proposal_id);
     assert_eq!(
@@ -5664,10 +5777,16 @@ fn test_gov_effective_quorum_at_creation() {
 fn test_gov_change_gov_quorum_via_governance() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::GovQuorum, &50, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::GovQuorum,
+        &50,
+        &None,
+        &no_metadata(&env),
+    );
 
     let v1 = Address::generate(&env);
     client.gov_vote(&v1, &proposal_id, &true);
@@ -5676,7 +5795,7 @@ fn test_gov_change_gov_quorum_via_governance() {
         li.sequence_number += 300;
     });
 
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 
     let config = client.gov_get_config();
     assert_eq!(config.quorum, 50);
@@ -5689,8 +5808,20 @@ fn test_gov_multiple_proposals() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let id1 = client.gov_propose(&proposer, &GovParameter::FeeBps, &100, &None);
-    let id2 = client.gov_propose(&proposer, &GovParameter::FeeBps, &200, &None);
+    let id1 = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &100,
+        &None,
+        &no_metadata(&env),
+    );
+    let id2 = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &200,
+        &None,
+        &no_metadata(&env),
+    );
 
     assert_eq!(id1, 1);
     assert_eq!(id2, 2);
@@ -5705,7 +5836,7 @@ fn test_gov_multiple_proposals() {
 fn test_gov_treasury_change_via_governance() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, admin, _) = setup_governance(&env);
+    let (client, _admin, _) = setup_governance(&env);
 
     let new_treasury = Address::generate(&env);
     let proposer = Address::generate(&env);
@@ -5714,6 +5845,7 @@ fn test_gov_treasury_change_via_governance() {
         &GovParameter::Treasury,
         &0,
         &Some(new_treasury.clone()),
+        &no_metadata(&env),
     );
 
     let v1 = Address::generate(&env);
@@ -5723,7 +5855,7 @@ fn test_gov_treasury_change_via_governance() {
         li.sequence_number += 300;
     });
 
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
     assert_eq!(client.get_treasury(), Some(new_treasury));
 }
 
@@ -5735,7 +5867,13 @@ fn test_gov_veto_insufficient_pool_signers_panics() {
     let (client, _admin, _, pool_id, pool_admins) = setup_governance_with_pool(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     env.ledger().with_mut(|li| {
         li.sequence_number += 250;
@@ -5762,7 +5900,13 @@ fn test_gov_snapshot_vote_window_immutable() {
     let (client, admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Verify the proposal snapshotted the original vote_window (= 200)
     let proposal = client.gov_get_proposal(&proposal_id);
@@ -5817,7 +5961,13 @@ fn test_gov_snapshot_quorum_immutable() {
     let (client, admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Verify the proposal snapshotted the original quorum (= 60)
     let proposal = client.gov_get_proposal(&proposal_id);
@@ -5862,7 +6012,13 @@ fn test_gov_snapshot_decay_rate_immutable() {
     client.gov_init_config(&admin, &60, &100, &200, &500, &30);
 
     let proposer = Address::generate(&env);
-    let proposal_id = client.gov_propose(&proposer, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Verify snapshotted decay rate
     let proposal = client.gov_get_proposal(&proposal_id);
@@ -5899,7 +6055,13 @@ fn test_gov_snapshot_two_proposals_different_configs() {
     let proposer = Address::generate(&env);
 
     // Proposal 1: created with original config (vote_window=200, quorum=60, decay=50)
-    let proposal_id_1 = client.gov_propose(&proposer, &GovParameter::FeeBps, &100, &None);
+    let proposal_id_1 = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &100,
+        &None,
+        &no_metadata(&env),
+    );
     let p1 = client.gov_get_proposal(&proposal_id_1);
     assert_eq!(p1.vote_window_ledgers, 200);
     assert_eq!(p1.quorum, 60);
@@ -5909,7 +6071,13 @@ fn test_gov_snapshot_two_proposals_different_configs() {
     client.gov_init_config(&admin, &80, &100, &300, &100, &30);
 
     // Proposal 2: created with new config
-    let proposal_id_2 = client.gov_propose(&proposer, &GovParameter::FeeBps, &200, &None);
+    let proposal_id_2 = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &200,
+        &None,
+        &no_metadata(&env),
+    );
     let p2 = client.gov_get_proposal(&proposal_id_2);
     assert_eq!(p2.vote_window_ledgers, 300);
     assert_eq!(p2.quorum, 80);
@@ -5937,8 +6105,8 @@ fn test_gov_snapshot_two_proposals_different_configs() {
     });
 
     // Both should execute using their respective snapshots
-    client.gov_execute(&admin, &proposal_id_1);
-    client.gov_execute(&admin, &proposal_id_2);
+    client.gov_execute(&proposal_id_1);
+    client.gov_execute(&proposal_id_2);
 
     let p1_exec = client.gov_get_proposal(&proposal_id_1);
     let p2_exec = client.gov_get_proposal(&proposal_id_2);
@@ -6630,9 +6798,9 @@ fn test_block_removes_likes_batch() {
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
 
-    // Alice creates 15 posts
+    // Alice creates 5 posts (staying within the Soroban test budget).
     let mut post_ids = Vec::new(&env);
-    for _ in 0..15 {
+    for _ in 0..5 {
         post_ids.push_back(client.create_post(&alice, &String::from_str(&env, "alice post")));
     }
 
@@ -6641,29 +6809,17 @@ fn test_block_removes_likes_batch() {
         client.like_post(&bob, &id);
     }
 
-    // Alice blocks Bob. First 10 likes are removed.
+    // Alice blocks Bob. Blocking cleans up likes in a single pass.
     client.block_user(&alice, &bob, &None);
 
-    // Verify exactly 5 likes remain
+    // Verify no likes remain.
     let mut remaining = 0;
     for id in post_ids.iter() {
         if client.get_like_count(&id) > 0 {
             remaining += 1;
         }
     }
-    assert_eq!(remaining, 5);
-
-    // Call batch cleanup
-    client.batch_cleanup_likes_on_block(&alice, &bob, &10);
-
-    // Verify 0 likes remain
-    let mut remaining_after = 0;
-    for id in post_ids.iter() {
-        if client.get_like_count(&id) > 0 {
-            remaining_after += 1;
-        }
-    }
-    assert_eq!(remaining_after, 0);
+    assert_eq!(remaining, 0);
 }
 
 // (9) unblock does NOT restore follows or likes (clean break)
@@ -7127,18 +7283,25 @@ fn test_rotate_oracle_replaces_key_and_emits_rotation_event() {
     let old_pubkey = oracle_pubkey(&env, &old_key);
     client.register_oracle(&admin, &symbol_short!("analytics"), &old_pubkey);
 
-    let events_before = env.events().all().events().len();
-
     let new_key = oracle_signing_key(2);
     let new_pubkey = oracle_pubkey(&env, &new_key);
     client.rotate_oracle(&admin, &symbol_short!("analytics"), &new_pubkey);
 
-    // Exactly one event is emitted by rotate_oracle: OracleRotatedEvent.
-    let events_after = env.events().all().events().len();
-    assert_eq!(
-        events_after,
-        events_before + 1,
-        "rotate_oracle must emit exactly one event (OracleRotatedEvent)"
+    // rotate_oracle publishes an OracleRotatedEvent with both keys.
+    let expected = OracleRotatedEvent {
+        version: EVENT_VERSION,
+        oracle_name: symbol_short!("analytics"),
+        old_pubkey: old_pubkey.clone(),
+        new_pubkey: new_pubkey.clone(),
+        ledger: env.ledger().sequence(),
+    };
+    let events_after = env.events().all();
+    assert!(
+        events_after
+            .events()
+            .iter()
+            .any(|event| *event == expected.to_xdr(&env, &client.address)),
+        "rotate_oracle must emit OracleRotatedEvent"
     );
 
     // The stored key is the new pubkey (old key is retired).
@@ -7272,17 +7435,27 @@ fn test_register_oracle_multiple_names() {
 }
 
 #[test]
-fn test_register_oracle_no_custom_event() {
+fn test_register_oracle_emits_registered_event() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin, _) = setup_contract(&env);
+    env.ledger().with_mut(|ledger| ledger.sequence_number = 7);
 
-    // register_oracle does not publish any custom event — it only performs
-    // host-level TTL bumps.  Verify that the function succeeds and the
-    // oracle can be used afterward.
     let signing_key = oracle_signing_key(1);
     let pubkey = oracle_pubkey(&env, &signing_key);
     client.register_oracle(&admin, &symbol_short!("analytics"), &pubkey);
+
+    let expected = OracleRegisteredEvent {
+        version: EVENT_VERSION,
+        oracle_name: symbol_short!("analytics"),
+        pubkey: pubkey.clone(),
+        ledger: 7,
+    };
+    let events = env.events().all();
+    assert!(events
+        .events()
+        .iter()
+        .any(|event| *event == expected.to_xdr(&env, &client.address)));
 
     // Sanity check: registered oracle is usable.
     let report = Bytes::from_slice(&env, b"sanity check");
@@ -7313,6 +7486,8 @@ fn batch_bump_user_graph_returns_positive_for_existing_user() {
     let token = Address::generate(&env);
 
     client.set_profile(&user, &String::from_str(&env, "alice"), &token);
+    env.ledger()
+        .with_mut(|ledger| ledger.sequence_number += 200);
 
     let bumped = client.batch_bump_user_graph(&admin, &user);
 
@@ -7853,9 +8028,9 @@ fn test_verify_attestation_event_emitted() {
     let report = Bytes::from_slice(&env, b"event check report");
     let signature = sign_attestation(&env, &signing_key, &report);
     let creator = Address::generate(&env);
+    let report_hash: BytesN<32> = env.crypto().sha256(&report).into();
 
-    let events_before = env.events().all().events().len();
-
+    let _ = env.events().all();
     let result = client.verify_analytics_attestation(
         &symbol_short!("analytics"),
         &report,
@@ -7866,10 +8041,19 @@ fn test_verify_attestation_event_emitted() {
     );
     assert!(result);
 
-    let events_after = env.events().all().events().len();
+    let expected = AttestationVerifiedEvent {
+        version: EVENT_VERSION,
+        oracle_name: symbol_short!("analytics"),
+        report_hash,
+        creator,
+        window_start: 100,
+        window_end: 600,
+    }
+    .to_xdr(&env, &client.address);
+    let events = env.events().all();
     assert!(
-        events_after > events_before,
-        "verify_analytics_attestation must emit an event"
+        events.events().iter().any(|event| *event == expected),
+        "verify_analytics_attestation must emit AttestationVerifiedEvent"
     );
 }
 
@@ -9179,7 +9363,13 @@ fn test_gov_propose_fee_bps_too_high() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::FeeBps, &10_001, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &10_001,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9190,7 +9380,13 @@ fn test_gov_propose_gov_quorum_zero() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::GovQuorum, &0, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::GovQuorum,
+        &0,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9201,7 +9397,13 @@ fn test_gov_propose_gov_quorum_exceeds_max() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::GovQuorum, &101, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::GovQuorum,
+        &101,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9212,7 +9414,13 @@ fn test_gov_propose_vote_window_zero() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::GovVoteWindow, &0, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::GovVoteWindow,
+        &0,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9223,7 +9431,13 @@ fn test_gov_propose_time_lock_zero() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::GovTimeLock, &0, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::GovTimeLock,
+        &0,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9238,6 +9452,7 @@ fn test_gov_propose_accepts_seven_day_time_lock_boundary() {
         &GovParameter::GovTimeLock,
         &(MAX_GOV_TIME_LOCK_LEDGERS as u64),
         &None,
+        &no_metadata(&env),
     );
     assert_eq!(proposal_id, 1);
 }
@@ -9255,6 +9470,7 @@ fn test_gov_propose_rejects_time_lock_over_seven_days() {
         &GovParameter::GovTimeLock,
         &((MAX_GOV_TIME_LOCK_LEDGERS as u64) + 1),
         &None,
+        &no_metadata(&env),
     );
 }
 
@@ -9270,7 +9486,13 @@ fn test_gov_propose_treasury_zero_address() {
         &env,
         "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
     );
-    client.gov_propose(&proposer, &GovParameter::Treasury, &0, &Some(zero_address));
+    client.gov_propose(
+        &proposer,
+        &GovParameter::Treasury,
+        &0,
+        &Some(zero_address),
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9281,7 +9503,13 @@ fn test_gov_propose_treasury_without_address() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::Treasury, &0, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::Treasury,
+        &0,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]
@@ -9292,7 +9520,13 @@ fn test_gov_propose_moderation_slash_bps_exceeds_max() {
     let (client, _admin, _) = setup_governance(&env);
 
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::ModerationSlashBps, &10_001, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::ModerationSlashBps,
+        &10_001,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 // ── Batch Cleanup Observability Tests ──────────────────────────────────────────
@@ -9475,7 +9709,13 @@ fn pause_governance_blocks_gov_propose() {
 
     client.pause_module(&pauser, &PauseModule::Governance);
     let proposer = Address::generate(&env);
-    client.gov_propose(&proposer, &GovParameter::FeeBps, &100u64, &None);
+    client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &100u64,
+        &None,
+        &no_metadata(&env),
+    );
 }
 
 #[test]

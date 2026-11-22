@@ -128,6 +128,33 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "CredentialEpoch"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 535000
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "CredentialRoot"
                   },
                   {
@@ -161,6 +188,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "6565656565656565656565656565656565656565656565656565656565656565"
                   }
                 ]
@@ -189,6 +219,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "6666666666666666666666666666666666666666666666666666666666666666"
@@ -221,6 +254,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "6767676767676767676767676767676767676767676767676767676767676767"
                   }
                 ]
@@ -251,6 +287,9 @@
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
+                    "u32": 1
+                  },
+                  {
                     "bytes": "6868686868686868686868686868686868686868686868686868686868686868"
                   }
                 ]
@@ -279,6 +318,9 @@
                   },
                   {
                     "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  },
+                  {
+                    "u32": 1
                   },
                   {
                     "bytes": "6969696969696969696969696969696969696969696969696969696969696969"
@@ -332,6 +374,14 @@
                           },
                           {
                             "key": {
+                              "symbol": "upgrade_timelock_ledgers"
+                            },
+                            "val": {
+                              "u32": 17280
+                            }
+                          },
+                          {
+                            "key": {
                               "symbol": "version"
                             },
                             "val": {
@@ -359,22 +409,6 @@
                     },
                     {
                       "key": {
-                        "symbol": "MAX_BIO"
-                      },
-                      "val": {
-                        "u32": 500
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "MAX_POST"
-                      },
-                      "val": {
-                        "u32": 280
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "MOD_SL_B"
                       },
                       "val": {
@@ -396,6 +430,14 @@
                             }
                           }
                         ]
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "RPT_EXP"
+                      },
+                      "val": {
+                        "u32": 34560
                       }
                     },
                     {
@@ -510,6 +552,9 @@
             "topics": [
               {
                 "symbol": "credential_verified_event"
+              },
+              {
+                "u32": 1
               },
               {
                 "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
