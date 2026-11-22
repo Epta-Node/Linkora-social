@@ -2092,6 +2092,55 @@ fn test_report_post_dismiss_slashes_reporter() {
 }
 
 #[test]
+fn test_expired_report_is_auto_dismissed_and_emits_reason() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, treasury) = setup_contract(&env);
+    let author = Address::generate(&env);
+    let reporter = Address::generate(&env);
+    let token = setup_token(&env, &reporter);
+    client.set_profile(&author, &String::from_str(&env, "author"), &token);
+    let post_id = client.create_post(&author, &String::from_str(&env, "post to report"));
+
+    client.set_report_expiry_ledgers(&admin, &2);
+    client.report_post(
+        &reporter,
+        &post_id,
+        &token,
+        &500,
+        &BytesN::from_array(&env, &[8u8; 32]),
+    );
+    env.ledger().set_sequence(3);
+
+    let treasury_before = token::Client::new(&env, &token).balance(&treasury);
+    client.dismiss_expired_report(&post_id, &reporter);
+
+    assert_eq!(
+        token::Client::new(&env, &token).balance(&treasury),
+        treasury_before + 500
+    );
+    assert_eq!(
+        client.get_report(&post_id, &reporter).unwrap().status,
+        ReportStatus::Dismissed
+    );
+
+    let expected = ReportDismissedEvent {
+        version: EVENT_VERSION,
+        post_id,
+        reporter,
+        reason: symbol_short!("expired"),
+    };
+    let expected_xdr = expected.to_xdr(&env, &client.address);
+    assert!(
+        env.events()
+            .all()
+            .events()
+            .iter()
+            .any(|event| *event == expected_xdr)
+    );
+}
+
+#[test]
 #[should_panic(expected = "already reported")]
 fn test_report_post_already_reported_panics() {
     let env = Env::default();

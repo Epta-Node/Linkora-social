@@ -168,6 +168,7 @@ export interface ReportDismissedEvent extends BaseLinkoraEvent {
   type: "report_dismissed";
   post_id: bigint;
   reporter: string;
+  reason: string;
 }
 
 export type LinkoraEvent =
@@ -658,6 +659,7 @@ export function parseContractEvent(raw: SorobanEvent, tokenFactoryId?: string): 
           type: eventType,
           post_id: big(payload.post_id),
           reporter: str(payload.reporter),
+          reason: str(payload.reason),
           meta: eventMeta,
         };
       case "post_committed":

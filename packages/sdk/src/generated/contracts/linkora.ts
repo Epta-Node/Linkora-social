@@ -4747,6 +4747,7 @@ export interface ReportDismissedEvent {
   version: number;
   post_id: bigint;
   reporter: string;
+  reason: string;
 }
 
 /** Leading topic(s) identifying `ReportDismissedEvent`. */
@@ -4757,10 +4758,12 @@ export function decodeReportDismissedEvent(
   data: xdr.ScVal
 ): ReportDismissedEvent {
   rt.expectTopics(topics, REPORT_DISMISSED_EVENT_TOPICS, 3, "ReportDismissedEvent");
+  const d = rt.decodeStruct(data, "ReportDismissedEvent");
   return {
     version: rt.decodeU32(rt.item(topics, 1)),
     post_id: rt.decodeU64(rt.item(topics, 2)),
     reporter: rt.decodeAddress(rt.item(topics, 3)),
+    reason: rt.decodeSymbol(rt.field(d, "reason")),
   };
 }
 

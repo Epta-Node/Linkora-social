@@ -14,6 +14,7 @@ This document describes the **component topology** and the **end-to-end data flo
    - [3.3 Tip Flow](#33-tip-flow)
    - [3.4 Follow Flow](#34-follow-flow)
    - [3.5 Pool Deposit / Withdraw Flow](#35-pool-deposit--withdraw-flow)
+   - [3.6 Analytics Oracle Flow](#36-analytics-oracle-flow)
 4. [Error Paths and Retry Logic](#4-error-paths-and-retry-logic)
 5. [Eventual Consistency Guarantees](#5-eventual-consistency-guarantees)
 6. [Authentication](#6-authentication)
@@ -380,6 +381,27 @@ sequenceDiagram
   aggregates by `GET /api/pools/:id/analytics`.
 
 ---
+
+### 3.6 Analytics Oracle Flow
+
+The analytics oracle reads finalized contract events from Soroban RPC, computes
+the attestation payload off-chain, and submits a signed attestation back to the
+Linkora contract. The contract verifies the configured oracle key and stores a
+nullifier for each report hash, preventing the same attestation from being
+accepted twice.
+
+```text
+Soroban RPC events -> analytics-oracle aggregation -> signed report
+        |                                           |
+        +------------> LinkoraContract.attest_with_evidence
+                                      |
+                                      v
+                         stored attestation + event
+```
+
+Attestation submission is separate from user writes: the oracle is the signer,
+while web and mobile clients consume the resulting on-chain event through the
+indexer.
 
 ## 4. Error Paths and Retry Logic
 

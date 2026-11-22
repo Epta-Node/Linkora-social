@@ -117,6 +117,7 @@ The complete, organized documentation index lives at [`docs/INDEX.md`](./docs/IN
 | [Documentation Index](./docs/INDEX.md)                             | Master table of contents for all developer docs                       |
 | [Contract API Reference](./docs/CONTRACT_API.md)                   | Full function reference, storage layout, and event schema             |
 | [SDK Reference](./docs/SDK_REFERENCE.md)                           | Typed TypeScript client, transaction queue, and event API             |
+| [SDK Quickstart](./docs/sdk/QUICKSTART.md)                          | Initialize the client and call profile, post, follow, and tip methods  |
 | [Contract Archival ADR](./docs/adr/ADR-002-tombstone-archival.md)  | Tombstone lifecycle, cleanup permissions, and rent policy             |
 | [System Architecture](./docs/ARCHITECTURE.md)                      | Component overview and data flows                                     |
 | [Design System](./docs/design/README.md)                           | UI/UX specifications and brand identity                               |
