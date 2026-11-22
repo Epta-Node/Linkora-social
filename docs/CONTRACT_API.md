@@ -1,25 +1,107 @@
 # Linkora API Reference
 
-> **Scope note.** This document currently covers **HTTP request authentication** for the
-> indexer's REST API. The Soroban contract function reference, storage layout, and event
-> schema are not here yet — see `packages/contracts` and the README API table in the
-> meantime.
+> **Scope note.** This document covers indexer HTTP authentication and the Soroban contract
+> storage layout. Contract function and event details are documented alongside the contract
+> implementation in `packages/contracts/contracts/linkora-contracts/src/lib.rs`.
 
 ---
 
 ## Table of Contents
 
 1. [Stellar HTTP Authentication (v1)](#1-stellar-http-authentication-v1)
-2. [The Signed Message](#2-the-signed-message)
-3. [Canonical Path](#3-canonical-path)
-4. [Body Hash](#4-body-hash)
-5. [The Authorization Header](#5-the-authorization-header)
-6. [Verification Order and Error Codes](#6-verification-order-and-error-codes)
-7. [Worked Example](#7-worked-example)
-8. [Protected Endpoints](#8-protected-endpoints)
-9. [Known Limitations of v1](#9-known-limitations-of-v1)
+2. [Soroban Storage Layout](#2-soroban-storage-layout)
+3. [The Signed Message](#3-the-signed-message)
+4. [Canonical Path](#4-canonical-path)
+5. [Body Hash](#5-body-hash)
+6. [The Authorization Header](#6-the-authorization-header)
+7. [Verification Order and Error Codes](#7-verification-order-and-error-codes)
+8. [Worked Example](#8-worked-example)
+9. [Protected Endpoints](#9-protected-endpoints)
+10. [Known Limitations of v1](#10-known-limitations-of-v1)
 
 ---
+
+## 2. Soroban Storage Layout
+
+The contract uses typed `StorageKey` values for persistent and temporary domain data. Instance
+storage is reserved for counters, configuration, roles, pause flags, and contract state.
+
+```text
+┌──────────────────────── Instance storage ────────────────────────┐
+│ POST_CT  PROFILE_CREATED_CT  ADMIN  TREASURY  FEE_BPS  INIT     │
+│ TIP_CD_W  R_USERS  RENT_BPS  MOD_SL_B  CT_STATE  ROLES          │
+│ PAUSED  P_MASK  APL_CFG  APL_CT  upgrade state in CT_STATE      │
+└─────────────────────────────────────────────────────────────────┘
+                                   │
+        ┌──────────────────────────┴──────────────────────────┐
+        ▼                                                     ▼
+┌── Persistent Storage ──┐                         ┌─ Temporary Storage ─┐
+│ Post/profile records   │                         │ Tip cooldown ledger │
+│ Governance and appeals │                         │ sequences           │
+│ Social graph/indexes   │                         └─────────────────────┘
+│ Reports, moderation    │
+│ Credentials and DMs    │
+└────────────────────────┘
+```
+
+### 2.1 `StorageKey` variants
+
+| Variant                                  | Key format                                 | Value type                        |
+| ---------------------------------------- | ------------------------------------------ | --------------------------------- |
+| `Post(u64)`                              | `(Post, post_id)`                          | `Post`                            |
+| `Profile(Address)`                       | `(Profile, user)`                          | `Profile`                         |
+| `Following(Address)`                     | `(Following, user)`                        | `Vec<Address>` legacy             |
+| `Followers(Address)`                     | `(Followers, user)`                        | `Vec<Address>` legacy             |
+| `Pool(Symbol)`                           | `(Pool, pool_id)`                          | `Pool`                            |
+| `Like(u64, Address)`                     | `(Like, post_id, user)`                    | `bool`                            |
+| `AuthorPosts(Address)`                   | `(AuthorPosts, author)`                    | `Vec<u64>`                        |
+| `Blocks(Address)`                        | `(Blocks, blocker)`                        | `Map<Address, ()>`                |
+| `UsernameIndex(String)`                  | `(UsernameIndex, username)`                | `Address`                         |
+| `TipCooldown(u64, Address, Address)`     | `(TipCooldown, post_id, tipper, token)`    | `u32` last tip ledger             |
+| `Edge(Address, Address)`                 | `(Edge, follower, followee)`               | `bool`                            |
+| `FollowingCount(Address)`                | `(FollowingCount, user)`                   | `u32`                             |
+| `FollowersCount(Address)`                | `(FollowersCount, user)`                   | `u32`                             |
+| `FollowingIdx(Address, u32)`             | `(FollowingIdx, user, sequence)`           | `Address`                         |
+| `FollowersIdx(Address, u32)`             | `(FollowersIdx, user, sequence)`           | `Address`                         |
+| `FollowingPos(Address, Address)`         | `(FollowingPos, follower, followee)`       | `u32`                             |
+| `FollowersPos(Address, Address)`         | `(FollowersPos, followee, follower)`       | `u32`                             |
+| `GraphMigrated(Address)`                 | `(GraphMigrated, user)`                    | `bool`                            |
+| `DmPublicKey(Address)`                   | `(DmPublicKey, user)`                      | `BytesN<32>` X25519 key           |
+| `CredentialRoot(Address)`                | `(CredentialRoot, user)`                   | `BytesN<32>`                      |
+| `NullifierSet(Address, u32, BytesN<32>)` | `(NullifierSet, user, epoch, nullifier)`   | `bool`                            |
+| `CredentialEpoch(Address)`               | `(CredentialEpoch, user)`                  | `u32`                             |
+| `CredentialAuthority`                    | `(CredentialAuthority)`                    | `BytesN<32>` Ed25519 authority    |
+| `GovProposal(u64)`                       | `(GovProposal, proposal_id)`               | `GovProposal`                     |
+| `GovVote(u64, Address)`                  | `(GovVote, proposal_id, voter)`            | `bool`                            |
+| `GovConfig`                              | `(GovConfig)`                              | `GovConfig`                       |
+| `GovProposalCount`                       | `(GovProposalCount)`                       | `u64`                             |
+| `GovDelegation(Address)`                 | `(GovDelegation, delegator)`               | `Address`                         |
+| `OracleKey(Symbol)`                      | `(OracleKey, oracle_name)`                 | `BytesN<32>` Ed25519 key          |
+| `AttestationNullifier(BytesN<32>)`       | `(AttestationNullifier, report_hash)`      | `bool`                            |
+| `Report(u64, Address)`                   | `(Report, post_id, reporter)`              | `Report`                          |
+| `ReportCount(u64)`                       | `(ReportCount, post_id)`                   | `u32`                             |
+| `ReporterReputation(Address)`            | `(ReporterReputation, reporter)`           | `i32`                             |
+| `DeletedPost(u64)`                       | `(DeletedPost, post_id)`                   | `bool`                            |
+| `DeletedProfile(Address)`                | `(DeletedProfile, user)`                   | `bool`                            |
+| `PostLikersCount(u64)`                   | `(PostLikersCount, post_id)`               | `u32`                             |
+| `PostLikersIdx(u64, u32)`                | `(PostLikersIdx, post_id, sequence)`       | `Address`                         |
+| `PostReportersIdx(u64, u32)`             | `(PostReportersIdx, post_id, sequence)`    | `Address`                         |
+| `PostTipCooldownsCount(u64)`             | `(PostTipCooldownsCount, post_id)`         | `u32`                             |
+| `PostTipCooldownsIdx(u64, u32)`          | `(PostTipCooldownsIdx, post_id, sequence)` | `(Address, Address)` tipper/token |
+| `PostContentHash(u64)`                   | `(PostContentHash, post_id)`               | `BytesN<32>`                      |
+| `CommittedPost(u64)`                     | `(CommittedPost, post_id)`                 | `CommittedPost`                   |
+| `RemovedPost(u64)`                       | `(RemovedPost, post_id)`                   | `Post`                            |
+| `ModerationRecord(u64)`                  | `(ModerationRecord, post_id)`              | `ModerationRecord`                |
+| `Appeal(u64)`                            | `(Appeal, post_id)`                        | `Appeal`                          |
+| `GovAppeal(u64)`                         | `(GovAppeal, appeal_id)`                   | `GovAppeal`                       |
+| `PostGovAppeal(u64)`                     | `(PostGovAppeal, post_id)`                 | `u64` appeal ID                   |
+| `GovAppealVote(u64, Address)`            | `(GovAppealVote, appeal_id, voter)`        | `AppealVote`                      |
+| `ModerationModerator(u64)`               | `(ModerationModerator, post_id)`           | `Address`                         |
+| `ModeratorBond(Address)`                 | `(ModeratorBond, moderator)`               | `ModeratorBond`                   |
+| `ModeratorOpenAppeals(Address)`          | `(ModeratorOpenAppeals, moderator)`        | `u32`                             |
+
+Persistent keys are bumped to `LEDGER_THRESHOLD`/`LEDGER_BUMP` on writes and reads.
+Temporary tip-cooldown keys use the same lifecycle helpers in temporary storage.
 
 ## 1. Stellar HTTP Authentication (v1)
 
@@ -46,7 +128,7 @@ a v2 credential into a v1 one.
 
 ---
 
-## 2. The Signed Message
+## 3. The Signed Message
 
 ```
 v1:{METHOD}:{canonicalPath}:{address}:{timestamp}:{bodyHash}
@@ -56,10 +138,10 @@ v1:{METHOD}:{canonicalPath}:{address}:{timestamp}:{bodyHash}
 | --------------- | -------------------------------------------------------------------------- |
 | `v1`            | Literal version tag.                                                       |
 | `METHOD`        | HTTP method, **upper-cased**: `GET`, `POST`, `PATCH`, `DELETE`.            |
-| `canonicalPath` | Request path after canonicalisation — see [§3](#3-canonical-path).         |
+| `canonicalPath` | Request path after canonicalisation — see [§4](#4-canonical-path).         |
 | `address`       | Signer's Stellar public key (`G…`), exactly as sent in the header payload. |
 | `timestamp`     | Unix epoch in **milliseconds**, as an integer with no separators.          |
-| `bodyHash`      | Lowercase hex SHA-256 of the raw body — see [§4](#4-body-hash).            |
+| `bodyHash`      | Lowercase hex SHA-256 of the raw body — see [§5](#5-body-hash).            |
 
 Fields are joined with a literal `:`. No field is escaped or length-prefixed. A path _can_
 legitimately contain a `:` (`/api/items:batchGet` is a valid URL), so the message is not
@@ -89,7 +171,7 @@ base64-encoded for transport.
 
 ---
 
-## 3. Canonical Path
+## 4. Canonical Path
 
 The server canonicalises `req.originalUrl`, which always carries the **full path including
 any router mount prefix**. Clients must sign the same absolute path.
@@ -122,7 +204,7 @@ Two consequences worth internalising:
 
 ---
 
-## 4. Body Hash
+## 5. Body Hash
 
 `bodyHash` is the lowercase hex SHA-256 of the **exact bytes** sent as the request body.
 
@@ -146,7 +228,7 @@ digest.
 
 ---
 
-## 5. The Authorization Header
+## 6. The Authorization Header
 
 ```
 Authorization: StellarSig <base64(JSON)>
@@ -171,7 +253,7 @@ it. Tampering with either produces a message that no longer verifies.
 
 ---
 
-## 6. Verification Order and Error Codes
+## 7. Verification Order and Error Codes
 
 The server checks in this order and returns on the first failure:
 
@@ -206,7 +288,7 @@ directly into this budget; a client running more than 30 s fast is rejected outr
 
 ---
 
-## 7. Worked Example
+## 8. Worked Example
 
 Every value below is reproducible — the keypair is seeded with 32 bytes of `0x07`.
 
@@ -254,7 +336,7 @@ testing a live endpoint.
 
 ---
 
-## 8. Protected Endpoints
+## 9. Protected Endpoints
 
 | Method | Path                             | Body |
 | ------ | -------------------------------- | ---- |
@@ -268,13 +350,13 @@ All other indexer endpoints are public reads and take no `Authorization` header.
 
 ---
 
-## 9. Known Limitations of v1
+## 10. Known Limitations of v1
 
 The signature covers the method, the canonical path, and the body. Everything else about the
 request — headers, query string, transport — is outside it. Three consequences deserve to be
 stated plainly.
 
-### 9.1 The query string is not signed
+### 10.1 The query string is not signed
 
 Canonicalisation strips everything after `?` before signing, so query parameters are **not**
 authenticated. A credential captured for `/api/posts?limit=10` is equally valid for
@@ -285,7 +367,7 @@ today. That is a property of the current route set, not a guarantee of the schem
 add a query parameter to a protected endpoint** without moving it into the body or extending
 the scheme to `v2`.
 
-### 9.2 There is no nonce — identical replay stays possible
+### 10.2 There is no nonce — identical replay stays possible
 
 The scheme binds a credential to _a_ request shape, not to _one_ delivery of it. Anyone who
 observes a request can resend it byte-for-byte — same method, same path, same body — and it
@@ -297,7 +379,7 @@ the signed message plus server-side storage of spent nonces for at least the tol
 period, which v1 does not have. Until then, TLS is what stands between an observer and a
 replayable credential: **these endpoints must not be served over plaintext HTTP.**
 
-### 9.3 A non-JSON body would go unsigned
+### 10.3 A non-JSON body would go unsigned
 
 The server captures the raw body through `express.json({ verify })`, and body-parser only
 invokes that hook when the request's `Content-Type` is JSON. For any other content type the

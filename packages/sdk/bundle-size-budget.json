@@ -1,4 +1,4 @@
 {
-  "$comment": "Budget for the gzipped size of the SDK's reachable source graph, walked from packages/sdk/src/index.ts (see src/__tests__/bundle-size.test.ts, Epta-Node#1364). Measured at introduction: ~57 KiB. Raise only with justification in the PR.",
-  "budgetKbGzip": 80
+  "$comment": "Budget for the gzipped size of the SDK's reachable source graph, walked from packages/sdk/src/index.ts (see src/__tests__/bundle-size.test.ts, Epta-Node#1364). Measured at introduction: ~57 KiB. Raise only with justification in the PR. Raised to 90 KiB for the multicall batch API (Epta-Node#1767): src/multicall.ts plus the generated multicall bindings and their ScVal runtime add ~7 KiB; the graph was already at ~79.8 KiB.",
+  "budgetKbGzip": 90
 }

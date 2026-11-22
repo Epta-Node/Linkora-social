@@ -28,11 +28,19 @@ import type { RateLimitStoreStatus } from "@linkora/types/src/rate-limit-env";
 import type { BackfillCoordinator, BackfillStatus, BackfillProgress } from "./backfill-coordinator";
 import { getRateLimitStoreStatus } from "../middleware/rateLimit";
 import { streamHealth } from "../metrics";
+import { inspectSchemaVersion, type SchemaVersionStatus } from "../schema-version";
 
 export interface DependencyCheck {
   status: "up" | "down";
   latencyMs: number;
 }
+
+/**
+ * Maximum acceptable latency for a Stellar RPC ping. A ping that takes longer
+ * than this (or never responds at all) marks the dependency — and therefore
+ * the service — as unhealthy.
+ */
+export const STELLAR_RPC_LATENCY_THRESHOLD_MS = 5_000;
 
 export interface EventStreamCheck {
   status: "connected" | "disconnected" | "stopped";
@@ -69,6 +77,7 @@ export interface ReadinessResult {
   degraded: boolean;
   checks: {
     database: DependencyCheck;
+    migrations: SchemaVersionStatus;
     stellar_rpc: DependencyCheck;
     event_stream: EventStreamCheck;
     backfill: BackfillHealthCheck;
@@ -131,20 +140,37 @@ export class HealthMonitor {
     }
   }
 
+  /**
+   * Ping the Stellar RPC on every health check. The measured round-trip is
+   * reported as `latencyMs`, and a ping slower than the 5 s threshold is
+   * treated as a failed dependency even when the request eventually succeeds.
+   */
   private async checkStellarRpc(): Promise<DependencyCheck> {
     const start = Date.now();
     try {
       const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 3000);
+      const timeout = setTimeout(() => ctrl.abort(), STELLAR_RPC_LATENCY_THRESHOLD_MS);
       await fetch(this.rpcUrl, {
         method: "POST",
         signal: ctrl.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getLatestLedger", params: {} }),
       }).finally(() => clearTimeout(timeout));
-      return { status: "up", latencyMs: Date.now() - start };
+      const latencyMs = Date.now() - start;
+      return {
+        status: latencyMs > STELLAR_RPC_LATENCY_THRESHOLD_MS ? "down" : "up",
+        latencyMs,
+      };
     } catch {
       return { status: "down", latencyMs: Date.now() - start };
+    }
+  }
+
+  private async checkMigrations(): Promise<SchemaVersionStatus> {
+    try {
+      return await inspectSchemaVersion(this.db);
+    } catch {
+      return { status: "pending", missingTables: [], missingColumns: [] };
     }
   }
 
@@ -205,6 +231,7 @@ export class HealthMonitor {
         degraded: !rateLimiter.shared,
         checks: {
           database: { status: "down", latencyMs: 0 },
+          migrations: { status: "pending", missingTables: [], missingColumns: [] },
           stellar_rpc: { status: "down", latencyMs: 0 },
           event_stream: {
             status: "stopped",
@@ -225,9 +252,10 @@ export class HealthMonitor {
       };
     }
 
-    const [database, stellar_rpc] = await Promise.all([
+    const [database, stellar_rpc, migrations] = await Promise.all([
       this.checkDatabase(),
       this.checkStellarRpc(),
+      this.checkMigrations(),
     ]);
     const event_stream = this.checkEventStream();
     const backfill = this.checkBackfill();
@@ -239,14 +267,18 @@ export class HealthMonitor {
     const streamHealthy =
       !streamHealth.started || (event_stream.status === "connected" && !event_stream.circuitOpen);
     const ready =
-      database.status === "up" && stellar_rpc.status === "up" && backfillHealthy && streamHealthy;
+      database.status === "up" &&
+      migrations.status === "up" &&
+      stellar_rpc.status === "up" &&
+      backfillHealthy &&
+      streamHealthy;
 
     return {
       ready,
       // An unshared limiter is a real weakness in a scaled deployment, but it
       // is not a reason to pull the pod out of the load balancer.
       degraded: !rateLimiter.shared,
-      checks: { database, stellar_rpc, event_stream, backfill, pool, rateLimiter },
+      checks: { database, migrations, stellar_rpc, event_stream, backfill, pool, rateLimiter },
     };
   }
 }

@@ -53,6 +53,13 @@ import {
 } from "./queue.js";
 import { submitTransaction } from "./submit.js";
 import { mapMultiOperationAuth } from "./multi-operation-auth.js";
+import {
+  type BatchCall,
+  type LinkoraBatchCalls,
+  buildBatchTransaction,
+  encodeBatch,
+  linkoraBatchCalls,
+} from "./multicall.js";
 import { buildBumpSequenceTransaction, buildFeeBumpTransaction } from "./tx-builder.js";
 import { parseContractEvent, type SorobanEvent } from "./events/types.js";
 import {
@@ -199,6 +206,8 @@ export interface ClientConfig {
   networkPassphrase?: string;
   /** Contract ID of the token factory contract */
   tokenFactoryId?: string;
+  /** Contract ID of the `LinkoraMulticall` contract, needed for {@link LinkoraClient.batch}. */
+  multicallContractId?: string;
   /** Connection health-check options */
   healthCheck?: HealthCheckConfig & { autoStart?: boolean };
   /** Timeout in ms for HTTP requests (default 30 000). */
@@ -252,6 +261,7 @@ export interface PoolWithdrawOptions {
 export class LinkoraClient extends GeneratedLinkoraClient {
   public readonly classic: ClassicAccountClient;
   private tokenFactoryId?: string;
+  private readonly _multicallContractId?: string;
   private readonly _rpcUrl: string;
   private readonly _networkPassphrase: string;
   private readonly _contractId: string;
@@ -270,6 +280,7 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     });
     this._contractId = config.contractId;
     this.tokenFactoryId = config.tokenFactoryId;
+    this._multicallContractId = config.multicallContractId;
     this._rpcUrl = config.rpcUrl;
     this._networkPassphrase = config.networkPassphrase || DEFAULT_NETWORK;
     this._timeoutMs = config.timeoutMs ?? 30_000;
@@ -714,6 +725,76 @@ export class LinkoraClient extends GeneratedLinkoraClient {
     }
 
     return readyBuilder.build() as Transaction;
+  }
+
+  // ── Atomic batches (multicall, Epta-Node#1767) ───────────────────────────
+
+  /**
+   * Builders for the Linkora calls a batch can contain, bound to this
+   * client's contract.
+   *
+   * @example
+   * ```ts
+   * const { follow, tip } = client.calls;
+   * const xdr = await client.prepareBatchTx(me, [follow(me, creator), tip(me, 7n, usdc, 50n)]);
+   * ```
+   */
+  get calls(): LinkoraBatchCalls {
+    return linkoraBatchCalls(this._contractId);
+  }
+
+  private requireMulticallId(): string {
+    if (!this._multicallContractId) {
+      throw new InvalidInputError(
+        "multicallContractId is not configured; pass it to the LinkoraClient constructor."
+      );
+    }
+    return this._multicallContractId;
+  }
+
+  /**
+   * Run several calls as one atomic transaction via the multicall contract:
+   * one signature, and if any call fails none of them take effect.
+   *
+   * @param caller The account that authorizes the batch (and every call in it).
+   * @param calls Up to 16 calls, e.g. from {@link LinkoraClient.calls}.
+   * @returns A base64-encoded transaction XDR built with a throwaway keypair (not directly submittable).
+   */
+  batch(caller: string, calls: BatchCall[]): string {
+    const source = new Account(Keypair.random().publicKey(), "0");
+    return buildBatchTransaction({
+      multicallContractId: this.requireMulticallId(),
+      caller,
+      calls,
+      source,
+      networkPassphrase: this._networkPassphrase,
+      timeoutSeconds: DEFAULT_TIMEOUT,
+    })
+      .toEnvelope()
+      .toXDR("base64");
+  }
+
+  /**
+   * Build a submittable, simulated batch transaction with `caller` as the
+   * source account. Simulation records the authorization tree covering every
+   * call, so the wallet signs once.
+   *
+   * @param caller The account that authorizes and pays for the batch.
+   * @param calls Up to 16 calls, e.g. from {@link LinkoraClient.calls}.
+   * @param horizonUrl Optional Horizon URL to use. Defaults based on the network passphrase.
+   * @returns The base64-encoded transaction envelope XDR ready for wallet signing.
+   */
+  async prepareBatchTx(caller: string, calls: BatchCall[], horizonUrl?: string): Promise<string> {
+    const multicallId = this.requireMulticallId();
+    const args = encodeBatch(caller, calls);
+    const sourceAccount = await this.getAccountForTx(caller, horizonUrl);
+    const tx = await this.prepareTransactionOnContract(
+      "execute",
+      multicallId,
+      sourceAccount,
+      ...args
+    );
+    return tx.toEnvelope().toXDR("base64");
   }
 
   // TODO(#1044): Add pagination support (cursor, limit params) to event fetching methods

@@ -37,6 +37,12 @@ export interface AdminRouterDeps {
   invalidateCache: (fingerprint: string) => void;
   /** Whether the signer identity is published on-chain (used for audit). */
   isReady: () => boolean;
+  /** Submit a manually requested creator attestation and return its tx hash. */
+  submitManualAttestation?: (
+    creator: string,
+    windowStart: bigint,
+    windowEnd: bigint
+  ) => Promise<string>;
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -49,22 +55,27 @@ function safeEqual(a: string, b: string): boolean {
 export function createAdminRouter(deps: AdminRouterDeps): Router {
   const router = Router();
 
-  router.post("/rotate-key", (req: Request, res: Response) => {
+  function isAdmin(req: Request, res: Response): boolean {
     const secret = process.env["ADMIN_SECRET"];
     if (!secret || secret.length === 0) {
       logger.error({ path: req.path }, "Admin route disabled: ADMIN_SECRET not set");
       res.status(500).json({
         error: { code: "ADMIN_DISABLED", message: "Admin routes are not configured" },
       });
-      return;
+      return false;
     }
 
     const auth = req.header("authorization") ?? "";
     const [scheme, token] = auth.split(" ");
     if (scheme !== "Bearer" || !token || !safeEqual(token, secret)) {
       res.status(401).json({ error: { code: "UNAUTHORIZED", message: "Unauthorized" } });
-      return;
+      return false;
     }
+    return true;
+  }
+
+  router.post("/rotate-key", (req: Request, res: Response) => {
+    if (!isAdmin(req, res)) return;
 
     const oldFingerprint = deps.signer.fingerprint();
 
@@ -147,6 +158,66 @@ export function createAdminRouter(deps: AdminRouterDeps): Router {
       logger.error({ err }, "Key rotation failed to activate key");
       res.status(500).json({
         error: { code: "KEY_ROTATE_FAILED", message: "Failed to activate new key" },
+      });
+    }
+  });
+
+  router.post("/attest", async (req: Request, res: Response) => {
+    if (!isAdmin(req, res)) return;
+    if (!deps.submitManualAttestation) {
+      res.status(503).json({
+        error: { code: "ATTESTATION_UNAVAILABLE", message: "Manual attestation is unavailable" },
+      });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown> | undefined;
+    const creator = body?.creator;
+    const start = body?.windowStart;
+    const end = body?.windowEnd;
+    if (
+      typeof creator !== "string" ||
+      !/^G[A-Z2-7]{55}$/.test(creator) ||
+      typeof start !== "string" ||
+      !/^\d+$/.test(start) ||
+      typeof end !== "string" ||
+      !/^\d+$/.test(end)
+    ) {
+      res.status(400).json({
+        error: {
+          code: "INVALID_REQUEST",
+          message: "Expected creator, windowStart, and windowEnd (decimal ledger strings)",
+        },
+      });
+      return;
+    }
+
+    const windowStart = BigInt(start);
+    const windowEnd = BigInt(end);
+    if (windowEnd < windowStart) {
+      res
+        .status(400)
+        .json({ error: { code: "INVALID_REQUEST", message: "Invalid ledger window" } });
+      return;
+    }
+
+    try {
+      const txHash = await deps.submitManualAttestation(creator, windowStart, windowEnd);
+      res.json({ txHash });
+    } catch (err) {
+      logger.error(
+        { creator, windowStart: start, windowEnd: end, err },
+        "Manual attestation failed"
+      );
+      const status = (err as { code?: unknown })?.code === "CREATOR_NOT_FOUND" ? 404 : 502;
+      res.status(status).json({
+        error: {
+          code: status === 404 ? "CREATOR_NOT_FOUND" : "ATTESTATION_SUBMISSION_FAILED",
+          message:
+            status === 404
+              ? "No analytics found for this creator and window"
+              : "Attestation submission failed",
+        },
       });
     }
   });

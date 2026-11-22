@@ -137,17 +137,17 @@ const styles: Record<string, CSSProperties> = {
   info: {
     background: "var(--color-info-light)",
     borderColor: "var(--color-info)",
-    color: "#1e40af",
+    color: "var(--color-info-text)",
   },
   success: {
     background: "var(--color-success-light)",
     borderColor: "var(--color-success)",
-    color: "#065f46",
+    color: "var(--color-success-text)",
   },
   errorBanner: {
     background: "var(--color-error-light)",
     borderColor: "var(--color-error)",
-    color: "#991b1b",
+    color: "var(--color-error-text)",
   },
   icon: {
     fontSize: "1.1rem",

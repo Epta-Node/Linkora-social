@@ -976,7 +976,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "linkora-multicall"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
 name = "linkora-referral"
+version = "0.1.0"
+dependencies = [
+ "soroban-sdk",
+]
+
+[[package]]
+name = "linkora-vesting"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "soroban-sdk",
+]
+
+[[package]]
+name = "linkora-wasm-tests"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",

@@ -14,6 +14,7 @@ import { useRouter } from "expo-router";
 import { useLike } from "../hooks/useLike";
 import { useTheme } from "../theme/useTheme";
 import { impact } from "../utils/haptics";
+import { useHapticSettings } from "../hooks/useHapticSettings";
 import { PostCardSkeleton as SharedPostCardSkeleton } from "./skeletons/PostCardSkeleton";
 
 export { SharedPostCardSkeleton as PostCardSkeleton };
@@ -98,7 +99,9 @@ export function PostCard(props: PostCardProps) {
   const { post, timeLabel } = normalizePost(props);
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => undefined);
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setReduceMotion)
+      .catch(() => undefined);
   }, []);
   const onPress =
     props.onPress ?? (() => router.push(`/post/${post.id}` as Parameters<typeof router.push>[0]));
@@ -108,6 +111,7 @@ export function PostCard(props: PostCardProps) {
     initialLikeCount: post.like_count,
   });
 
+  const { hapticsEnabled } = useHapticSettings();
   const styles = useMemo(() => createStyles(theme), [theme]);
 
   if ("isLoading" in props && props.isLoading) {
@@ -122,7 +126,8 @@ export function PostCard(props: PostCardProps) {
     if (event && typeof event.stopPropagation === "function") {
       event.stopPropagation();
     }
-    void impact("medium");
+    // ImpactFeedbackStyle.Light on like tap — gated by user haptic preference.
+    if (hapticsEnabled) void impact("light");
     void like();
   };
 
@@ -134,13 +139,25 @@ export function PostCard(props: PostCardProps) {
       accessibilityLabel={`Post by ${post.username}`}
     >
       <View style={styles.header}>
-        <Pressable onPress={() => router.push(`/profile/${post.author}` as Parameters<typeof router.push>[0])} accessibilityRole="button" accessibilityLabel={`Open ${post.username}'s profile`}>
-        <Animated.View style={styles.avatar} sharedTransitionTag={reduceMotion ? undefined : `avatar-${post.author}`}>
-          <Text style={styles.avatarText}>{post.username.charAt(0).toUpperCase()}</Text>
-        </Animated.View>
+        <Pressable
+          onPress={() =>
+            router.push(`/profile/${post.author}` as Parameters<typeof router.push>[0])
+          }
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${post.username}'s profile`}
+        >
+          <Animated.View
+            style={styles.avatar}
+            sharedTransitionTag={reduceMotion ? undefined : `avatar-${post.author}`}
+          >
+            <Text style={styles.avatarText}>{post.username.charAt(0).toUpperCase()}</Text>
+          </Animated.View>
         </Pressable>
         <View style={styles.meta}>
-          <Animated.Text style={styles.username} sharedTransitionTag={reduceMotion ? undefined : `username-${post.author}`}>
+          <Animated.Text
+            style={styles.username}
+            sharedTransitionTag={reduceMotion ? undefined : `username-${post.author}`}
+          >
             {post.username}
           </Animated.Text>
           <Text style={styles.address}>{shortAddress(post.author)}</Text>

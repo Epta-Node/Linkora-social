@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const MAX_CONTENT_LENGTH = 280;
-const WARNING_THRESHOLD = 260;
+const WARNING_THRESHOLD = Math.floor(MAX_CONTENT_LENGTH * 0.8);
 
 interface User {
   id: string;
@@ -52,7 +52,8 @@ export function RichTextComposer({
   const mentionDropdownRef = useRef<HTMLDivElement>(null);
 
   const charCount = content.length;
-  const isNearLimit = charCount >= WARNING_THRESHOLD && charCount <= MAX_CONTENT_LENGTH;
+  const isNearLimit = charCount >= WARNING_THRESHOLD && charCount < MAX_CONTENT_LENGTH;
+  const isAtOrOverLimit = charCount >= MAX_CONTENT_LENGTH;
   const isOverLimit = charCount > MAX_CONTENT_LENGTH;
   const isEmpty = content.trim().length === 0;
   const isDisabled = isEmpty || isOverLimit || disabled || isSubmitting;
@@ -92,24 +93,21 @@ export function RichTextComposer({
   // Handle content changes with mention/hashtag detection
   const handleContentChange = useCallback((e: React.FormEvent<HTMLDivElement>) => {
     const newContent = e.currentTarget.innerText ?? e.currentTarget.textContent ?? "";
+    setContent(newContent);
 
-    if (newContent.length <= MAX_CONTENT_LENGTH) {
-      setContent(newContent);
+    // Detect @mention
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const textBeforeCursor = newContent.substring(0, range.startOffset);
 
-      // Detect @mention
-      const selection = window.getSelection();
-      if (selection && selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0);
-        const textBeforeCursor = newContent.substring(0, range.startOffset);
-
-        const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
-        if (mentionMatch) {
-          setMentionQuery(mentionMatch[1]);
-          setMentionIndex(0);
-        } else {
-          setShowMentionDropdown(false);
-          setMentionQuery("");
-        }
+      const mentionMatch = textBeforeCursor.match(/@(\w*)$/);
+      if (mentionMatch) {
+        setMentionQuery(mentionMatch[1]);
+        setMentionIndex(0);
+      } else {
+        setShowMentionDropdown(false);
+        setMentionQuery("");
       }
     }
   }, []);
@@ -223,23 +221,28 @@ export function RichTextComposer({
 
   // Escape HTML metacharacters so user-typed text can never be interpreted as
   // markup when injected via dangerouslySetInnerHTML.
-  const escapeHtml = useCallback((raw: string) =>
-    raw
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#x27;"),
-  []);
+  const escapeHtml = useCallback(
+    (raw: string) =>
+      raw
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#x27;"),
+    []
+  );
 
   // Format content with highlights — text is escaped first so that mention
   // and hashtag spans are the only markup ever injected.
-  const formatContent = useCallback((text: string) => {
-    const escaped = escapeHtml(text);
-    let formatted = escaped.replace(/@(\w+)/g, '<span class="mention-highlight">@$1</span>');
-    formatted = formatted.replace(/#(\w+)/g, '<span class="hashtag-highlight">#$1</span>');
-    return formatted;
-  }, [escapeHtml]);
+  const formatContent = useCallback(
+    (text: string) => {
+      const escaped = escapeHtml(text);
+      let formatted = escaped.replace(/@(\w+)/g, '<span class="mention-highlight">@$1</span>');
+      formatted = formatted.replace(/#(\w+)/g, '<span class="hashtag-highlight">#$1</span>');
+      return formatted;
+    },
+    [escapeHtml]
+  );
 
   // Handle submit
   const handleSubmit = useCallback(async () => {
@@ -443,7 +446,8 @@ export function RichTextComposer({
       <div className="composer-footer">
         {/* Character Counter */}
         <div
-          className={`char-counter ${isNearLimit ? "warning" : ""} ${isOverLimit ? "error" : ""}`}
+          className={`char-counter ${isAtOrOverLimit ? "error" : isNearLimit ? "warning" : "ok"}`}
+          data-status={isAtOrOverLimit ? "limit" : isNearLimit ? "warning" : "ok"}
         >
           {charCount}/{MAX_CONTENT_LENGTH}
         </div>
@@ -751,15 +755,19 @@ export function RichTextComposer({
         .char-counter {
           font-family: monospace;
           font-size: 0.85rem;
-          color: var(--color-text-secondary);
+          color: #22c55e;
+        }
+
+        .char-counter.ok {
+          color: #22c55e;
         }
 
         .char-counter.warning {
-          color: var(--color-warning);
+          color: var(--color-warning, #eab308);
         }
 
         .char-counter.error {
-          color: var(--color-error);
+          color: var(--color-error, #ef4444);
         }
 
         .composer-actions {

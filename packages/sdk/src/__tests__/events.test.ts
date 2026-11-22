@@ -399,12 +399,25 @@ describe("parseContractEvent", () => {
       ],
       ["PostReportedEvent", { post_id: 1, reporter: "GA", stake_amount: "5" }],
       ["PostRemovedByModerationEvent", { post_id: 1, reporter: "GA" }],
-      ["ReportDismissedEvent", { post_id: 1, reporter: "GA" }],
+      ["ReportDismissedEvent", { post_id: 1, reporter: "GA", reason: "reviewed" }],
     ];
 
     for (const [name, data] of fixtures) {
       expect(parseContractEvent(rawEvent({ topics: [enc(name)], data: enc(data) }))).not.toBeNull();
     }
+  });
+
+  it("decodes both threshold values from PoolThresholdUpdatedEvent", () => {
+    const evt = parseContractEvent(
+      rawEvent({
+        topics: [enc("pool_threshold_updated")],
+        data: enc({ pool_id: "pool", old_threshold: 2, new_threshold: 1 }),
+      })
+    ) as Extract<LinkoraEvent, { type: "pool_threshold_updated" }>;
+
+    expect(evt).not.toBeNull();
+    expect(evt.old_threshold).toBe(2);
+    expect(evt.new_threshold).toBe(1);
   });
 
   // ── Acceptance criterion: null for unknown / malformed events ────────────
@@ -963,6 +976,30 @@ describe("CursorStore backends", () => {
       await store.set("lc-cursor");
       expect(mockLS.store["tk"]).toBe("lc-cursor");
       expect(await store.get()).toBe("lc-cursor");
+    });
+
+    it("falls back to memory and warns when localStorage quota is exceeded", async () => {
+      const store = new LocalStorageCursorStore("tk");
+      const warning = jest.spyOn(console, "warn").mockImplementation(() => {});
+      mockLS.store["tk"] = "saved-before-quota";
+      mockLS.setItem.mockImplementation(() => {
+        throw new DOMException("Storage full", "QuotaExceededError");
+      });
+
+      try {
+        await store.set("memory-cursor");
+        expect(warning).toHaveBeenCalledWith(
+          expect.stringContaining("falling back to an in-memory event cursor")
+        );
+        expect(await store.get()).toBe("memory-cursor");
+
+        await store.set("next-memory-cursor");
+        expect(await store.get()).toBe("next-memory-cursor");
+        await store.clear();
+        expect(await store.get()).toBeUndefined();
+      } finally {
+        warning.mockRestore();
+      }
     });
 
     it("clear() removes the key", async () => {

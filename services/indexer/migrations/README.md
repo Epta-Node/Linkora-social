@@ -26,7 +26,7 @@ Why it is hard rather than a convention:
 - Apply order is derived from the filename
   (`migrate.sh` and the test harness glob `*.sql` and sort them). Two files
   sharing a prefix (`006_a.sql`, `006_b.sql`) silently hand ordering to the
-  shell's sort collation, so a future `009_thing.sql` can be applied *before*
+  shell's sort collation, so a future `009_thing.sql` can be applied _before_
   the `009_dependency.sql` it needs. The failure surfaces as a
   missing-relation error against a partially migrated production database.
 - Renaming a file to "fix" its position silently changes what runs when.
@@ -191,18 +191,18 @@ The `RawEventsRetentionManager` (`src/retention.ts`) runs on a configurable
 1. Creates the next partition bucket (one bucket ahead of the current cursor),
    so new writes never fall into the default partition.
 2. Drops any partition whose **entire ledger range** is older than
-   `RAW_EVENTS_RETENTION_LEDGERS` **and** whose every row has been processed
+   `RAW_EVENTS_RETENTION_DAYS` **and** whose every row has been processed
    (`processed_at IS NOT NULL`). Partitions with unprocessed rows are logged
    as warnings and skipped.
 
 Relevant environment variables (all optional):
 
-| Variable                       | Default     | Description                                        |
-| ------------------------------ | ----------- | -------------------------------------------------- |
-| `RAW_EVENTS_RETENTION_LEDGERS` | `4000000`   | Ledgers to keep (≈ 231 days at mainnet cadence).   |
-| `RAW_EVENTS_PARTITION_SIZE`    | `1000000`   | Ledger range per bucket. Must match migration 017. |
-| `RAW_EVENTS_ARCHIVE_ONLY`      | `false`     | Set `true` to detach but not drop old partitions.  |
-| `RAW_EVENTS_RETENTION_CRON`    | `5 * * * *` | cron schedule for the retention job.               |
+| Variable                    | Default     | Description                                         |
+| --------------------------- | ----------- | --------------------------------------------------- |
+| `RAW_EVENTS_RETENTION_DAYS` | `7`         | Days to keep (converted to 17,280 ledgers per day). |
+| `RAW_EVENTS_PARTITION_SIZE` | `1000000`   | Ledger range per bucket. Must match migration 017.  |
+| `RAW_EVENTS_ARCHIVE_ONLY`   | `false`     | Set `true` to detach but not drop old partitions.   |
+| `RAW_EVENTS_RETENTION_CRON` | `5 * * * *` | cron schedule for the retention job.                |
 
 ---
 
@@ -228,3 +228,62 @@ review the diff before committing:
 ```bash
 bash tests/migrations/update-schema-snapshot.sh
 ```
+
+## Authoring examples
+
+### Up migration
+
+Use the next unused three-digit prefix and make the change additive and
+idempotent:
+
+```sql
+-- 026_post_labels.sql
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS label text;
+CREATE INDEX IF NOT EXISTS idx_posts_label ON posts (label);
+```
+
+Do not put an index definition inside `CREATE TABLE`; PostgreSQL migrations
+declare it as a separate statement.
+
+### Down / rollback migration
+
+This repository intentionally has no routine down migrations. Rollback means
+deploying the previous application version while retaining the additive schema.
+If a future destructive change genuinely needs a down script, document the
+data-loss risk and ship it as a clearly paired file after review:
+
+```sql
+-- 027_example_down.sql (only for an approved destructive change)
+-- Verify a backup and maintenance window before running this manually.
+ALTER TABLE posts DROP COLUMN IF EXISTS label;
+```
+
+Never add a down script merely to make a migration look reversible; dropping
+data is not a safe deployment rollback.
+
+### Test locally
+
+From the repository root, run the disposable PostgreSQL harness:
+
+```bash
+bash tests/migrations/test-migrations.sh
+```
+
+It applies every migration twice, compares the result with
+`tests/migrations/expected-schema.sql`, checks structural invariants, and
+verifies seeded rows survive. After an intentional schema change, refresh the
+snapshot only after reviewing the diff:
+
+```bash
+bash tests/migrations/update-schema-snapshot.sh
+```
+
+### Common pitfalls
+
+- Reusing a migration prefix or omitting zero padding changes apply order.
+- Using `DROP`, narrowing a column, or rewriting data breaks the roll-forward
+  recovery model.
+- Forgetting `IF NOT EXISTS` makes the second harness run fail.
+- Adding a foreign key to a non-unique target column fails in PostgreSQL.
+- Changing a partitioned table without checking existing partitions can route
+  writes to the default partition unexpectedly.

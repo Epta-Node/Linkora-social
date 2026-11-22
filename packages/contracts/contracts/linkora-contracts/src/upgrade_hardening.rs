@@ -6,7 +6,7 @@
 use crate::*;
 
 const UPGRADE_PROPOSAL: Symbol = symbol_short!("UPG_PROP");
-const UPGRADE_TIMELOCK_LEDGERS: u32 = 17_280; // ~1 day at 5s/ledger
+const UPGRADE_TIMELOCK_LEDGERS: u32 = DEFAULT_UPGRADE_TIMELOCK_LEDGERS;
 
 #[contracttype]
 #[derive(Clone)]
@@ -38,15 +38,18 @@ pub struct UpgradeExecutedEvent {
 
 impl LinkoraContract {
     /// Propose an upgrade with a specific Wasm hash
-    /// 
+    ///
     /// Pins the hash at proposal time and starts the timelock.
     /// Re-proposing with a different hash restarts the timelock.
     pub fn propose_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
-        Self::require_admin(&env, &admin);
+        Self::bump_instance(&env);
         admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
 
         let current_ledger = env.ledger().sequence();
-        let execute_after = current_ledger + UPGRADE_TIMELOCK_LEDGERS;
+        let timelock = Self::get_upgrade_timelock(env.clone());
+        let execute_after = current_ledger + timelock;
 
         let proposal = UpgradeProposal {
             new_wasm_hash: new_wasm_hash.clone(),
@@ -68,15 +71,17 @@ impl LinkoraContract {
     }
 
     /// Execute the upgrade, requiring exact hash match with proposal
-    /// 
+    ///
     /// Enforces:
     /// - Timelock has passed
     /// - Provided hash exactly matches proposed hash
     /// - Proposal exists
     /// - Can only be executed once per proposal
     pub fn execute_upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
-        Self::require_admin(&env, &admin);
+        Self::bump_instance(&env);
         admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
 
         // Get the proposal
         let proposal: UpgradeProposal = env
@@ -92,14 +97,16 @@ impl LinkoraContract {
 
         // Verify timelock has passed
         let current_ledger = env.ledger().sequence();
-        let execute_after = proposal.proposed_at_ledger + UPGRADE_TIMELOCK_LEDGERS;
+        let timelock = Self::get_upgrade_timelock(env.clone());
+        let execute_after = proposal.proposed_at_ledger + timelock;
 
         if current_ledger < execute_after {
             panic!("upgrade timelock has not passed");
         }
 
         // Execute the upgrade
-        env.deployer().update_current_contract_wasm(new_wasm_hash.clone());
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
 
         // Remove the proposal to prevent re-execution
         env.storage().instance().remove(&UPGRADE_PROPOSAL);
@@ -121,8 +128,10 @@ impl LinkoraContract {
 
     /// Cancel pending upgrade proposal (admin only)
     pub fn cancel_upgrade(env: Env, admin: Address) {
-        Self::require_admin(&env, &admin);
+        Self::bump_instance(&env);
         admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
 
         if !env.storage().instance().has(&UPGRADE_PROPOSAL) {
             panic!("no upgrade proposal to cancel");
@@ -133,9 +142,14 @@ impl LinkoraContract {
 
     /// Check if upgrade is ready to execute
     pub fn is_upgrade_ready(env: Env) -> bool {
-        if let Some(proposal) = env.storage().instance().get::<_, UpgradeProposal>(&UPGRADE_PROPOSAL) {
+        if let Some(proposal) = env
+            .storage()
+            .instance()
+            .get::<_, UpgradeProposal>(&UPGRADE_PROPOSAL)
+        {
             let current_ledger = env.ledger().sequence();
-            let execute_after = proposal.proposed_at_ledger + UPGRADE_TIMELOCK_LEDGERS;
+            let timelock = Self::get_upgrade_timelock(env.clone());
+            let execute_after = proposal.proposed_at_ledger + timelock;
             current_ledger >= execute_after
         } else {
             false

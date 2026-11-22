@@ -10,7 +10,8 @@
  *   ✓ Memory usage is stable (size never exceeds maxSize)
  */
 
-import { AttestationCache } from "../attestation-cache.js";
+import { AttestationCache, DEFAULT_CACHE_STATS_INTERVAL_MS } from "../attestation-cache.js";
+import { logger } from "../logger.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -331,5 +332,75 @@ describe("AttestationCache — invalidation", () => {
     c.set("creatorA", "current");
     expect(c.get("creatorA")).toBe("current");
     expect(c.size).toBe(1);
+  });
+});
+
+// ── Periodic stats logging (issue #1882) ─────────────────────────────────────
+
+describe("AttestationCache — stats logging and eviction reporting", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("logs the hit/miss ratio and the evictions of each interval", () => {
+    const infoSpy = jest.spyOn(logger, "info").mockImplementation((() => undefined) as never);
+    const c = new AttestationCache<string>({ maxSize: 2, ttlMs: 0, statsIntervalMs: 0 });
+
+    c.set("a", "1");
+    expect(c.get("a")).toBe("1"); // hit
+    expect(c.get("missing")).toBeUndefined(); // miss
+    c.set("b", "2");
+    c.set("c", "3"); // LRU eviction of "a"
+
+    const snapshot = c.logStats();
+    expect(snapshot).toMatchObject({ hits: 1, misses: 1, evictions: 1, size: 2, maxSize: 2 });
+    expect(snapshot.hitRatio).toBeCloseTo(0.5);
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ hits: 1, misses: 1, evictions: 1 }),
+      "Attestation cache stats"
+    );
+
+    // Per-interval counters reset; cumulative getStats() totals are preserved.
+    expect(c.logStats()).toMatchObject({ hits: 0, misses: 0, evictions: 0 });
+    expect(c.getStats()).toMatchObject({ hits: 1, misses: 1, evictions: 1 });
+    c.stopStatsLogging();
+  });
+
+  it("logs automatically every 5 minutes by default", () => {
+    jest.useFakeTimers();
+    const infoSpy = jest.spyOn(logger, "info").mockImplementation((() => undefined) as never);
+    const c = makeCache(10);
+
+    try {
+      jest.advanceTimersByTime(DEFAULT_CACHE_STATS_INTERVAL_MS);
+      expect(infoSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ hitRatio: 0, evictions: 0 }),
+        "Attestation cache stats"
+      );
+    } finally {
+      c.stopStatsLogging();
+      jest.useRealTimers();
+    }
+  });
+
+  it("keeps the cache bounded while logging multiple eviction intervals", () => {
+    const infoSpy = jest.spyOn(logger, "info").mockImplementation((() => undefined) as never);
+    const c = new AttestationCache<string>({ maxSize: 3, ttlMs: 0, statsIntervalMs: 0 });
+
+    let evictions = 0;
+    for (let i = 0; i < 10; i++) {
+      c.set(`key-${i}`, `value-${i}`);
+      expect(c.size).toBeLessThanOrEqual(3);
+    }
+    evictions += c.logStats().evictions;
+
+    c.set("key-10", "value-10");
+    evictions += c.logStats().evictions;
+
+    expect(evictions).toBe(8); // 10 inserts into a size-3 cache, then one more
+    expect(c.size).toBe(3);
+    expect(c.getStats().evictions).toBe(8);
+    expect(infoSpy).toHaveBeenCalledTimes(2);
+    c.stopStatsLogging();
   });
 });

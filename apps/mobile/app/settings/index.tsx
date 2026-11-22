@@ -5,6 +5,11 @@ import { useRouter } from "expo-router";
 
 import { useNetwork } from "../../hooks/useNetwork";
 import { useTheme } from "../../theme/useTheme";
+import {
+  clearCustomIndexerUrl,
+  loadCustomIndexerUrl,
+  saveCustomIndexerUrl,
+} from "../../utils/indexerConfig";
 
 export default function SettingsScreen(): JSXIElement {
   const router = useRouter();
@@ -20,12 +25,51 @@ export default function SettingsScreen(): JSXIElement {
     resetSettings,
   } = useNetwork();
   const [draftRpcUrl, setDraftRpcUrl] = React.useState(rpcUrl);
+  const [draftIndexerUrl, setDraftIndexerUrl] = React.useState("");
   const [message, setMessage] = React.useState<string | null>(null);
   const { theme, preference, setPreference } = useTheme();
 
   React.useEffect(() => {
     setDraftRpcUrl(rpcUrl);
   }, [rpcUrl]);
+
+  React.useEffect(() => {
+    let active = true;
+    loadCustomIndexerUrl()
+      .then((saved) => {
+        if (active && saved) setDraftIndexerUrl(saved);
+      })
+      .catch(() => {
+        // ignore initial load failures
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleSaveIndexerUrl = async () => {
+    setMessage(null);
+    try {
+      const saved = await saveCustomIndexerUrl(draftIndexerUrl);
+      setDraftIndexerUrl(saved);
+      setMessage("Custom indexer URL saved.");
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Invalid indexer URL.";
+      Alert.alert("Invalid indexer URL", text);
+    }
+  };
+
+  const handleResetIndexerUrl = async () => {
+    setMessage(null);
+    try {
+      await clearCustomIndexerUrl();
+      setDraftIndexerUrl("");
+      setMessage("Indexer URL restored to default.");
+    } catch (err) {
+      const text = err instanceof Error ? err.message : "Could not reset the indexer URL.";
+      Alert.alert("Reset failed", text);
+    }
+  };
 
   const handleSaveRpc = async () => {
     setMessage(null);
@@ -168,6 +212,39 @@ export default function SettingsScreen(): JSXIElement {
             accessibilityLabel="Save RPC endpoint"
           >
             <Text style={styles.primaryButtonText}>Save RPC</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionLabel}>Indexer URL</Text>
+        <TextInput
+          value={draftIndexerUrl}
+          onChangeText={setDraftIndexerUrl}
+          placeholder="https://indexer.example.com"
+          placeholderTextColor="#64748b"
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="url"
+          style={styles.input}
+          accessibilityLabel="Custom indexer URL"
+        />
+        <View style={styles.buttonRow}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={handleResetIndexerUrl}
+            accessibilityRole="button"
+            accessibilityLabel="Reset indexer URL to default"
+          >
+            <Text style={styles.secondaryButtonText}>Reset default</Text>
+          </Pressable>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={handleSaveIndexerUrl}
+            accessibilityRole="button"
+            accessibilityLabel="Save indexer URL"
+          >
+            <Text style={styles.primaryButtonText}>Save Indexer</Text>
           </Pressable>
         </View>
       </View>

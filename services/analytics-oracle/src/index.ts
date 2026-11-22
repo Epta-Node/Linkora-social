@@ -53,6 +53,11 @@ const ATTESTATION_CACHE_TTL_MS = (() => {
   if (isNaN(val)) throw new Error("ATTESTATION_CACHE_TTL_MS must be a valid number");
   return val;
 })();
+const ATTESTATION_CACHE_STATS_INTERVAL_MS = (() => {
+  const val = parseInt(process.env["ATTESTATION_CACHE_STATS_INTERVAL_MS"] ?? "300000", 10);
+  if (isNaN(val)) throw new Error("ATTESTATION_CACHE_STATS_INTERVAL_MS must be a valid number");
+  return val;
+})();
 const SHUTDOWN_DRAIN_TIMEOUT_MS = parseInt(process.env["SHUTDOWN_DRAIN_TIMEOUT_MS"] ?? "30000", 10);
 
 // Load the signing key from the configured secrets backend (a mounted secret
@@ -84,6 +89,7 @@ const rpcServer = new StellarRpc.Server(SOROBAN_RPC_URL);
 const attestationCache = new AttestationCache<SignedAttestation>({
   maxSize: ATTESTATION_CACHE_MAX_SIZE,
   ttlMs: ATTESTATION_CACHE_TTL_MS,
+  statsIntervalMs: ATTESTATION_CACHE_STATS_INTERVAL_MS,
 });
 
 // Bind the cache to the current signer key. If the key rotates (reload of the
@@ -215,6 +221,68 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
   }
 }
 
+async function submitManualAttestation(
+  creatorAddress: string,
+  windowStart: bigint,
+  windowEnd: bigint
+): Promise<string> {
+  const stats = await fetchCreatorStats(db, windowStart, windowEnd);
+  const creatorStats = stats.find((row) => row.creatorAddress === creatorAddress);
+  if (!creatorStats) {
+    throw Object.assign(new Error("Creator has no analytics in the requested window"), {
+      code: "CREATOR_NOT_FOUND",
+    });
+  }
+
+  const report: AnalyticsReport = {
+    version: 1,
+    creator: Keypair.fromPublicKey(creatorAddress).rawPublicKey(),
+    windowStart,
+    windowEnd,
+    totalTips: creatorStats.totalTips,
+    postCount: creatorStats.postCount,
+    followerDelta: creatorStats.followerDelta,
+    uniqueTippers: creatorStats.uniqueTippers,
+  };
+  const reportCbor = encodeReport(report);
+  const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+  const txHash = await submitAttestation(
+    rpcServer,
+    NETWORK_PASSPHRASE,
+    CONTRACT_ID,
+    ORACLE_NAME,
+    reportCbor,
+    signature,
+    oracleSigner.keypair(),
+    creatorAddress,
+    windowStart,
+    windowEnd
+  );
+
+  attestationCache.set(creatorAddress, {
+    oracleName: ORACLE_NAME,
+    signerKey: oracleSigner.fingerprint(),
+    keyVersion: oracleSigner.keyVersion,
+    rotationEpoch: oracleSigner.rotationEpoch,
+    reportCbor,
+    reportHash: reportHash.toString("hex"),
+    signature,
+    txHash,
+    report,
+    submittedAt: Date.now(),
+  });
+  logger.info(
+    {
+      creatorAddress,
+      windowStart: windowStart.toString(),
+      windowEnd: windowEnd.toString(),
+      txHash,
+    },
+    "Manual creator attestation submitted"
+  );
+  return txHash;
+}
+
 async function scheduleLoop(currentLedger: bigint): Promise<void> {
   const windowStart =
     lastWindowEnd === BigInt(0) ? currentLedger - WINDOW_LEDGERS : lastWindowEnd + BigInt(1);
@@ -270,6 +338,7 @@ async function scheduleLoop(currentLedger: bigint): Promise<void> {
 
 const app = express();
 app.use(helmet());
+app.use(express.json());
 app.set("trust proxy", 1); // trust first proxy
 const startTime = Date.now();
 
@@ -366,6 +435,7 @@ app.use(
     keystore,
     invalidateCache: (fingerprint) => attestationCache.setSignerId(fingerprint),
     isReady: () => started,
+    submitManualAttestation,
   })
 );
 
@@ -435,7 +505,8 @@ async function main(): Promise<void> {
     forceExitTimer.unref();
 
     try {
-      // 1. Stop scheduling new window ticks.
+      // 1. Stop scheduling new window ticks and cache stats logging.
+      attestationCache.stopStatsLogging();
       if (pollInterval !== null) {
         clearInterval(pollInterval);
         pollInterval = null;

@@ -51,6 +51,7 @@ export function RightSidebar() {
     <aside
       aria-label="Right Sidebar Suggestions and Trends"
       className="dashboard-right-sidebar"
+      data-testid="dashboard-right-sidebar"
       style={{
         width: "320px",
         minWidth: "320px",

@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { useFollow } from "../hooks/useFollow";
 import { impact } from "../utils/haptics";
+import { useHapticSettings } from "../hooks/useHapticSettings";
 
 interface FollowButtonProps {
   targetAddress: string;
@@ -13,9 +14,12 @@ interface FollowButtonProps {
  */
 export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => {
   const { isFollowing, isLoading, toggleFollow, error } = useFollow(targetAddress);
+  const { hapticsEnabled } = useHapticSettings();
 
   useEffect(() => {
     if (error) {
+      // ImpactFeedbackStyle.Rigid on error — gated by user setting.
+      if (hapticsEnabled) void impact("heavy");
       const isBlocked = error.message.toLowerCase().includes("blocked");
       Alert.alert(
         "Action Failed",
@@ -24,13 +28,14 @@ export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => 
           : "Something went wrong. Please try again later."
       );
     }
-  }, [error]);
+  }, [error, hapticsEnabled]);
 
   return (
     <TouchableOpacity
       style={[styles.button, isFollowing ? styles.followingButton : styles.followButton]}
       onPress={() => {
-        void impact("light");
+        // ImpactFeedbackStyle.Light on follow/unfollow tap — gated by user setting.
+        if (hapticsEnabled) void impact("light");
         void toggleFollow();
       }}
       disabled={isLoading}

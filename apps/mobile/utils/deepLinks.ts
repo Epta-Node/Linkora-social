@@ -164,3 +164,48 @@ export function parseRoutePath(value: string): DeepLinkRoute | null {
 export function isValidDeepLink(value: string): boolean {
   return parseDeepLink(value) !== null;
 }
+
+/**
+ * Expo Router / React Navigation linking configuration.
+ *
+ * Keeps the route-pattern definitions co-located with the deep-link parser so
+ * the two can never drift out of sync.  Import this into _layout.tsx rather
+ * than hard-coding the same patterns there.
+ *
+ * Supported deep links:
+ *   linkora://post/<id>
+ *   linkora://profile/<address>
+ *   linkora://pool/<id>          → navigates to /pools/<id> (screen: pools/[id])
+ *   linkora://dm/<address>
+ *   https://linkora.social/…    (universal links / App Links via associatedDomains)
+ */
+export const LINKING_CONFIG = {
+  prefixes: ["linkora://", "https://linkora.social", "https://www.linkora.social"],
+  config: {
+    screens: {
+      "(tabs)": {
+        screens: {
+          feed: "feed",
+          explore: "explore",
+          pools: "pools",
+          profile: "profile",
+          "mini-apps": "mini-apps",
+        },
+      },
+      /** linkora://post/<id>  →  /post/<id> */
+      "post/[id]": "post/:id",
+      /** linkora://profile/<address>  →  /profile/<address> */
+      "profile/[address]": "profile/:address",
+      /**
+       * linkora://pool/<id>  →  /pools/<id>
+       * The deep-link resource is `pool` (singular) but the router screen is
+       * `pools/[id]` — parseDeepLink already maps pool → /pools/<id>.
+       */
+      "pools/[id]": "pool/:id",
+      "dm/[address]": "dm/:address",
+      "dm/index": "dm",
+      "mini-app/[id]": "mini-app/:id",
+      connect: "connect",
+    },
+  },
+} as const;

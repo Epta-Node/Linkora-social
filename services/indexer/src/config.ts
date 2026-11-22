@@ -28,8 +28,7 @@
  *
  * Retention settings (raw_events partition management)
  * ──────────────────────────────────────────────────────
- * RAW_EVENTS_RETENTION_LEDGERS — Number of ledgers to keep before dropping old
- *                                partitions (default 4 000 000 ≈ 231 days).
+ * RAW_EVENTS_RETENTION_DAYS    — Days of raw events to retain (default 7).
  * RAW_EVENTS_PARTITION_SIZE    — Ledger range per partition bucket
  *                                (default 1 000 000).  Must match the value
  *                                used in migration 017.
@@ -67,7 +66,54 @@
  *                               when not set. Omit both to run without caching.
  */
 
+import os from "os";
 import { resolveRateLimitEnv } from "@linkora/types/src/rate-limit-env";
+import { logger } from "./logger";
+
+const LEDGERS_PER_DAY = 17_280; // 24 hours at 5 seconds per ledger
+
+export const DB_POOL_MAX_MIN = 2;
+export const DB_POOL_MAX_MAX = 20;
+
+export interface PoolConfigLogger {
+  info: (obj: Record<string, unknown>, msg: string) => void;
+  warn: (obj: Record<string, unknown>, msg: string) => void;
+}
+
+export function validateDbPoolConfig(
+  dbPool: DbPoolConfig,
+  options?: { cpuCount?: number; log?: PoolConfigLogger }
+): void {
+  if (
+    !Number.isInteger(dbPool.max) ||
+    dbPool.max < DB_POOL_MAX_MIN ||
+    dbPool.max > DB_POOL_MAX_MAX
+  ) {
+    throw new Error(
+      `DB_POOL_MAX must be an integer between ${DB_POOL_MAX_MIN} and ${DB_POOL_MAX_MAX}, got: ${dbPool.max}`
+    );
+  }
+
+  const cpuCount = options?.cpuCount ?? Math.max(1, os.cpus().length);
+  const log = options?.log ?? logger;
+
+  if (dbPool.max > cpuCount) {
+    log.warn(
+      { dbPoolMax: dbPool.max, cpuCount },
+      "DB_POOL_MAX exceeds available CPU core count; consider lowering pool size"
+    );
+  }
+
+  log.info(
+    {
+      max: dbPool.max,
+      idleTimeoutMs: dbPool.idleTimeoutMs,
+      connectionTimeoutMs: dbPool.connectionTimeoutMs,
+      cpuCount,
+    },
+    "Effective database connection pool configuration"
+  );
+}
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -266,7 +312,7 @@ export function loadConfig(): IndexerConfig {
     },
 
     rawEventsRetention: {
-      retentionLedgers: optionalInt("RAW_EVENTS_RETENTION_LEDGERS", 4_000_000),
+      retentionLedgers: optionalInt("RAW_EVENTS_RETENTION_DAYS", 7) * LEDGERS_PER_DAY,
       partitionSize: optionalInt("RAW_EVENTS_PARTITION_SIZE", 1_000_000),
       archiveOnly: process.env.RAW_EVENTS_ARCHIVE_ONLY === "true",
       cronSchedule: process.env.RAW_EVENTS_RETENTION_CRON ?? "5 * * * *",
@@ -292,6 +338,8 @@ export function loadConfig(): IndexerConfig {
       `START_LEDGER must be a non-negative integer, got: ${process.env.START_LEDGER}`
     );
   }
+
+  validateDbPoolConfig(raw.dbPool);
 
   return raw;
 }

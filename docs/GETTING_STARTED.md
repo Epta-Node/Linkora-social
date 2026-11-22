@@ -507,15 +507,32 @@ pnpm codegen
 
 This runs:
 
-1. `pnpm build:contracts` — builds WASM
-2. `pnpm --filter @linkora/codegen generate` — extracts ABI and emits TypeScript
+1. `pnpm build:contracts` — builds every contract crate to WASM
+   (`packages/contracts/target/wasm32v1-none/release/*.wasm`)
+2. `pnpm --filter @linkora/codegen generate` — reads the contract spec straight
+   from each WASM (the `contractspecv0` section, as `xdr.ScSpecEntry` values —
+   no `stellar` CLI needed) and writes `packages/sdk/src/generated/contracts/`:
+   one module per contract (`linkora`, `multicall`, `referral`, `token-factory`,
+   `vesting`) with TypeScript types, `xdr.ScVal` encoders/decoders, per-function
+   `Args` types, argument encoders and result decoders, event decoders and a
+   typed operation builder class. New contract crates in the workspace are
+   picked up automatically.
 
-**Verify no unintended changes:**
+The bindings are published as the `linkora-sdk/contracts` entry point:
+
+```ts
+import { vesting } from "linkora-sdk/contracts";
+
+const op = new vesting.VestingContract(vestingId).claim({ vest_id: 1n });
+const vest = vesting.decodeGetVestResult(simulation.result.retval);
+```
+
+**Verify the committed bindings are current** (CI runs this in the
+`Contract bindings are up to date` job):
 
 ```bash
 pnpm codegen:check
-# Equivalent to:
-pnpm codegen && git diff --exit-code packages/sdk/src/generated/ packages/sdk/src/events/types.ts
+# builds the contracts, regenerates in memory and fails listing any stale file
 ```
 
 ---

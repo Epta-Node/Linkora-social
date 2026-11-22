@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { WalletProvider } from "@/components/WalletProvider";
 import { NavBar } from "@/components/NavBar";
@@ -88,12 +89,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Inline script reads localStorage before React mounts to prevent FOUC */}
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('linkora_theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme='light';}})();`,
-          }}
-        />
+        {/*
+          Runs before React hydrates so the persisted preference (including
+          "system") paints the correct theme on the very first frame, avoiding
+          a flash of unstyled content.
+        */}
+        <Script id="theme-bootstrap" strategy="beforeInteractive">
+          {`(function(){try{var p=localStorage.getItem('linkora_theme');if(p!=='light'&&p!=='dark'&&p!=='system'){p='system';}var t=p;if(p==='system'){t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}var r=document.documentElement;r.dataset.theme=t;r.dataset.themePreference=p;r.style.colorScheme=t;}catch(e){document.documentElement.dataset.theme='light';}})();`}
+        </Script>
         {/*
           Consent Mode v2 bootstrap — MUST run before the GA4 script loads.
 

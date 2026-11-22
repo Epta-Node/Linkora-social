@@ -36,6 +36,9 @@ export default function DirectMessagePage() {
   const router = useRouter();
   const { address: myAddress, connected } = useWallet();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messageListRef = useRef<HTMLUListElement>(null);
+  const seenMessageCountRef = useRef<number | null>(null);
+  const [announcement, setAnnouncement] = useState("");
 
   const [messages, setMessages] = useState<DecryptedMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -121,11 +124,11 @@ export default function DirectMessagePage() {
   useEffect(() => {
     if (keysReady && myAddress) {
       connectRelayWs(myAddress);
-      
+
       const unsubscribe = onRelayMessage((payload: any) => {
-        if (payload.type === 'new_message' && payload.sender === recipientAddress) {
+        if (payload.type === "new_message" && payload.sender === recipientAddress) {
           loadMessages();
-        } else if (payload.type === 'typing_status' && payload.sender === recipientAddress) {
+        } else if (payload.type === "typing_status" && payload.sender === recipientAddress) {
           setIsTyping(true);
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
           typingTimeoutRef.current = setTimeout(() => {
@@ -142,8 +145,39 @@ export default function DirectMessagePage() {
 
   // Auto-scroll when messages change
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    messagesEndRef.current?.scrollIntoView?.({ behavior: "smooth" });
   }, [messages]);
+
+  // Announce newly received messages to screen readers (not the initial load).
+  useEffect(() => {
+    const seen = seenMessageCountRef.current;
+    seenMessageCountRef.current = messages.length;
+    if (seen === null || messages.length <= seen) return;
+    const incoming = messages.slice(seen).filter((m) => m.sender !== myAddress);
+    const latest = incoming[incoming.length - 1];
+    if (latest) {
+      setAnnouncement(
+        incoming.length > 1
+          ? `${incoming.length} new messages. Latest: ${latest.content}`
+          : `New message: ${latest.content}`
+      );
+    }
+  }, [messages, myAddress]);
+
+  // Arrow keys / Home / End move focus between messages in the list.
+  const handleListKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
+    const items = Array.from(messageListRef.current?.querySelectorAll<HTMLLIElement>("li") ?? []);
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLLIElement);
+    let next: number | null = null;
+    if (e.key === "ArrowDown") next = current < 0 ? 0 : Math.min(current + 1, items.length - 1);
+    else if (e.key === "ArrowUp") next = current < 0 ? items.length - 1 : Math.max(current - 1, 0);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    items[next].focus();
+  };
 
   // ── Key generation + publish ──────────────────────────────────────────────
 
@@ -179,7 +213,7 @@ export default function DirectMessagePage() {
     async (e: React.FormEvent) => {
       e.preventDefault();
       const trimmed = newMessage.trim();
-      if (!myAddress || !trimmed || sending) return;
+      if (!myAddress || !trimmed || sending || recipientHasKeys === false) return;
 
       const keypair = await loadDmKeypair(myAddress);
       if (!keypair) return;
@@ -212,7 +246,7 @@ export default function DirectMessagePage() {
         setSending(false);
       }
     },
-    [myAddress, newMessage, recipientAddress, sending, loadMessages]
+    [myAddress, newMessage, recipientAddress, sending, loadMessages, recipientHasKeys]
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -267,7 +301,10 @@ export default function DirectMessagePage() {
           </div>
 
           {error && (
-            <div className="mb-4 rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 text-sm text-red-400" role="alert">
+            <div
+              className="mb-4 rounded-lg border border-red-700/50 bg-red-900/20 px-4 py-3 text-sm text-red-400"
+              role="alert"
+            >
               {error}
             </div>
           )}
@@ -331,7 +368,10 @@ export default function DirectMessagePage() {
 
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {error && (
-        <div className="flex shrink-0 items-center justify-between border-b border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-400" role="alert">
+        <div
+          className="flex shrink-0 items-center justify-between border-b border-red-700/50 bg-red-900/20 px-4 py-2 text-sm text-red-400"
+          role="alert"
+        >
           <span>{error}</span>
           <button
             onClick={() => setError(null)}
@@ -363,13 +403,28 @@ export default function DirectMessagePage() {
             </div>
           </div>
         ) : (
-          <ul className="space-y-3" aria-label="Messages" role="log" aria-live="polite">
+          <ul
+            ref={messageListRef}
+            className="space-y-3"
+            aria-label="Messages. Use the arrow keys to move between messages."
+            role="log"
+            tabIndex={0}
+            onKeyDown={handleListKeyDown}
+          >
             {messages.map((msg, idx) => {
               const isMe = msg.sender === myAddress;
+              const time = new Date(msg.timestamp * 1000).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
               return (
                 <li
                   key={`${msg.id}-${idx}`}
-                  className={`flex ${isMe ? "justify-end" : "justify-start"}`}
+                  tabIndex={-1}
+                  aria-label={`${isMe ? "You" : "They"} at ${time}: ${msg.content}`}
+                  className={`flex rounded-2xl focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 ${
+                    isMe ? "justify-end" : "justify-start"
+                  }`}
                 >
                   <div
                     className={[
@@ -388,10 +443,7 @@ export default function DirectMessagePage() {
                         isMe ? "text-violet-200" : "text-[var(--text-muted)]"
                       }`}
                     >
-                      {new Date(msg.timestamp * 1000).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {time}
                     </p>
                   </div>
                 </li>
@@ -400,6 +452,17 @@ export default function DirectMessagePage() {
           </ul>
         )}
         <div ref={messagesEndRef} aria-hidden />
+      </div>
+
+      {/* Screen reader announcement for newly received messages */}
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="dm-announcer"
+      >
+        {announcement}
       </div>
 
       {/* ── Input ───────────────────────────────────────────────────────── */}
@@ -417,11 +480,14 @@ export default function DirectMessagePage() {
             className="flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--muted)] px-4 py-2.5 text-sm text-[var(--foreground)] placeholder-[var(--text-muted)] transition-colors focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 disabled:opacity-50"
             style={{ minHeight: "2.75rem", maxHeight: "8rem" }}
           />
+          {/* aria-disabled (not disabled) keeps the button focusable for keyboard users */}
           <button
             type="submit"
-            disabled={!newMessage.trim() || sending || !keysReady || recipientHasKeys === false}
+            aria-disabled={
+              !newMessage.trim() || sending || !keysReady || recipientHasKeys === false
+            }
             aria-label="Send message"
-            className="shrink-0 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-violet-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
           >
             {sending ? "…" : "Send"}
           </button>
@@ -433,4 +499,3 @@ export default function DirectMessagePage() {
     </div>
   );
 }
-

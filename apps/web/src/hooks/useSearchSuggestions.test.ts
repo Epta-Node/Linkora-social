@@ -1,5 +1,5 @@
-import { renderHook, act, waitFor } from '@testing-library/react';
-import { useSearchSuggestions } from './useSearchSuggestions';
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { useSearchSuggestions } from "./useSearchSuggestions";
 
 const mockFetch = jest.fn();
 
@@ -18,19 +18,19 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-/** Let the trailing-edge debounce timer (300ms default) fire. */
+/** Let the trailing-edge debounce timer (200ms default) fire. */
 async function flushDebounce() {
   await act(async () => {
-    jest.advanceTimersByTime(400);
+    jest.advanceTimersByTime(200);
   });
 }
 
-describe('useSearchSuggestions', () => {
-  it('returns no suggestions for a query below the minimum length', async () => {
+describe("useSearchSuggestions", () => {
+  it("returns no suggestions for a query below the minimum length", async () => {
     const { result } = renderHook(() => useSearchSuggestions());
 
     act(() => {
-      result.current.fetchSuggestions('a');
+      result.current.fetchSuggestions("a");
     });
 
     expect(result.current.suggestions).toEqual([]);
@@ -38,37 +38,37 @@ describe('useSearchSuggestions', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  it('fires a leading-edge request immediately and maps profiles to suggestions', async () => {
+  it("fires a leading-edge request immediately and maps profiles to suggestions", async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
         profiles: [
-          { address: 'GALICE', username: 'alice', display_name: 'Alice' },
-          { address: 'GBOB', username: 'bob' },
+          { address: "GALICE", username: "alice", display_name: "Alice" },
+          { address: "GBOB", username: "bob" },
         ],
       })
     );
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
 
     await waitFor(() => {
       expect(result.current.suggestions).toEqual([
-        { type: 'profile', value: 'GALICE', displayName: 'Alice', avatar: undefined },
-        { type: 'profile', value: 'GBOB', displayName: 'bob', avatar: undefined },
+        { type: "profile", value: "GALICE", displayName: "Alice", avatar: undefined },
+        { type: "profile", value: "GBOB", displayName: "bob", avatar: undefined },
       ]);
     });
     expect(result.current.loading).toBe(false);
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('accepts a bare array payload from the indexer', async () => {
-    mockFetch.mockResolvedValue(jsonResponse([{ address: 'GALICE', username: 'alice' }]));
+  it("accepts a bare array payload from the indexer", async () => {
+    mockFetch.mockResolvedValue(jsonResponse([{ address: "GALICE", username: "alice" }]));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
 
     await waitFor(() => {
@@ -76,20 +76,16 @@ describe('useSearchSuggestions', () => {
     });
   });
 
-  it('truncates the profile list to maxSuggestions', async () => {
+  it("truncates the profile list to maxSuggestions", async () => {
     mockFetch.mockResolvedValue(
       jsonResponse({
-        profiles: [
-          { address: 'GA' },
-          { address: 'GB' },
-          { address: 'GC' },
-        ],
+        profiles: [{ address: "GA" }, { address: "GB" }, { address: "GC" }],
       })
     );
 
     const { result } = renderHook(() => useSearchSuggestions({ maxSuggestions: 2 }));
     act(() => {
-      result.current.fetchSuggestions('a1');
+      result.current.fetchSuggestions("a1");
     });
 
     await waitFor(() => {
@@ -97,27 +93,27 @@ describe('useSearchSuggestions', () => {
     });
   });
 
-  it('prepends a hashtag suggestion for a query starting with #', async () => {
+  it("prepends a hashtag suggestion for a query starting with #", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ profiles: [] }));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('#stellar');
+      result.current.fetchSuggestions("#stellar");
     });
 
     await waitFor(() => {
       expect(result.current.suggestions).toEqual([
-        { type: 'hashtag', value: '#stellar', displayName: '#stellar' },
+        { type: "hashtag", value: "#stellar", displayName: "#stellar" },
       ]);
     });
   });
 
-  it('clears suggestions and clears loading when the indexer returns an error status', async () => {
+  it("clears suggestions and clears loading when the indexer returns an error status", async () => {
     mockFetch.mockResolvedValue(jsonResponse({}, false));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
 
     await waitFor(() => {
@@ -126,13 +122,13 @@ describe('useSearchSuggestions', () => {
     });
   });
 
-  it('clears suggestions when the request rejects', async () => {
-    jest.spyOn(console, 'error').mockImplementation(() => {});
-    mockFetch.mockRejectedValue(new Error('API failed'));
+  it("clears suggestions when the request rejects", async () => {
+    jest.spyOn(console, "error").mockImplementation(() => {});
+    mockFetch.mockRejectedValue(new Error("API failed"));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
 
     await waitFor(() => {
@@ -142,12 +138,12 @@ describe('useSearchSuggestions', () => {
     (console.error as jest.Mock).mockRestore();
   });
 
-  it('resets suggestions and loading state on clearSuggestions()', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ profiles: [{ address: 'GALICE' }] }));
+  it("resets suggestions and loading state on clearSuggestions()", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ profiles: [{ address: "GALICE" }] }));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
     await waitFor(() => {
       expect(result.current.suggestions).toHaveLength(1);
@@ -161,7 +157,7 @@ describe('useSearchSuggestions', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  it('aborts the in-flight request on unmount', async () => {
+  it("aborts the in-flight request on unmount", async () => {
     let capturedSignal: AbortSignal | undefined;
     mockFetch.mockImplementation((_url: string, init?: { signal?: AbortSignal }) => {
       capturedSignal = init?.signal;
@@ -170,7 +166,7 @@ describe('useSearchSuggestions', () => {
 
     const { result, unmount } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
 
     expect(capturedSignal?.aborted).toBe(false);
@@ -179,13 +175,13 @@ describe('useSearchSuggestions', () => {
   });
 });
 
-describe('useSearchSuggestions debounce', () => {
-  it('does not re-request an already executed query on the trailing edge', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ profiles: [{ address: 'GALICE' }] }));
+describe("useSearchSuggestions debounce", () => {
+  it("does not re-request an already executed query on the trailing edge", async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ profiles: [{ address: "GALICE" }] }));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('alice');
+      result.current.fetchSuggestions("alice");
     });
 
     await waitFor(() => {
@@ -196,18 +192,25 @@ describe('useSearchSuggestions debounce', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('issues a trailing-edge request for a query that arrived during the debounce window', async () => {
+  it("issues a trailing-edge request after the 200ms debounce window", async () => {
     mockFetch.mockResolvedValue(jsonResponse({ profiles: [] }));
 
     const { result } = renderHook(() => useSearchSuggestions());
     act(() => {
-      result.current.fetchSuggestions('al');
+      result.current.fetchSuggestions("al");
     });
     act(() => {
-      result.current.fetchSuggestions('alice');
+      result.current.fetchSuggestions("alice");
     });
 
-    await flushDebounce();
+    await act(async () => {
+      jest.advanceTimersByTime(199);
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
