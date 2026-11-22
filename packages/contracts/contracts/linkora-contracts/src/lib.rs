@@ -851,6 +851,19 @@ pub struct DmKeyPublishedEvent {
     pub public_key: BytesN<32>,
 }
 
+/// Emitted when the trusted credential authority key is set or rotated.
+/// `old_authority` is `None` when no authority was previously configured.
+#[contractevent(topics = ["cred_authority_updated"])]
+#[derive(Clone)]
+pub struct CredentialAuthorityUpdatedEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub admin: Address,
+    pub old_authority: Option<BytesN<32>>,
+    pub new_authority: BytesN<32>,
+}
+
 #[contractevent]
 #[derive(Clone)]
 pub struct CredentialRootUpdatedEvent {
@@ -1552,8 +1565,17 @@ impl LinkoraContract {
         validate_non_default_address(&env, "admin", &admin);
         Self::require_role(&env, &admin, Role::Admin);
         let key = StorageKey::CredentialAuthority;
+        let old_authority: Option<BytesN<32>> = env.storage().persistent().get(&key);
         env.storage().persistent().set(&key, &pubkey);
         Self::bump(&env, &key);
+
+        CredentialAuthorityUpdatedEvent {
+            version: EVENT_VERSION,
+            admin,
+            old_authority,
+            new_authority: pubkey,
+        }
+        .publish(&env);
     }
 
     pub fn update_credential_root(
