@@ -4,6 +4,9 @@
 >
 > This README is the high-level overview; the inventory is the exhaustive reference.
 >
+> **Mobile screens:** [`MOBILE_SPEC.md`](./MOBILE_SPEC.md) covers the screen inventory,
+> DM conversation list, DM thread, and DM key management requirements.
+>
 > **Figma file:** _[Link to published Figma file — to be added when file is published]_
 >
 > All reusable UI components for the Linkora SocialFi web application.
