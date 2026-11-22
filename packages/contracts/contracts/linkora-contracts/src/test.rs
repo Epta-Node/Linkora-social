@@ -600,7 +600,7 @@ fn test_tip_blocked_by_author() {
     let post_id = client.create_post(&author, &String::from_str(&env, "Test post"));
 
     // Author blocks tipper
-    client.block_user(&author, &tipper);
+    client.block_user(&author, &tipper, &None);
 
     // Tipper tries to tip - should panic with "blocked"
     client.tip(&tipper, &post_id, &token, &1000);
@@ -631,7 +631,7 @@ fn test_tip_after_unblock() {
     let post_id = client.create_post(&author, &String::from_str(&env, "Test post"));
 
     // Author blocks tipper
-    client.block_user(&author, &tipper);
+    client.block_user(&author, &tipper, &None);
 
     // Author unblocks tipper
     client.unblock_user(&author, &tipper);
@@ -666,7 +666,7 @@ fn test_tip_non_blocked_user() {
     let post_id = client.create_post(&author, &String::from_str(&env, "Test post"));
 
     // Author blocks tipper1
-    client.block_user(&author, &tipper1);
+    client.block_user(&author, &tipper1, &None);
 
     // Tipper2 (not blocked) can tip successfully
     client.tip(&tipper2, &post_id, &token, &500);
@@ -710,7 +710,7 @@ fn test_tip_block_preserves_no_state_changes_on_panic() {
     let post_id = client.create_post(&author, &String::from_str(&env, "block-prevented tip post"));
 
     // Author blocks tipper.
-    client.block_user(&author, &tipper);
+    client.block_user(&author, &tipper, &None);
 
     // Snapshot every pre-state we care about so the post-state assertions are
     // explicit (rather than just trusting Soroban's try_* rollback semantics).
@@ -792,7 +792,7 @@ fn test_tip_block_is_unidirectional_blocker_can_still_tip_blocked() {
     client.initialize(&admin, &treasury, &250);
 
     // A blocks B (B is restricted).
-    client.block_user(&blocker, &blocked_user);
+    client.block_user(&blocker, &blocked_user, &None);
 
     // `blocker` holds tokens; mint extra to `blocked_user` so B can also
     // receive tips on B's own post.
@@ -862,8 +862,8 @@ fn test_tip_block_multiple_blocked_tippers_panic_independently() {
     let post_id = client.create_post(&author, &String::from_str(&env, "multi-block post"));
 
     // Author blocks two different addresses.
-    client.block_user(&author, &blocked_a);
-    client.block_user(&author, &blocked_b);
+    client.block_user(&author, &blocked_a, &None);
+    client.block_user(&author, &blocked_b, &None);
 
     // Each blocked user independently fails on the same post.
     let r_a = client.try_tip(&blocked_a, &post_id, &token, &1_000);
@@ -1017,7 +1017,7 @@ fn test_block_prevents_follow() {
 
     let blocker = Address::generate(&env);
     let blocked = Address::generate(&env);
-    client.block_user(&blocker, &blocked);
+    client.block_user(&blocker, &blocked, &None);
     assert!(client.is_blocked(&blocker, &blocked));
 }
 
@@ -1032,7 +1032,7 @@ fn test_blocked_follow_panics() {
     let bob = Address::generate(&env);
 
     // Bob blocks Alice
-    client.block_user(&bob, &alice);
+    client.block_user(&bob, &alice, &None);
 
     // Alice tries to follow Bob
     client.follow(&alice, &bob);
@@ -1050,7 +1050,7 @@ fn test_blocked_user_cannot_follow_blocker_no_relationship_created() {
     let b = Address::generate(&env);
 
     // A blocks B
-    client.block_user(&a, &b);
+    client.block_user(&a, &b, &None);
 
     // B tries to follow A — must panic with "blocked"
     let result = client.try_follow(&b, &a);
@@ -1069,7 +1069,7 @@ fn test_batch_follow_prevalidates_blocked_targets_before_writing_edges() {
     let alice = Address::generate(&env);
     let allowed = Address::generate(&env);
     let blocked = Address::generate(&env);
-    client.block_user(&blocked, &alice);
+    client.block_user(&blocked, &alice, &None);
 
     let result = client.try_batch_follow(&alice, &vec![&env, allowed.clone(), blocked]);
     assert!(result.is_err());
@@ -2359,6 +2359,24 @@ fn test_upgrade_timelock_is_enforced() {
     });
     let result = client.try_execute_upgrade(&admin);
     assert!(result.is_err() || result.is_ok());
+}
+
+#[test]
+fn test_upgrade_timelock_can_be_configured() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    let mock_hash = BytesN::from_array(&env, &[2u8; 32]);
+
+    assert_eq!(client.get_upgrade_timelock(), 17_280);
+    client.set_upgrade_timelock(&admin, &100);
+    assert_eq!(client.get_upgrade_timelock(), 100);
+
+    client.propose_upgrade(&admin, &mock_hash);
+    env.ledger().with_mut(|ledger| {
+        ledger.sequence_number += 99;
+    });
+    assert!(client.try_execute_upgrade(&admin).is_err());
 }
 
 #[test]
@@ -4867,11 +4885,28 @@ fn test_block_event() {
 
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
+    let reason = Some(String::from_str(&env, "spam"));
 
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &reason);
 
     // Verify bob is blocked by alice
     assert!(client.is_blocked(&alice, &bob));
+}
+
+#[test]
+#[should_panic(expected = "block reason must be at most 280 characters")]
+fn test_block_reason_length_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let reason = Some(String::from_str(
+        &env,
+        "This reason is deliberately longer than two hundred and eighty characters. It should fail validation even though the block action itself would otherwise be valid. Additional text ensures the payload exceeds the configured maximum without relying on a single repeated character.",
+    ));
+
+    client.block_user(&alice, &bob, &reason);
 }
 
 #[test]
@@ -4884,7 +4919,7 @@ fn test_unblock_event() {
     let bob = Address::generate(&env);
 
     // Block first, then unblock
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
     client.unblock_user(&alice, &bob);
 
     // Verify bob is no longer blocked by alice
@@ -4981,6 +5016,23 @@ fn test_gov_happy_path_propose_vote_execute() {
     assert_eq!(client.get_fee_bps(), 500);
     let executed = client.gov_get_proposal(&proposal_id);
     assert_eq!(executed.status, GovStatus::Executed);
+}
+
+#[test]
+fn test_gov_quorum_floor_boundaries() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    client.gov_init_config(&admin, &60, &100, &200, &50, &1);
+    assert_eq!(client.gov_get_config().quorum_floor, 1);
+
+    assert!(client
+        .try_gov_init_config(&admin, &60, &100, &200, &50, &0)
+        .is_err());
+    assert!(client
+        .try_gov_init_config(&admin, &60, &100, &200, &50, &61)
+        .is_err());
 }
 
 #[test]
@@ -6353,7 +6405,7 @@ fn test_like_post_panics_when_author_blocked_liker() {
     let post_id = client.create_post(&author, &String::from_str(&env, "test post"));
 
     // Author blocks liker
-    client.block_user(&author, &liker);
+    client.block_user(&author, &liker, &None);
 
     // Liker tries to like author's post — must panic
     client.like_post(&liker, &post_id);
@@ -6372,7 +6424,7 @@ fn test_like_post_panics_when_liker_blocked_author() {
     let post_id = client.create_post(&author, &String::from_str(&env, "test post"));
 
     // Liker blocks author
-    client.block_user(&liker, &author);
+    client.block_user(&liker, &author, &None);
 
     // Liker tries to like author's post — must panic (bidirectional)
     client.like_post(&liker, &post_id);
@@ -6390,7 +6442,7 @@ fn test_follow_panics_when_followee_blocked_follower() {
     let bob = Address::generate(&env);
 
     // Bob blocks Alice
-    client.block_user(&bob, &alice);
+    client.block_user(&bob, &alice, &None);
 
     // Alice tries to follow Bob — must panic
     client.follow(&alice, &bob);
@@ -6408,7 +6460,7 @@ fn test_follow_panics_when_follower_blocked_followee() {
     let bob = Address::generate(&env);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Alice tries to follow Bob — must panic (bidirectional)
     client.follow(&alice, &bob);
@@ -6426,7 +6478,7 @@ fn test_follow_blocker_cannot_follow_blocked() {
     let bob = Address::generate(&env);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Alice tries to follow Bob — must panic (bidirectional)
     client.follow(&alice, &bob);
@@ -6453,7 +6505,7 @@ fn test_tip_panics_when_tipper_blocked_author() {
     let post_id = client.create_post(&author, &String::from_str(&env, "test post"));
 
     // Tipper blocks author
-    client.block_user(&tipper, &author);
+    client.block_user(&tipper, &author, &None);
 
     // Tipper tries to tip author's post — must panic (bidirectional)
     client.tip(&tipper, &post_id, &token, &1000);
@@ -6479,7 +6531,7 @@ fn test_block_removes_follow_both_directions() {
     assert_eq!(client.get_followers(&bob, &0, &50).len(), 1);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Both follow relationships must be removed
     assert_eq!(client.get_following(&alice, &0, &50).len(), 0);
@@ -6509,7 +6561,7 @@ fn test_block_removes_likes_bidirectional() {
     assert_eq!(client.get_like_count(&post_b), 1);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Both likes must be removed
     assert_eq!(client.get_like_count(&post_a), 0);
@@ -6539,7 +6591,7 @@ fn test_block_removes_likes_batch() {
     }
 
     // Alice blocks Bob. First 10 likes are removed.
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Verify exactly 5 likes remain
     let mut remaining = 0;
@@ -6585,7 +6637,7 @@ fn test_unblock_does_not_restore_follows_or_likes() {
     assert_eq!(client.get_like_count(&post_a), 2);
 
     // Block — removes follows and likes
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
     assert_eq!(client.get_following(&alice, &0, &50).len(), 0);
     assert_eq!(client.get_like_count(&post_a), 1); // bob's like removed
 
@@ -6616,7 +6668,7 @@ fn test_block_only_affects_the_pair() {
     client.like_post(&charlie, &post_b);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Charlie's likes are unaffected
     assert!(client.has_liked(&charlie, &post_a));
@@ -6636,7 +6688,7 @@ fn test_blocked_user_cannot_follow_blocker() {
     let bob = Address::generate(&env);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Bob tries to follow Alice — must panic
     let result = client.try_follow(&bob, &alice);
@@ -6659,7 +6711,7 @@ fn test_block_removes_unidirectional_follow() {
     assert_eq!(client.get_followers(&bob, &0, &50).len(), 1);
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Alice's follow of Bob must be removed
     assert_eq!(client.get_following(&alice, &0, &50).len(), 0);
@@ -6680,7 +6732,7 @@ fn test_like_post_bidirectional_block_liker_blocks_author() {
     let post_id = client.create_post(&bob, &String::from_str(&env, "bob post"));
 
     // Alice blocks Bob
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     // Alice tries to like Bob's post — must panic (bidirectional: is_blocked(bob, alice) is false
     // but is_blocked(alice, bob) is true → blocked)
@@ -8392,7 +8444,7 @@ fn test_delete_profile_cleans_blocks_entry() {
         &Address::generate(&env),
     );
     let blocked = Address::generate(&env);
-    client.block_user(&user, &blocked);
+    client.block_user(&user, &blocked, &None);
     assert!(client.is_blocked(&user, &blocked));
 
     client.delete_profile(&user);
@@ -8422,7 +8474,7 @@ fn test_delete_profile_prunes_peer_reverse_block_entry() {
     client.set_profile(&bob, &String::from_str(&env, "bob"), &token);
 
     // bob blocks alice; alice now appears in bob's Blocks map.
-    client.block_user(&bob, &alice);
+    client.block_user(&bob, &alice, &None);
     assert!(
         client.is_blocked(&bob, &alice),
         "bob must block alice before deletion"
@@ -8461,7 +8513,7 @@ fn test_delete_profile_prunes_own_outgoing_block_reverse_index() {
     client.set_profile(&bob, &String::from_str(&env, "bob"), &token);
 
     // alice blocks bob.
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
     assert!(client.is_blocked(&alice, &bob));
 
     client.delete_profile(&alice);
@@ -8550,7 +8602,7 @@ fn test_block_cleans_likes_index_consistency() {
     assert_eq!(client.get_like_count(&post_id), 2);
 
     // Author blocks liker1 — should clean up the like AND update index
-    client.block_user(&author, &liker1);
+    client.block_user(&author, &liker1, &None);
     assert_eq!(client.get_like_count(&post_id), 1);
 
     // Now delete the post and batch cleanup — should work with remaining 1 like
@@ -8596,7 +8648,7 @@ fn test_block_multiple_likes_then_delete_cleanup() {
     assert_eq!(client.get_like_count(&post_id), 3);
 
     // Block first liker — cleans up their like and updates index
-    client.block_user(&author, &liker1);
+    client.block_user(&author, &liker1, &None);
     assert_eq!(client.get_like_count(&post_id), 2);
 
     // Delete and batch cleanup — should work with remaining 2 likes
