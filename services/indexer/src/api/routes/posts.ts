@@ -312,12 +312,13 @@ export function createPostsRouter(
         return;
       }
       const tipTotal = post.tip_total.toString();
+      const tipCount = await db.getPostTipCount(postId);
       res.json({
         ...post,
         id: post.id.toString(),
         tip_total: tipTotal,
         stats: {
-          tip_count: 1,
+          tip_count: tipCount,
           tip_total: tipTotal,
         },
       });

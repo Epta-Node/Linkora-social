@@ -310,6 +310,14 @@ export class PostgresDatabase implements Database {
     };
   }
 
+  async getPostTipCount(post_id: bigint): Promise<number> {
+    const res = await this.pool.query(
+      `SELECT COUNT(*)::int AS count FROM tips WHERE post_id = $1`,
+      [post_id.toString()]
+    );
+    return Number(res.rows[0]?.count ?? 0);
+  }
+
   async listPosts(filters: {
     author?: string;
     limit: number;
