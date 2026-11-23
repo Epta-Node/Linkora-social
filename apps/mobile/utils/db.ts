@@ -441,6 +441,13 @@ export async function deleteCachedPost(id: string): Promise<void> {
 }
 
 /**
+ * Clears all cached posts from the database.
+ */
+export async function clearAllCachedPosts(): Promise<void> {
+  await db.runAsync(`DELETE FROM cached_posts`);
+}
+
+/**
  * Returns all locally known messages for a conversation, oldest first.
  * Includes outbox entries still 'pending' or 'failed' alongside 'synced' ones
  * so the thread renders optimistic sends immediately.

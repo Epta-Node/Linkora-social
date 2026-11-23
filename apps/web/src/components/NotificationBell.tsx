@@ -181,7 +181,7 @@ export function NotificationBell({ tipToastThresholdXlm = 10 }: NotificationBell
             data-testid="unread-badge"
             className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white shadow-sm ring-1 ring-white/20 animate-in fade-in zoom-in"
           >
-            {unreadCount > 99 ? "99+" : unreadCount}
+            {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
       </button>
