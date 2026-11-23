@@ -339,7 +339,8 @@ export function createRouter(database: Database, authService: AuthService): Rout
           messageData.recipient,
           messageData.ciphertext_b64,
           messageData.message_index,
-          messageData.timestamp
+          messageData.timestamp,
+          messageData.ttl_seconds
         );
 
         logger.info({ requestId: req.requestId, messageId, conversationId }, "Message stored");

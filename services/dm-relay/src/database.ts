@@ -24,6 +24,7 @@ export interface DbMessage {
   message_index: number;
   timestamp: number;
   created_at: Date;
+  ttl_seconds?: number;
 }
 
 // A `response_status` of 0 is a sentinel meaning "claimed but not yet
@@ -156,16 +157,17 @@ class Database {
     recipient: string,
     ciphertextB64: string,
     messageIndex: number,
-    timestamp: number
+    timestamp: number,
+    ttlSeconds?: number
   ): Promise<string> {
     const query = `
       INSERT INTO dm_messages 
-        (conversation_id, sender, recipient, ciphertext_b64, message_index, timestamp)
-      VALUES ($1, $2, $3, $4, $5, $6)
+        (conversation_id, sender, recipient, ciphertext_b64, message_index, timestamp, ttl_seconds)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id
     `;
 
-    const values = [conversationId, sender, recipient, ciphertextB64, messageIndex, timestamp];
+    const values = [conversationId, sender, recipient, ciphertextB64, messageIndex, timestamp, ttlSeconds];
 
     try {
       const result = await this.pool.query(query, values);
