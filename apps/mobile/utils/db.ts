@@ -3,6 +3,38 @@ import { Post } from "../components/PostCard";
 
 const db = SQLite.openDatabaseSync("linkora_cache.db");
 
+/** Maximum number of confirmed feed posts retained in SQLite (#1779). */
+export const FEED_CACHE_LIMIT = 200;
+
+/** Cached data older than this is presented with a "Last updated" banner (#1779). */
+export const FEED_STALE_THRESHOLD_MS = 5 * 60 * 1000;
+
+const FEED_SYNC_STATE_KEY = "feed_last_synced_at";
+
+export type FeedActionKind = "like" | "follow";
+export type FeedActionStatus = "pending" | "failed";
+
+/** A local optimistic write that has not been confirmed on-chain yet (#1779). */
+export interface FeedAction {
+  id: string;
+  kind: FeedActionKind;
+  actor: string;
+  targetId: string;
+  value: boolean;
+  status: FeedActionStatus;
+  createdAt: number;
+}
+
+interface FeedActionRow {
+  id: string;
+  kind: string;
+  actor: string;
+  target_id: string;
+  value: number;
+  status: string;
+  created_at: number;
+}
+
 interface CachedPostRow {
   id: string;
   author: string;
@@ -26,6 +58,18 @@ function rowToPost(row: CachedPostRow): Post {
     like_count: Number(row.like_count),
     has_liked: row.has_liked === 1,
     sync_status: row.sync_status as "synced" | "pending" | "failed",
+  };
+}
+
+function rowToFeedAction(row: FeedActionRow): FeedAction {
+  return {
+    id: row.id,
+    kind: row.kind as FeedActionKind,
+    actor: row.actor,
+    targetId: row.target_id,
+    value: row.value === 1,
+    status: row.status as FeedActionStatus,
+    createdAt: Number(row.created_at),
   };
 }
 
@@ -172,10 +216,32 @@ export const MIGRATIONS: Migration[] = [
   // `created_at` is the real wall-clock second the row was synced, so it is the
   // only correct recovery available for a row that is already in the wild.
   async (db) => {
-    await db.runAsync(
-      `UPDATE cached_posts SET timestamp = created_at WHERE timestamp < ?`,
-      [MIN_PLAUSIBLE_TIMESTAMP]
-    );
+    await db.runAsync(`UPDATE cached_posts SET timestamp = created_at WHERE timestamp < ?`, [
+      MIN_PLAUSIBLE_TIMESTAMP,
+    ]);
+  },
+  // v2 -> v3: offline-first feed sync metadata and the local optimistic-write
+  // outbox (#1779). Keeping the outbox in SQLite means a like/follow tapped
+  // while offline survives both a feed refresh and an app restart, and remote
+  // post content can be updated without discarding those pending actions.
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS feed_sync_state (
+        key TEXT PRIMARY KEY,
+        value INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS feed_actions (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL,
+        actor TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        value INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_feed_actions_pending
+        ON feed_actions (kind, status);
+    `);
   },
 ];
 
@@ -197,7 +263,7 @@ export async function runMigrations(
 
   for (let version = currentVersion; version < migrations.length; version++) {
     await targetDb.withTransactionAsync(async () => {
-      await migrations[version](targetDb);
+      await migrations[version]!(targetDb);
       await targetDb.execAsync(`PRAGMA user_version = ${version + 1}`);
     });
   }
@@ -209,6 +275,84 @@ export async function runMigrations(
  */
 export async function initDatabase(): Promise<void> {
   await runMigrations(db);
+}
+
+/**
+ * Wall-clock time (ms since epoch) of the last successful feed sync, or null
+ * when the feed has never been synced on this device.
+ */
+export async function getFeedLastSyncedAt(): Promise<number | null> {
+  const row = await db.getFirstAsync<{ value: number | string }>(
+    `SELECT value FROM feed_sync_state WHERE key = ?`,
+    [FEED_SYNC_STATE_KEY]
+  );
+  return row ? Number(row.value) : null;
+}
+
+/** Records a successful feed sync. Only advances the timestamp forward. */
+export async function markFeedSyncedAt(syncedAt: number = Date.now()): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO feed_sync_state (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = MAX(value, excluded.value)`,
+    [FEED_SYNC_STATE_KEY, syncedAt]
+  );
+}
+
+function feedActionId(kind: FeedActionKind, actor: string, targetId: string): string {
+  return `${kind}:${actor}:${targetId}`;
+}
+
+/**
+ * Stores (or replaces) a pending optimistic like/follow so it survives feed
+ * reconciliation and app restarts until the transaction is confirmed.
+ */
+export async function queueFeedAction(
+  kind: FeedActionKind,
+  actor: string,
+  targetId: string,
+  value: boolean
+): Promise<string> {
+  const id = feedActionId(kind, actor, targetId);
+  await db.runAsync(
+    `INSERT INTO feed_actions (id, kind, actor, target_id, value, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)
+     ON CONFLICT(id) DO UPDATE SET
+       value = excluded.value,
+       status = 'pending',
+       created_at = excluded.created_at`,
+    [id, kind, actor, targetId, value ? 1 : 0, Math.floor(Date.now() / 1000)]
+  );
+  return id;
+}
+
+/** Returns a local like/follow override, pending or failed, if one exists. */
+export async function getFeedAction(
+  kind: FeedActionKind,
+  actor: string,
+  targetId: string
+): Promise<FeedAction | null> {
+  const row = await db.getFirstAsync<FeedActionRow>(
+    `SELECT * FROM feed_actions WHERE kind = ? AND actor = ? AND target_id = ?`,
+    [kind, actor, targetId]
+  );
+  return row ? rowToFeedAction(row) : null;
+}
+
+/** Returns every unresolved optimistic write of a kind. */
+export async function getPendingFeedActions(kind: FeedActionKind): Promise<FeedAction[]> {
+  const rows = await db.getAllAsync<FeedActionRow>(
+    `SELECT * FROM feed_actions WHERE kind = ? AND status = 'pending'`,
+    [kind]
+  );
+  return rows.map(rowToFeedAction);
+}
+
+export async function markFeedActionFailed(id: string): Promise<void> {
+  await db.runAsync(`UPDATE feed_actions SET status = 'failed' WHERE id = ?`, [id]);
+}
+
+export async function clearFeedAction(id: string): Promise<void> {
+  await db.runAsync(`DELETE FROM feed_actions WHERE id = ?`, [id]);
 }
 
 /**
@@ -254,39 +398,72 @@ export async function getCachedPostsByIds(ids: string[]): Promise<Map<string, Po
 /**
  * Reconciles remote (chain-confirmed) posts with the local cache.
  *
- * Chain-wins policy:
- *  - For every confirmed chain post, upsert it as 'synced'.
+ * Conflict policy (#1779):
+ *  - Remote content (body, author, tip total, timestamp) always wins.
+ *  - A pending optimistic like for a post keeps the liked state visible until
+ *    its transaction is confirmed, even when a refresh reports `has_liked: false`.
+ *    The count is adjusted from the remote value, never accumulated per sync,
+ *    so repeated refreshes cannot inflate it.
  *  - If a 'pending' or 'failed' optimistic row exists with the SAME author+content
  *    as a confirmed chain post, delete the optimistic row (chain state supersedes it).
- *  - Stale 'synced' rows not present in the remote set are deleted.
+ *  - Stale 'synced' rows not present in the remote set are deleted only when
+ *    `evictStale` is explicitly requested. Feed pagination passes false so a
+ *    single page never erases the rest of the offline cache.
  *
  * Runs a fixed number of SQLite statements regardless of feed size: one
  * multi-row upsert, one multi-condition delete for superseded optimistic
  * rows, and one stale-eviction delete — instead of two `runAsync` calls per
  * post inside the transaction.
  */
-export async function reconcilePosts(remotePosts: Post[], evictStale: boolean = true): Promise<void> {
+export async function reconcilePosts(
+  remotePosts: Post[],
+  evictStale: boolean = true
+): Promise<void> {
   if (remotePosts.length === 0) return;
+
+  const pendingLikes = new Map(
+    (await getPendingFeedActions("like")).map((action) => [action.targetId, action])
+  );
 
   await db.withTransactionAsync(async () => {
     const createdAt = Math.floor(Date.now() / 1000);
 
-    // Upsert every confirmed chain post in one multi-row statement — chain
-    // state always wins on conflict.
+    // Upsert every confirmed chain post in one multi-row statement — remote
+    // content wins on conflict, while an unresolved local like stays visible.
     const insertPlaceholders = remotePosts
       .map(() => "(?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)")
       .join(", ");
-    const insertParams = remotePosts.flatMap((post) => [
-      String(post.id),
-      post.author,
-      post.username || "stellar_user",
-      post.content,
-      post.tip_total,
-      post.timestamp,
-      post.like_count,
-      post.has_liked ? 1 : 0,
-      createdAt,
-    ]);
+    const insertParams = remotePosts.flatMap((post) => {
+      const postId = String(post.id);
+      const remoteLiked = post.has_liked === true;
+      const pendingLike = pendingLikes.get(postId);
+      let liked = remoteLiked;
+      let likeCount = post.like_count;
+
+      if (pendingLike) {
+        if (pendingLike.value && !remoteLiked) {
+          liked = true;
+          likeCount += 1;
+        } else if (!pendingLike.value && remoteLiked) {
+          liked = false;
+          likeCount = Math.max(0, likeCount - 1);
+        } else {
+          liked = pendingLike.value;
+        }
+      }
+
+      return [
+        postId,
+        post.author,
+        post.username || "stellar_user",
+        post.content,
+        post.tip_total,
+        post.timestamp,
+        likeCount,
+        liked ? 1 : 0,
+        createdAt,
+      ];
+    });
     await db.runAsync(
       `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
        VALUES ${insertPlaceholders}
@@ -397,7 +574,7 @@ export async function getPendingPosts(): Promise<Post[]> {
  */
 export async function evictStaleCache(
   maxAgeSeconds: number = 86400 * 7,
-  maxRows: number = 100
+  maxRows: number = FEED_CACHE_LIMIT
 ): Promise<void> {
   const cutoff = Math.floor(Date.now() / 1000) - maxAgeSeconds;
   const newestRow = await db.getFirstAsync<{ max_ts: number | string | null }>(
@@ -414,10 +591,9 @@ export async function evictStaleCache(
         "Skipping age-based eviction to avoid wiping the offline cache."
     );
   } else {
-    await db.runAsync(
-      `DELETE FROM cached_posts WHERE sync_status = 'synced' AND timestamp < ?`,
-      [cutoff]
-    );
+    await db.runAsync(`DELETE FROM cached_posts WHERE sync_status = 'synced' AND timestamp < ?`, [
+      cutoff,
+    ]);
   }
 
   await db.runAsync(
@@ -614,24 +790,32 @@ export async function setDmLastRead(conversationId: string, timestamp: number): 
 }
 
 /** Returns local conversations ordered by activity for the DM inbox. */
-export async function getDmConversationSummaries(userAddress: string): Promise<DmConversationSummary[]> {
+export async function getDmConversationSummaries(
+  userAddress: string
+): Promise<DmConversationSummary[]> {
   const rows = await db.getAllAsync<DmMessageRow>(
     `SELECT m.* FROM dm_messages m
      INNER JOIN (SELECT conversation_id, MAX(timestamp) AS latest FROM dm_messages GROUP BY conversation_id) latest
        ON latest.conversation_id = m.conversation_id AND latest.latest = m.timestamp
-     ORDER BY m.timestamp DESC`,
+     ORDER BY m.timestamp DESC`
   );
   const summaries: DmConversationSummary[] = [];
   for (const row of rows) {
     const lastMessage = rowToDmMessage(row);
     if (summaries.some((item) => item.conversationId === lastMessage.conversationId)) continue;
-    const otherAddress = lastMessage.sender === userAddress ? lastMessage.recipient : lastMessage.sender;
+    const otherAddress =
+      lastMessage.sender === userAddress ? lastMessage.recipient : lastMessage.sender;
     const lastRead = await getDmLastRead(lastMessage.conversationId);
     const unreadRow = await db.getFirstAsync<{ count: number }>(
       `SELECT COUNT(*) AS count FROM dm_messages WHERE conversation_id = ? AND sender != ? AND timestamp > ?`,
-      [lastMessage.conversationId, userAddress, lastRead],
+      [lastMessage.conversationId, userAddress, lastRead]
     );
-    summaries.push({ conversationId: lastMessage.conversationId, otherAddress, lastMessage, unreadCount: Number(unreadRow?.count ?? 0) });
+    summaries.push({
+      conversationId: lastMessage.conversationId,
+      otherAddress,
+      lastMessage,
+      unreadCount: Number(unreadRow?.count ?? 0),
+    });
   }
   return summaries;
 }

@@ -21,8 +21,12 @@ import {
 jest.mock("linkora-sdk", () => ({ LinkoraClient: jest.fn() }), { virtual: true });
 
 jest.mock("../db", () => ({
+  FEED_CACHE_LIMIT: 200,
+  MIN_PLAUSIBLE_TIMESTAMP: 1_000_000_000,
+  evictStaleCache: jest.fn(),
   getCachedPostById: jest.fn(),
   getCachedPostsByIds: jest.fn(),
+  markFeedSyncedAt: jest.fn(),
   reconcilePosts: jest.fn(),
 }));
 
@@ -133,7 +137,7 @@ describe("fetchAndCachePosts timestamps (#1543)", () => {
     }) as unknown as typeof fetch;
     mockedGetCachedPostsByIds.mockResolvedValue(new Map());
 
-    const [post] = await fetchAndCachePosts(1, 0);
+    const post = (await fetchAndCachePosts(1, 0))[0]!;
 
     expect(post.timestamp).toBe(ledgerToUnixSeconds(52_000_000));
     expect(post.timestamp).not.toBe(52_000_000);
@@ -152,7 +156,7 @@ describe("fetchAndCachePosts timestamps (#1543)", () => {
     mockedGetCachedPostsByIds.mockResolvedValue(new Map());
 
     const before = Math.floor(Date.now() / 1000);
-    const [post] = await fetchAndCachePosts(1, 0);
+    const post = (await fetchAndCachePosts(1, 0))[0]!;
 
     expect(post.timestamp).toBeGreaterThanOrEqual(before);
   });
@@ -177,6 +181,47 @@ describe("fetchAndCachePosts timestamps (#1543)", () => {
 
     expect(mockedGetCachedPostsByIds).toHaveBeenCalledTimes(1);
     expect(mockedGetCachedPostsByIds).toHaveBeenCalledWith(indexerPosts.map((p) => String(p.id)));
+  });
+
+  it("does not double-convert the epoch seconds the indexer actually returns", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        posts: [
+          {
+            id: "epoch-1",
+            author: "GAUTHOR",
+            content: "hello",
+            created_ledger: 1_700_000_000,
+          },
+        ],
+      }),
+    }) as unknown as typeof fetch;
+    mockedGetCachedPostsByIds.mockResolvedValue(new Map());
+
+    const post = (await fetchAndCachePosts(1, 0))[0]!;
+
+    expect(post.timestamp).toBe(1_700_000_000);
+  });
+
+  it("sends the opaque cursor and exposes the next page metadata", async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: jest.fn().mockResolvedValue({
+        posts: [{ id: "cursor-2", author: "GAUTHOR", content: "hello" }],
+        next_cursor: "next-cursor",
+        has_more: true,
+      }),
+    }) as unknown as typeof fetch;
+    mockedGetCachedPostsByIds.mockResolvedValue(new Map());
+
+    const page = await fetchAndCachePosts(1, 10, false, "previous-cursor");
+
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).toContain("cursor=previous-cursor");
+    expect((global.fetch as jest.Mock).mock.calls[0][0]).not.toContain("offset=");
+    expect(page.nextCursor).toBe("next-cursor");
+    expect(page.hasMore).toBe(true);
+    expect(mockedReconcilePosts).toHaveBeenCalledWith(expect.any(Array), false);
   });
 });
 

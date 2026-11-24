@@ -4,6 +4,7 @@ import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
 import { impact } from "../utils/haptics";
+import { clearFeedAction, getFeedAction, queueFeedAction } from "../utils/db";
 
 export interface UseLikeOptions {
   postId: number | string;
@@ -46,6 +47,23 @@ export function useLike({
     setError(null);
   }, [initialHasLiked, initialLikeCount, postId]);
 
+  // Restore an optimistic like that was queued offline and not confirmed yet,
+  // so a feed refresh or app restart cannot silently drop it (#1779).
+  useEffect(() => {
+    if (!address) return;
+    let active = true;
+    getFeedAction("like", address, String(postId))
+      .then((action) => {
+        if (!active || !action) return;
+        setLiked(action.value);
+        setLikeCount((current) => (action.value && !current ? current + 1 : current));
+      })
+      .catch((err) => console.warn("Failed to restore pending like:", err));
+    return () => {
+      active = false;
+    };
+  }, [address, postId]);
+
   const like = useCallback(async (): Promise<boolean> => {
     if (liked || pending) {
       return false;
@@ -58,24 +76,36 @@ export function useLike({
       return false;
     }
 
+    const postIdString = String(postId);
     setPending(true);
     setError(null);
-    setLiked(true);
-    setLikeCount((current) => current + 1);
 
+    let actionId: string | null = null;
+    let optimistic = false;
     try {
-      const postIdString = String(postId);
+      actionId = await queueFeedAction("like", address, postIdString, true);
+      setLiked(true);
+      setLikeCount((current) => current + 1);
+      optimistic = true;
+
       await submitTx(`like_post:${address}:${postIdString}`);
       await impact("medium");
       return true;
     } catch (err) {
-      setLiked(false);
-      setLikeCount((current) => Math.max(0, current - 1));
+      if (optimistic) {
+        setLiked(false);
+        setLikeCount((current) => Math.max(0, current - 1));
+      }
       const message = err instanceof Error ? err.message : "Failed to like post.";
       setError(message);
       showError(message);
       return false;
     } finally {
+      if (actionId) {
+        await clearFeedAction(actionId).catch((err) =>
+          console.warn("Failed to clear pending like:", err)
+        );
+      }
       setPending(false);
     }
   }, [address, connected, liked, pending, postId, showError, submitTx]);

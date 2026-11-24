@@ -20,6 +20,14 @@ jest.mock("../../../components/PostCard", () => {
 
 jest.mock("../../../utils/db", () => ({
   evictStaleCache: jest.fn(() => Promise.resolve()),
+  FEED_CACHE_LIMIT: 200,
+  FEED_STALE_THRESHOLD_MS: 5 * 60 * 1000,
+}));
+
+let mockNetwork = { isOffline: false };
+
+jest.mock("../../../hooks/useNetwork", () => ({
+  useNetwork: () => mockNetwork,
 }));
 
 jest.mock("../../../utils/analytics", () => ({
@@ -63,6 +71,7 @@ const posts = Array.from({ length: 10 }, (_, i) => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockFeed = { posts };
+  mockNetwork = { isOffline: false };
 });
 
 describe("Feed screen (#1851)", () => {
@@ -136,5 +145,30 @@ describe("Feed screen (#1851)", () => {
     render(<FeedScreen />);
 
     expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
+  });
+
+  it("shows the offline banner without hiding cached posts", () => {
+    mockNetwork = { isOffline: true };
+    render(<FeedScreen />);
+
+    expect(screen.getByTestId("feed-offline-banner")).toBeTruthy();
+    expect(screen.getByText("Offline — showing cached content")).toBeTruthy();
+    expect(screen.UNSAFE_getByType(FlatList)).toBeTruthy();
+    expect(screen.getByText("post 1")).toBeTruthy();
+  });
+
+  it("shows a last-updated banner when cached data is stale", () => {
+    mockFeed = { posts, lastUpdatedAt: Date.now() - 10 * 60 * 1000 };
+    render(<FeedScreen />);
+
+    expect(screen.getByTestId("feed-stale-banner")).toBeTruthy();
+    expect(screen.getByText("Last updated 10 minutes ago")).toBeTruthy();
+  });
+
+  it("does not show a stale banner for a fresh sync", () => {
+    mockFeed = { posts, lastUpdatedAt: Date.now() };
+    render(<FeedScreen />);
+
+    expect(screen.queryByTestId("feed-stale-banner")).toBeNull();
   });
 });
