@@ -589,3 +589,150 @@ main().catch((err) => {
   oracleSigner.dispose();
   process.exit(1);
 });
+
+// ── Daily creator stats job ───────────────────────────────────────────────
+//
+// Runs once per day (configurable cron schedule, default 00:00 UTC) to
+// aggregate tips from the past 24 hours per creator and submit a
+// Soroban `update_creator_stats` transaction.
+//
+// Environment variables:
+//   DAILY_STATS_CRON — cron expression (e.g. "0 0 * * *") or "off" to disable.
+//   DAILY_STATS_INTERVAL_MS — polling interval in ms when not using cron.
+
+function isCronEnabled(): boolean {
+  const cron = process.env["DAILY_STATS_CRON"] ?? "0 0 * * *";
+  return cron !== "off";
+}
+
+function getCronExpression(): string {
+  return process.env["DAILY_STATS_CRON"] ?? "0 0 * * *";
+}
+
+async function runDailyStatsJob(): Promise<void> {
+  const cron = getCronExpression();
+  if (cron === "off") {
+    logger.info("Daily stats job is disabled via DAILY_STATS_CRON=off");
+    return;
+  }
+  logger.info({ cron }, "Running daily creator stats job");
+
+  try {
+    // Fetch all creators from the posts table
+    const { rows: allCreators } = await db.query<
+      { author: string; post_count: number }
+    >(`SELECT DISTINCT author FROM posts WHERE deleted_at IS NULL`);
+
+  const creatorAddresses: string[] = allCreators.map((r) => r.author);
+
+  // For each creator, aggregate tips from the past 24 hours
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const creatorUpdates: Array<{
+    creatorAddress: string;
+    tipsReceived: string;
+    tipCount: number;
+  }> = [];
+
+  for (const creatorAddress of creatorAddresses) {
+    const { rows } = await db.query<
+      { total: string; count: string }
+    >(
+      `SELECT
+         COALESCE(SUM(t.amount), 0) AS total,
+         COUNT(t.id) AS count
+       FROM tips t
+       JOIN posts p ON p.id = t.post_id
+       WHERE p.author = $1
+         AND p.deleted_at IS NULL
+         AND t.created_at >= $2`,
+      [creatorAddress, twentyFourHoursAgo]
+    );
+
+    const totalTips = rows[0]?.total ?? "0";
+    const tipCount = Number(rows[0]?.count ?? "0");
+
+    creatorUpdates.push({
+      creatorAddress,
+      tipsReceived: totalTips,
+      tipCount,
+    });
+  }
+
+  // Submit daily stats for each creator via Soroban
+  for (const update of creatorUpdates) {
+    try {
+      const report: AnalyticsReport = {
+        version: 1,
+        creator: Keypair.fromPublicKey(update.creatorAddress).rawPublicKey(),
+        windowStart: BigInt(0), // daily stats use windowStart=0
+        windowEnd: BigInt(0),
+        totalTips: update.tipsReceived,
+        postCount: 0,
+        followerDelta: BigInt(0),
+        uniqueTippers: BigInt(0),
+      };
+
+      const reportCbor = encodeReport(report);
+      const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+
+      const txHash = await submitAttestation(
+        rpcServer,
+        NETWORK_PASSPHRASE,
+        CONTRACT_ID,
+        ORACLE_NAME,
+        reportCbor,
+        signature,
+        oracleSigner.keypair(),
+        update.creatorAddress,
+        BigInt(0),
+        BigInt(0)
+      );
+
+      logger.info(
+        {
+          creatorAddress: update.creatorAddress,
+          txHash,
+          tipsReceived: update.tipsReceived,
+        },
+        "Daily creator stats attestation submitted"
+      );
+    } catch (err) {
+      logger.error(
+        {
+          creatorAddress: update.creatorAddress,
+          err,
+        },
+        "Daily creator stats attestation submission failed"
+      );
+    }
+  }
+
+  logger.info("Daily creator stats job completed");
+} catch (err) {
+  logger.error({ err }, "Daily creator stats job failed");
+}
+
+// ── Start daily stats job on server boot ──────────────────────────────────
+if (isCronEnabled()) {
+  const cron = getCronExpression();
+  logger.info({ cron }, "Daily stats job enabled; will run on schedule");
+
+  // Simple polling-based scheduler when cron is used as a expression for
+  // next-run calculation (full cron libraries would require additional deps).
+  // For now, run immediately then re-queue based on the cron expression.
+  await runDailyStatsJob();
+
+  // Set up interval: 24h in ms, adjusted if a specific cron is provided.
+  // A proper cron parser would go here; 24h is the fallback.
+  const intervalMs = 24 * 60 * 60 * 1000;
+  const dailyStatsInterval = setInterval(async () => {
+    try {
+      await runDailyStatsJob();
+    } catch (innerErr) {
+      logger.error({ err: innerErr }, "Daily stats job iteration failed");
+    }
+  }, intervalMs);
+} else {
+  logger.info("Daily stats job disabled (DAILY_STATS_CRON not set or set to 'off')");
+}

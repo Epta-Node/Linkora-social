@@ -32,6 +32,7 @@ export function createSendMessageSchema(maxBytes: number = getMaxMessageBytes())
     message_index: z.number().int().min(0).max(2147483647),
     timestamp: z.number().int().positive(),
     signature: hex64BytesSchema,
+    ttl_seconds: z.number().int().min(0).optional(),
   });
 }
 
