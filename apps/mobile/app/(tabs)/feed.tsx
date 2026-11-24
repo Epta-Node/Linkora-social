@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   Text,
   AppState,
   ViewToken,
+  StatusBar,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { PostCard, Post } from "../../components/PostCard";
@@ -17,6 +18,7 @@ import { EmptyState } from "../../components/states/EmptyState";
 import { ErrorState } from "../../components/states/ErrorState";
 import { useFeed } from "../../hooks/useFeed";
 import { useTheme } from "../../theme/useTheme";
+import { useNetwork } from "../../hooks/useNetwork";
 import { evictStaleCache } from "../../utils/db";
 import { trackPostViewed } from "../../utils/analytics";
 
@@ -35,6 +37,7 @@ function SkeletonList() {
 export default function FeedScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const network = useNetwork();
   const {
     posts,
     loading,
@@ -49,7 +52,7 @@ export default function FeedScreen() {
   const viewTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const viewed = useRef(new Set<string>());
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
-    const visible = new Set(viewableItems.map((token) => String((token.item as Post).id)));
+    const visible = new Set(viewableItems.map((token) => String((item as Post).id)));
     visible.forEach((postId) => {
       if (viewed.current.has(postId) || viewTimers.current.has(postId)) return;
       viewTimers.current.set(
@@ -131,12 +134,45 @@ export default function FeedScreen() {
     return null;
   }, [posts.length, loadingMore, loadMoreError, hasMore, loadMore, theme.colors.brand.primary]);
 
+  const isOffline = network.isOffline;
+  const [isOfflineBannerVisible, setIsOfflineBannerVisible] = useState(false);
+
+  useEffect(() => {
+    setIsOfflineBannerVisible(isOffline);
+  }, [isOffline]);
+
+  const handleAppStateChange = useCallback((nextAppState: string) => {
+    if (nextAppState === "active") {
+      evictStaleCache(86400 * 7, 100).catch((err) =>
+        console.warn("Cache eviction failed:", err)
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", handleAppStateChange);
+    return () => {
+      subscription.remove();
+    };
+  }, [handleAppStateChange]);
+
   const isInitialLoad = loading && posts.length === 0;
 
   if (isInitialLoad) {
     return (
       <View style={styles.container}>
         <SkeletonList />
+      </View>
+    );
+  }
+
+  if (isOfflineBannerVisible) {
+    return (
+      <View style=[styles.offlineBanner, { backgroundColor: theme.colors.surface.surface2 }]>
+        <Text style={styles.offlineText}>Offline — showing cached content</Text>
+        <Pressable style={styles.offlineButton} onPress={refresh}>
+          <Text style={styles.offlineButtonText}>Refresh</Text>
+        </Pressable>
       </View>
     );
   }
@@ -214,4 +250,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   retryText: { color: "#e2e8f0", fontWeight: "600" },
+  offlineBanner: {
+    padding: 12,
+    backgroundColor: "#EF4444",
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  offlineText: {
+    color: "white",
+    fontSize: 14,
+  },
+  offlineButton: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: "white",
+    borderRadius: 20,
+  },
+  offlineButtonText: {
+    color: "#EF4444",
+    fontSize: 12,
+  },
 });
