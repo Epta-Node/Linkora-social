@@ -2,13 +2,17 @@ import {
   addOutboxDmMessage,
   confirmPendingPost,
   DmMessage,
+  evictStaleCache,
+  FEED_CACHE_LIMIT,
   getCachedPostById,
   getCachedPostsByIds,
   getDmSyncCursor,
   getPendingPosts,
   markDmMessageFailed,
+  markFeedSyncedAt,
   markPendingPostFailed,
   mergeDmDeltas,
+  MIN_PLAUSIBLE_TIMESTAMP,
   reconcilePosts,
   setDmSyncCursor,
 } from "./db";
@@ -48,9 +52,9 @@ export function ledgerToUnixSeconds(ledger: number): number {
  * The subset of an indexer `/api/posts` row this module consumes, after the
  * ledger field has been renamed to make its unit unambiguous.
  *
- * `createdLedger` is a ledger SEQUENCE, not a timestamp — pass it through
- * {@link ledgerToUnixSeconds} before it reaches anything that stores or renders
- * a `Post.timestamp`.
+ * `createdLedger` is the indexer's `created_ledger` field. Despite the name it
+ * currently carries epoch seconds; older rows may still carry a ledger
+ * sequence. {@link indexerPostTimestamp} normalises both units.
  */
 export interface IndexerPost {
   id: string;
@@ -110,12 +114,17 @@ export function normalizeIndexerPost(wire: IndexerPostWire): IndexerPost {
 }
 
 /**
- * The post's creation time in seconds since the epoch, converting the indexer's
- * ledger sequence at the boundary. Falls back to "now" when the indexer omitted
- * the ledger, which is strictly better than a value 20000 days in the past.
+ * The post's creation time in seconds since the epoch. The indexer exposes
+ * `created_ledger` as epoch seconds (`extract(epoch from created_at)`), but a
+ * ledger sequence is still accepted for older/legacy responses: values below
+ * {@link MIN_PLAUSIBLE_TIMESTAMP} are converted with {@link ledgerToUnixSeconds}.
+ * Falls back to "now" when the field is absent.
  */
 export function indexerPostTimestamp(post: IndexerPost, nowSeconds: number): number {
-  return post.createdLedger !== null ? ledgerToUnixSeconds(post.createdLedger) : nowSeconds;
+  if (post.createdLedger === null) return nowSeconds;
+  return post.createdLedger >= MIN_PLAUSIBLE_TIMESTAMP
+    ? post.createdLedger
+    : ledgerToUnixSeconds(post.createdLedger);
 }
 
 function normalizeIndexerPosts(raw: unknown): IndexerPost[] {
@@ -128,8 +137,9 @@ function normalizeIndexerPosts(raw: unknown): IndexerPost[] {
 /**
  * Maps indexer rows to the app's cached-post shape.
  *
- * Reuses content/username already in SQLite when the indexer omits them, so a
- * refresh never blanks out a post body that was cached earlier.
+ * Remote content always wins when the indexer supplies it (#1779). Content and
+ * username already in SQLite are reused only when the indexer omits them, so a
+ * partial refresh never blanks out a post body cached earlier.
  */
 async function toCachedPosts(indexerPosts: IndexerPost[]): Promise<Post[]> {
   const nowSeconds = Math.floor(Date.now() / 1000);
@@ -138,13 +148,8 @@ async function toCachedPosts(indexerPosts: IndexerPost[]): Promise<Post[]> {
 
   return indexerPosts.map((ip) => {
     const cached = cachedById.get(ip.id);
-    let content = cached?.content;
-    let username = cached?.username || "stellar_user";
-
-    if (!content) {
-      content = ip.content ?? "Content unavailable offline";
-      username = ip.username ?? shortAddress(ip.author);
-    }
+    const content = ip.content ?? cached?.content ?? "Content unavailable offline";
+    const username = ip.username ?? cached?.username ?? shortAddress(ip.author);
 
     return {
       id: ip.id,
@@ -152,7 +157,6 @@ async function toCachedPosts(indexerPosts: IndexerPost[]): Promise<Post[]> {
       username,
       content,
       tip_total: ip.tipTotal,
-      // createdLedger is a sequence number, never a timestamp — convert here.
       timestamp: indexerPostTimestamp(ip, nowSeconds),
       like_count: ip.likeCount,
       has_liked: ip.hasLiked,
@@ -160,38 +164,66 @@ async function toCachedPosts(indexerPosts: IndexerPost[]): Promise<Post[]> {
   });
 }
 
+/** A fetched feed page plus the opaque cursor needed to request the next one. */
+export interface FetchedFeedPage extends Array<Post> {
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 /**
- * Fetches posts from the indexer and reconciles them with the local SQLite cache.
- * Falls back to placeholder content/username when the indexer doesn't provide them
- * and the post isn't already cached.
+ * Fetches posts from the indexer, merges them into the local SQLite cache and
+ * records the sync watermark for the staleness banner (#1779).
+ *
+ * The indexer uses cursor pagination, so `cursor` is preferred. `offset` is
+ * kept as a fallback for older backends and for callers that have not yet been
+ * given a cursor. Reconciliation never deletes cached rows outside the fetched
+ * page; only the 200-row cap and (on a full refresh) age-based eviction prune it.
  *
  * @param limit Number of posts to fetch
- * @param offset Starting position for pagination
- * @param evictStale Whether to evict synced posts not in the current page (false during pagination)
+ * @param offset Legacy offset fallback when no cursor is available
+ * @param evictStale Apply age-based eviction in addition to the row cap
+ * @param cursor Opaque `next_cursor` from the previous page
  */
 export async function fetchAndCachePosts(
   limit: number,
   offset: number,
-  evictStale: boolean = true
-): Promise<Post[]> {
+  evictStale: boolean = true,
+  cursor?: string | null
+): Promise<FetchedFeedPage> {
   const indexerUrl = getIndexerBaseUrl();
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor) {
+    query.set("cursor", cursor);
+  } else if (offset > 0) {
+    query.set("offset", String(offset));
+  }
 
   // 1. Fetch posts from the indexer
-  const res = await fetch(`${indexerUrl}/api/posts?limit=${limit}&offset=${offset}`);
+  const res = await fetch(`${indexerUrl}/api/posts?${query.toString()}`);
   if (!res.ok) {
     throw new Error("Failed to fetch posts from indexer");
   }
 
   const data = await res.json();
   const indexerPosts = normalizeIndexerPosts(data.posts);
+  const nextCursor =
+    typeof data.next_cursor === "string" && data.next_cursor.length > 0 ? data.next_cursor : null;
+  const hasMore = typeof data.has_more === "boolean" ? data.has_more : nextCursor !== null;
 
-  // 2. Map to the cached-post shape, reusing local content where possible.
+  // 2. Map to the cached-post shape. Remote content wins; local values are
+  //    used only for fields the indexer did not supply.
   const finalPosts = await toCachedPosts(indexerPosts);
 
-  // 3. Reconcile with SQLite cache
-  await reconcilePosts(finalPosts, evictStale);
+  // 3. Merge into SQLite, keep at most FEED_CACHE_LIMIT rows, and mark success.
+  //    `false` prevents a single page from deleting the rest of the offline feed.
+  await reconcilePosts(finalPosts, false);
+  await evictStaleCache(evictStale ? 86400 * 7 : Number.MAX_SAFE_INTEGER, FEED_CACHE_LIMIT);
+  await markFeedSyncedAt();
 
-  return finalPosts;
+  // Copy before attaching page metadata: reconciliation stores the array
+  // reference, so mutating it here would make cached rows appear to have cursor
+  // properties in assertions and any other retained reference.
+  return Object.assign([...finalPosts], { nextCursor, hasMore }) as FetchedFeedPage;
 }
 
 /** Page size used by the author-scoped query (#1595). */
@@ -329,7 +361,7 @@ export function getSyncPendingPostsOptions(
     walletKit,
     contractId,
     rpcUrl,
-    networkPassphrase: NETWORK_PASSPHRASES[networkId] ?? NETWORK_PASSPHRASES.TESTNET,
+    networkPassphrase: NETWORK_PASSPHRASES[networkId] ?? NETWORK_PASSPHRASES.TESTNET!,
   };
 }
 

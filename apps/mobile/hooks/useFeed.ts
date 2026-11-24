@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Post } from "../components/PostCard";
-import { initDatabase, getCachedPosts, evictStaleCache } from "../utils/db";
+import { initDatabase, getCachedPosts, getFeedLastSyncedAt } from "../utils/db";
 import {
   fetchAndCachePosts,
   fetchPostById,
@@ -11,6 +11,17 @@ import {
 import { useNetworkContext } from "../context/NetworkContext";
 
 const PAGE_SIZE = 10;
+
+/** SQLite is keyed by post id, but a network page can overlap the previous one. */
+export function dedupePosts(posts: Post[]): Post[] {
+  const seen = new Set<string>();
+  return posts.filter((post) => {
+    const id = String(post.id);
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
 
 // Global event system for notifying feed updates (optimistic post creation/confirmations)
 const feedUpdateListeners = new Set<() => void>();
@@ -68,6 +79,10 @@ export interface UseFeedReturn {
   loadMoreError: string | null;
   /** False once the indexer returned a short page — the end of the feed. */
   hasMore: boolean;
+  /** Epoch ms of the last successful feed sync, for the staleness banner. */
+  lastUpdatedAt: number | null;
+  /** True while the visible posts came from SQLite before a sync completed. */
+  servedFromCache: boolean;
   loadMore: () => void;
   refresh: () => void;
 }
@@ -82,11 +97,14 @@ export function useFeed(): UseFeedReturn {
   const [error, setError] = useState<string | null>(null);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [servedFromCache, setServedFromCache] = useState(false);
 
   const { contractId, rpcUrl, network } = useNetworkContext();
 
-  // Number of indexer rows fetched so far — the offset of the next page.
+  // Local window offset plus the indexer's opaque cursor for the next page.
   const offsetRef = useRef(0);
+  const cursorRef = useRef<string | null>(null);
   const loadingRef = useRef(false);
   const loadedPostsRef = useRef(0);
   const postsLengthRef = useRef(0);
@@ -100,9 +118,11 @@ export function useFeed(): UseFeedReturn {
   }, [network.id]);
 
   const applyPosts = useCallback((next: Post[]) => {
-    setPosts(next);
-    loadedPostsRef.current = next.length;
-    postsLengthRef.current = next.length;
+    const unique = dedupePosts(next);
+    setPosts(unique);
+    loadedPostsRef.current = unique.length;
+    postsLengthRef.current = unique.length;
+    offsetRef.current = unique.length;
   }, []);
 
   const applyHasMore = useCallback((value: boolean) => {
@@ -110,12 +130,18 @@ export function useFeed(): UseFeedReturn {
     setHasMore(value);
   }, []);
 
-  // Load the first page from the SQLite cache so the feed paints instantly.
+  // Load the first page from the SQLite cache so the feed paints instantly,
+  // before the network request is even started (#1779).
   const loadFromCache = useCallback(async () => {
     try {
-      const cached = await getCachedPosts(PAGE_SIZE, 0);
+      await initDatabase();
+      const [cached, syncedAt] = await Promise.all([
+        getCachedPosts(PAGE_SIZE, 0),
+        getFeedLastSyncedAt(),
+      ]);
       applyPosts(cached);
-      offsetRef.current = cached.length;
+      setLastUpdatedAt(syncedAt);
+      setServedFromCache(cached.length > 0);
     } catch (err) {
       console.warn("Failed to load posts from SQLite cache:", err);
     }
@@ -145,17 +171,17 @@ export function useFeed(): UseFeedReturn {
         await initDatabase();
 
         const offset = replace ? 0 : offsetRef.current;
-        const page = await fetchAndCachePosts(PAGE_SIZE, offset, !replace);
+        const cursor = replace ? null : cursorRef.current;
+        const page = cursor
+          ? await fetchAndCachePosts(PAGE_SIZE, offset, !replace, cursor)
+          : await fetchAndCachePosts(PAGE_SIZE, offset, !replace);
 
         if (networkIdRef.current !== startNetworkId) return;
 
-        if (replace) {
-          await evictStaleCache();
-        }
-
-        // A short page means the indexer has nothing beyond it (#1851).
-        const reachedEnd = page.length < PAGE_SIZE;
-        offsetRef.current = offset + page.length;
+        // The indexer uses cursor pagination; a legacy response without cursor
+        // metadata is treated as "short page means end of feed" (#1851).
+        const nextCursor = page.nextCursor ?? null;
+        const hasMore = typeof page.hasMore === "boolean" ? page.hasMore : page.length >= PAGE_SIZE;
 
         const windowSize = replace
           ? Math.max(PAGE_SIZE, page.length)
@@ -165,7 +191,10 @@ export function useFeed(): UseFeedReturn {
         if (networkIdRef.current !== startNetworkId) return;
 
         applyPosts(cached);
-        applyHasMore(!reachedEnd);
+        applyHasMore(hasMore);
+        cursorRef.current = nextCursor;
+        setLastUpdatedAt(await getFeedLastSyncedAt());
+        setServedFromCache(false);
 
         // Fire background sync for pending posts (only if wallet kit is available)
         const syncOptions = getSyncPendingPostsOptions(contractId, rpcUrl, network.id);
@@ -183,6 +212,8 @@ export function useFeed(): UseFeedReturn {
           if (loadedPostsRef.current === 0) {
             await loadFromCache();
           }
+          setLastUpdatedAt(await getFeedLastSyncedAt());
+          setServedFromCache(loadedPostsRef.current > 0);
           setError("Offline mode. Serving cached posts.");
         }
       } finally {
@@ -195,17 +226,13 @@ export function useFeed(): UseFeedReturn {
     [applyHasMore, applyPosts, loadFromCache, contractId, rpcUrl, network.id]
   );
 
-  // Initial load
+  // Initial load: paint SQLite first, then sync in the background (#1779).
   useEffect(() => {
     let active = true;
     async function init() {
-      await initDatabase();
-      if (!active) return;
-      // Load cache instantly
       await loadFromCache();
       if (!active) return;
       if (loadedPostsRef.current > 0) setLoading(false);
-      // Trigger network sync in background
       void syncWithNetwork("initial");
     }
     init();
@@ -245,6 +272,8 @@ export function useFeed(): UseFeedReturn {
     error,
     loadMoreError,
     hasMore,
+    lastUpdatedAt,
+    servedFromCache,
     loadMore,
     refresh,
   };
