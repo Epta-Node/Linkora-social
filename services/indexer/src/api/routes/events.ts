@@ -125,6 +125,7 @@ export function createEventsReplayRouter(pg: Pool): Router {
 const listEventsQuerySchema = cursorPaginationSchema.extend({
   contract_id: z.string().min(1).optional(),
   topic: z.string().min(1).optional(),
+  type: z.string().min(1).optional(),
 });
 
 export function createEventsRouter(db: Database): Router {
@@ -149,7 +150,7 @@ export function createEventsRouter(db: Database): Router {
     "/",
     validateQuery(listEventsQuerySchema),
     async (req: Request, res: Response): Promise<void> => {
-      const { limit, cursor, contract_id, topic } = req.query as unknown as z.infer<
+      const { limit, cursor, contract_id, topic, type } = req.query as unknown as z.infer<
         typeof listEventsQuerySchema
       >;
 
@@ -158,7 +159,7 @@ export function createEventsRouter(db: Database): Router {
           limit,
           cursor: cursor || undefined,
           contract_id: contract_id || undefined,
-          topic: topic || undefined,
+          topic: topic || type || undefined,
         });
 
         res.json({

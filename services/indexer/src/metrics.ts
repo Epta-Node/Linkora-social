@@ -2,8 +2,8 @@
  * Small dependency-free metrics primitives used by the indexer.
  *
  * The service intentionally avoids a runtime metrics dependency in the core
- * pipeline. These counters expose Prometheus text while keeping unit tests
- * deterministic and lightweight.
+ * pipeline. These counters and gauges expose Prometheus text while keeping
+ * unit tests deterministic and lightweight.
  */
 
 export class Counter {
@@ -38,6 +38,78 @@ export class Counter {
     ].join("\n");
   }
 }
+
+export class Gauge {
+  private value = 0;
+
+  constructor(
+    readonly name: string,
+    readonly help: string
+  ) {}
+
+  set(value: number): void {
+    if (!Number.isFinite(value)) {
+      throw new Error("Gauge value must be finite");
+    }
+    this.value = value;
+  }
+
+  inc(amount = 1): void {
+    if (!Number.isFinite(amount)) {
+      throw new Error("Gauge increment must be finite");
+    }
+    this.value += amount;
+  }
+
+  dec(amount = 1): void {
+    if (!Number.isFinite(amount)) {
+      throw new Error("Gauge decrement must be finite");
+    }
+    this.value = Math.max(0, this.value - amount);
+  }
+
+  getValue(): number {
+    return this.value;
+  }
+
+  reset(): void {
+    this.value = 0;
+  }
+
+  toPrometheus(): string {
+    return [
+      `# HELP ${this.name} ${this.help}`,
+      `# TYPE ${this.name} gauge`,
+      `${this.name} ${this.value}`,
+      "",
+    ].join("\n");
+  }
+}
+
+export const eventsProcessedTotal = new Counter(
+  "indexer_events_processed_total",
+  "Total number of events processed by the indexer pipeline"
+);
+
+export const eventsFailedTotal = new Counter(
+  "indexer_events_failed_total",
+  "Total number of events that failed processing in the indexer pipeline"
+);
+
+export const pipelineLagMs = new Gauge(
+  "indexer_pipeline_lag_ms",
+  "Current indexer pipeline processing lag in milliseconds"
+);
+
+export const dbPoolSize = new Gauge(
+  "indexer_db_pool_size",
+  "Current total number of clients in the PostgreSQL connection pool"
+);
+
+export const wsConnections = new Gauge(
+  "indexer_ws_connections",
+  "Current number of active WebSocket connections"
+);
 
 export const serializationRetriesTotal = new Counter(
   "serialization_retries_total",
@@ -85,6 +157,7 @@ export function recordProcessingLag(eventType: string, lagMs: number): void {
   const stats = processingLagMs.get(eventType)!;
   stats.total += lagMs;
   stats.count += 1;
+  pipelineLagMs.set(lagMs);
 }
 
 export const streamHealth = {
@@ -98,8 +171,25 @@ export const streamHealth = {
   rawEventsBacklog: 0,
 };
 
-export function metricsText(): string {
+export interface MetricsSnapshotOverrides {
+  dbPoolSize?: number;
+  wsConnections?: number;
+}
+
+export function metricsText(overrides?: MetricsSnapshotOverrides): string {
+  if (typeof overrides?.dbPoolSize === "number" && Number.isFinite(overrides.dbPoolSize)) {
+    dbPoolSize.set(overrides.dbPoolSize);
+  }
+  if (typeof overrides?.wsConnections === "number" && Number.isFinite(overrides.wsConnections)) {
+    wsConnections.set(overrides.wsConnections);
+  }
+
   const lines = [
+    eventsProcessedTotal,
+    eventsFailedTotal,
+    pipelineLagMs,
+    dbPoolSize,
+    wsConnections,
     serializationRetriesTotal,
     scoreRefreshDeferredTotal,
     streamCircuitTripsTotal,
@@ -108,12 +198,13 @@ export function metricsText(): string {
     followCountDriftTotal,
     notificationsPrunedTotal,
     deadLetterEventsTotal,
-  ]
-    .map((metric) => metric.toPrometheus());
+  ].map((metric) => metric.toPrometheus());
 
   for (const [eventType, stats] of processingLagMs.entries()) {
     const avgLag = stats.count > 0 ? stats.total / stats.count : 0;
-    lines.push(`# HELP processing_lag_ms_${eventType} Average processing lag for ${eventType} events\n`);
+    lines.push(
+      `# HELP processing_lag_ms_${eventType} Average processing lag for ${eventType} events\n`
+    );
     lines.push(`# TYPE processing_lag_ms_${eventType} gauge\n`);
     lines.push(`processing_lag_ms_${eventType} ${avgLag}\n`);
   }

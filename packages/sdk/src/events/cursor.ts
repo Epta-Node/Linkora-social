@@ -61,23 +61,47 @@ export class MemoryCursorStore implements CursorStore {
 }
 
 export class LocalStorageCursorStore implements CursorStore {
+  private fallback?: MemoryCursorStore;
+
   constructor(private key = "linkora:lastEventCursor") {}
 
   async get(): Promise<string | undefined> {
+    if (this.fallback) return this.fallback.get();
     const localStorage = getLocalStorage();
     return localStorage?.getItem(this.key) ?? undefined;
   }
 
   async set(cursor: string): Promise<void> {
+    if (this.fallback) return this.fallback.set(cursor);
     const localStorage = getLocalStorage();
     if (!localStorage) return;
-    localStorage.setItem(this.key, cursor);
+    try {
+      localStorage.setItem(this.key, cursor);
+    } catch (err) {
+      if (!isQuotaExceededError(err)) throw err;
+      const previous = localStorage.getItem(this.key) ?? undefined;
+      this.fallback = new MemoryCursorStore(previous);
+      console.warn("LocalStorage quota exceeded; falling back to an in-memory event cursor.");
+      await this.fallback.set(cursor);
+    }
   }
 
   async clear(): Promise<void> {
+    if (this.fallback) return this.fallback.clear();
     const localStorage = getLocalStorage();
     localStorage?.removeItem(this.key);
   }
+}
+
+function isQuotaExceededError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const error = err as { name?: unknown; code?: unknown };
+  return (
+    error.name === "QuotaExceededError" ||
+    error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    error.code === 22 ||
+    error.code === 1014
+  );
 }
 
 export interface SecureStoreAdapter {

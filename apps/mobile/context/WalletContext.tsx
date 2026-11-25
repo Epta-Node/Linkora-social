@@ -18,6 +18,7 @@ import {
   deleteConnectionState,
   type ConnectionState as StoredConnectionState,
 } from "../utils/secureStorage";
+import { clearAllCachedPosts } from "../utils/db";
 import { deregisterTokenFromIndexer } from "../notifications/registerForPushNotifications";
 import {
   useNetworkContext,
@@ -324,6 +325,7 @@ export function WalletProvider({ children }: { children: ReactNode }): JSX.Eleme
 
   const clearStoredSession = useCallback(async () => {
     await Promise.all([deleteWalletAddress(), deleteConnectionState()]);
+    await clearAllCachedPosts();
   }, []);
 
   useEffect(() => {

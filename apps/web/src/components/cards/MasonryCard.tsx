@@ -19,8 +19,8 @@ interface MasonryCardProps {
   priority?: boolean;
 }
 
-// MasonryGrid renders 2 columns on mobile (the only place it is shown).
-const MASONRY_IMAGE_SIZES = "50vw";
+// The mobile feed uses 2 fixed columns; elsewhere the grid is responsive (1/2/3 columns).
+const MASONRY_IMAGE_SIZES = "(min-width: 1024px) 33vw, 50vw";
 
 // Deterministic (not Math.random) so server and client render the same aspect
 // ratio for a given post — avoids hydration mismatch and layout shift.

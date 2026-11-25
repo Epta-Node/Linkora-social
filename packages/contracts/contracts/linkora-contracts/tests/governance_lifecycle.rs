@@ -1,276 +1,186 @@
-// Issue #1690: End-to-end governance lifecycle integration test
-//
-// Integration test that walks through the full governance lifecycle:
-// config → propose → vote (for/against) → quorum met → execute → verify effect
-// Plus veto and failing quorum paths
-
-#![cfg(test)]
-
-use linkora_contracts::{LinkoraContract, LinkoraContractClient};
+use linkora_contracts::{
+    GovParameter, GovStatus, LinkoraContract, LinkoraContractClient, ProposalMetadata,
+};
 use soroban_sdk::{
+    symbol_short,
     testutils::{Address as _, Ledger},
-    token::{StellarAssetClient, TokenClient},
-    Address, Env, String as SdkString,
+    token::StellarAssetClient,
+    vec, Address, Env, String as SdkString, Symbol,
 };
 
-fn setup_contract(env: &Env) -> (LinkoraContractClient, Address, Address) {
-    let contract_id = env.register_contract(None, LinkoraContract);
+fn setup_contract(env: &Env) -> (LinkoraContractClient<'_>, Address, Address) {
+    let contract_id = env.register(LinkoraContract, ());
     let client = LinkoraContractClient::new(env, &contract_id);
-
     let admin = Address::generate(env);
     let treasury = Address::generate(env);
-
-    client.initialize(&admin, &treasury, &100u32); // 1% protocol fee
-
+    client.initialize(&admin, &treasury, &100u32);
     (client, admin, treasury)
 }
 
 fn setup_token(env: &Env, admin: &Address) -> Address {
-    let token = env.register_stellar_asset_contract(admin.clone());
-    StellarAssetClient::new(env, &token).mint(admin, &1_000_000_000);
-    token
+    let token_id = env.register_stellar_asset_contract_v2(admin.clone());
+    StellarAssetClient::new(env, &token_id.address()).mint(admin, &1_000_000_000);
+    token_id.address()
 }
 
-fn setup_profile(client: &LinkoraContractClient, user: &Address, username: &str, token: &Address) {
-    client.set_profile(user, &SdkString::from_str(client.env(), username), token);
+fn no_metadata(env: &Env) -> ProposalMetadata {
+    ProposalMetadata {
+        title: SdkString::from_str(env, ""),
+        description: SdkString::from_str(env, ""),
+        rationale: SdkString::from_str(env, ""),
+    }
+}
+
+fn setup_governance(
+    env: &Env,
+    quorum: u32,
+    time_lock_ledgers: u32,
+    vote_window_ledgers: u32,
+) -> (LinkoraContractClient<'_>, Address, Address) {
+    let (client, admin, treasury) = setup_contract(env);
+    client.gov_init_config(
+        &admin,
+        &quorum,
+        &time_lock_ledgers,
+        &vote_window_ledgers,
+        &50u32,
+        &30u32,
+    );
+    (client, admin, treasury)
+}
+
+fn setup_veto_pool(
+    env: &Env,
+    client: &LinkoraContractClient<'_>,
+    admin: &Address,
+) -> (Symbol, soroban_sdk::Vec<Address>) {
+    let signer_one = Address::generate(env);
+    let signer_two = Address::generate(env);
+    let token = setup_token(env, &signer_one);
+    let pool_id = symbol_short!("vetpool");
+    let signers = vec![env, signer_one.clone(), signer_two.clone()];
+    client.create_pool(admin, &pool_id, &token, &signers, &2u32);
+    (pool_id, signers)
 }
 
 #[test]
-fn test_governance_happy_path_fee_change() {
+fn test_governance_lifecycle_executes_after_timelock() {
     let env = Env::default();
     env.mock_all_auths();
+    let (client, _admin, _treasury) = setup_governance(&env, 60, 10, 10);
 
-    let (client, admin, treasury) = setup_contract(&env);
+    let proposer = Address::generate(&env);
+    let voter_one = Address::generate(&env);
+    let voter_two = Address::generate(&env);
+    let voter_three = Address::generate(&env);
 
-    // Step 1: Configure governance parameters
-    let quorum = 3; // Need 3 votes to pass
-    let voting_period = 1000u32; // 1000 ledgers
-
-    client.set_gov_quorum(&admin, &quorum);
-    client.set_gov_voting_period(&admin, &voting_period);
-
-    // Verify configuration
-    let config = client.get_gov_config();
-    assert_eq!(config.quorum, quorum);
-    assert_eq!(config.voting_period_ledgers, voting_period);
-
-    // Step 2: Create voters with profiles
-    let voter1 = Address::generate(&env);
-    let voter2 = Address::generate(&env);
-    let voter3 = Address::generate(&env);
-    let voter4 = Address::generate(&env);
-
-    let token = setup_token(&env, &admin);
-    setup_profile(&client, &voter1, "voter1", &token);
-    setup_profile(&client, &voter2, "voter2", &token);
-    setup_profile(&client, &voter3, "voter3", &token);
-    setup_profile(&client, &voter4, "voter4", &token);
-
-    // Step 3: Propose governance action (fee change)
     let proposal_id = client.gov_propose(
-        &voter1,
-        &SdkString::from_str(&env, "Change protocol fee to 2%"),
-        &SdkString::from_str(&env, "set_protocol_fee"),
-        &vec![&env, 200u32], // 2% = 200 bps
+        &proposer,
+        &GovParameter::FeeBps,
+        &250u64,
+        &None,
+        &no_metadata(&env),
+    );
+    assert_eq!(
+        client.gov_get_proposal(&proposal_id).status,
+        GovStatus::Active
     );
 
-    assert!(proposal_id > 0);
+    client.gov_vote(&voter_one, &proposal_id, &true);
+    client.gov_vote(&voter_two, &proposal_id, &true);
+    client.gov_vote(&voter_three, &proposal_id, &false);
 
-    // Verify proposal was created
-    let proposal = client.get_gov_proposal(&proposal_id);
-    assert_eq!(proposal.proposer, voter1);
-    assert!(!proposal.executed);
-    assert!(!proposal.vetoed);
+    env.ledger().with_mut(|ledger| ledger.sequence_number += 20);
+    client.gov_execute(&proposal_id);
 
-    // Step 4: Vote on proposal (3 for, 1 against)
-    client.gov_vote(&voter1, &proposal_id, &true); // Vote for
-    client.gov_vote(&voter2, &proposal_id, &true); // Vote for
-    client.gov_vote(&voter3, &proposal_id, &true); // Vote for
-    client.gov_vote(&voter4, &proposal_id, &false); // Vote against
-
-    // Step 5: Advance ledger past voting period
-    env.ledger().with_mut(|ledger| {
-        ledger.sequence_number += voting_period + 1;
-    });
-
-    // Step 6: Execute proposal (quorum met)
-    client.gov_execute(&admin, &proposal_id);
-
-    // Step 7: Verify effect - protocol fee should now be 2%
-    let new_fee = client.get_protocol_fee();
-    assert_eq!(new_fee, 200u32);
-
-    // Verify proposal marked as executed
-    let executed_proposal = client.get_gov_proposal(&proposal_id);
-    assert!(executed_proposal.executed);
-}
-
-#[test]
-fn test_governance_veto_path() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (client, admin, _treasury) = setup_contract(&env);
-
-    // Configure governance
-    client.set_gov_quorum(&admin, &2);
-    client.set_gov_voting_period(&admin, &1000u32);
-
-    // Create voters
-    let voter1 = Address::generate(&env);
-    let voter2 = Address::generate(&env);
-    let token = setup_token(&env, &admin);
-    setup_profile(&client, &voter1, "voter1", &token);
-    setup_profile(&client, &voter2, "voter2", &token);
-
-    // Propose
-    let proposal_id = client.gov_propose(
-        &voter1,
-        &SdkString::from_str(&env, "Malicious proposal"),
-        &SdkString::from_str(&env, "some_action"),
-        &vec![&env],
+    assert_eq!(client.get_fee_bps(), 250);
+    assert_eq!(
+        client.gov_get_proposal(&proposal_id).status,
+        GovStatus::Executed
     );
-
-    // Votes
-    client.gov_vote(&voter1, &proposal_id, &true);
-    client.gov_vote(&voter2, &proposal_id, &true);
-
-    // Admin vetos before execution
-    client.gov_veto(&admin, &proposal_id);
-
-    // Verify vetoed
-    let vetoed_proposal = client.get_gov_proposal(&proposal_id);
-    assert!(vetoed_proposal.vetoed);
-    assert!(!vetoed_proposal.executed);
-
-    // Advance ledger
-    env.ledger().with_mut(|ledger| {
-        ledger.sequence_number += 1001;
-    });
-
-    // Attempt to execute should fail (vetoed)
-    let result = client.try_gov_execute(&admin, &proposal_id);
-    assert!(result.is_err());
 }
 
 #[test]
-fn test_governance_failing_quorum() {
+fn test_governance_lifecycle_veto_blocks_execution() {
     let env = Env::default();
     env.mock_all_auths();
+    let (client, admin, _treasury) = setup_governance(&env, 60, 10, 10);
+    let (pool_id, signers) = setup_veto_pool(&env, &client, &admin);
 
-    let (client, admin, _treasury) = setup_contract(&env);
-
-    // Configure governance with high quorum
-    client.set_gov_quorum(&admin, &5); // Need 5 votes
-    client.set_gov_voting_period(&admin, &1000u32);
-
-    // Create only 3 voters
-    let voter1 = Address::generate(&env);
-    let voter2 = Address::generate(&env);
-    let voter3 = Address::generate(&env);
-    let token = setup_token(&env, &admin);
-    setup_profile(&client, &voter1, "voter1", &token);
-    setup_profile(&client, &voter2, "voter2", &token);
-    setup_profile(&client, &voter3, "voter3", &token);
-
-    // Propose
-    let proposal_id = client.gov_propose(
-        &voter1,
-        &SdkString::from_str(&env, "Test proposal"),
-        &SdkString::from_str(&env, "some_action"),
-        &vec![&env],
-    );
-
-    // Only 3 votes (less than quorum of 5)
-    client.gov_vote(&voter1, &proposal_id, &true);
-    client.gov_vote(&voter2, &proposal_id, &true);
-    client.gov_vote(&voter3, &proposal_id, &true);
-
-    // Advance ledger past voting period
-    env.ledger().with_mut(|ledger| {
-        ledger.sequence_number += 1001;
-    });
-
-    // Attempt to execute should fail (quorum not met)
-    let result = client.try_gov_execute(&admin, &proposal_id);
-    assert!(result.is_err());
-
-    // Verify not executed
-    let proposal = client.get_gov_proposal(&proposal_id);
-    assert!(!proposal.executed);
-}
-
-#[test]
-fn test_governance_vote_against_majority() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (client, admin, _treasury) = setup_contract(&env);
-
-    // Configure governance
-    client.set_gov_quorum(&admin, &3);
-    client.set_gov_voting_period(&admin, &1000u32);
-
-    // Create voters
-    let voter1 = Address::generate(&env);
-    let voter2 = Address::generate(&env);
-    let voter3 = Address::generate(&env);
-    let voter4 = Address::generate(&env);
-    let token = setup_token(&env, &admin);
-    setup_profile(&client, &voter1, "voter1", &token);
-    setup_profile(&client, &voter2, "voter2", &token);
-    setup_profile(&client, &voter3, "voter3", &token);
-    setup_profile(&client, &voter4, "voter4", &token);
-
-    // Propose
-    let proposal_id = client.gov_propose(
-        &voter1,
-        &SdkString::from_str(&env, "Test proposal"),
-        &SdkString::from_str(&env, "some_action"),
-        &vec![&env],
-    );
-
-    // 3 votes against, 1 vote for (quorum met but majority against)
-    client.gov_vote(&voter1, &proposal_id, &false);
-    client.gov_vote(&voter2, &proposal_id, &false);
-    client.gov_vote(&voter3, &proposal_id, &false);
-    client.gov_vote(&voter4, &proposal_id, &true);
-
-    // Advance ledger
-    env.ledger().with_mut(|ledger| {
-        ledger.sequence_number += 1001;
-    });
-
-    // Attempt to execute should fail (majority voted against)
-    let result = client.try_gov_execute(&admin, &proposal_id);
-    assert!(result.is_err());
-}
-
-#[test]
-fn test_governance_double_vote_prevention() {
-    let env = Env::default();
-    env.mock_all_auths();
-
-    let (client, admin, _treasury) = setup_contract(&env);
-
-    client.set_gov_quorum(&admin, &2);
-    client.set_gov_voting_period(&admin, &1000u32);
-
+    let proposer = Address::generate(&env);
     let voter = Address::generate(&env);
-    let token = setup_token(&env, &admin);
-    setup_profile(&client, &voter, "voter", &token);
-
     let proposal_id = client.gov_propose(
-        &voter,
-        &SdkString::from_str(&env, "Test"),
-        &SdkString::from_str(&env, "action"),
-        &vec![&env],
+        &proposer,
+        &GovParameter::FeeBps,
+        &300u64,
+        &None,
+        &no_metadata(&env),
     );
 
-    // First vote succeeds
     client.gov_vote(&voter, &proposal_id, &true);
+    env.ledger().with_mut(|ledger| ledger.sequence_number += 10);
+    client.gov_veto(&signers, &pool_id, &proposal_id);
 
-    // Second vote should fail (double voting)
-    let result = client.try_gov_vote(&voter, &proposal_id, &true);
-    assert!(result.is_err());
+    assert_eq!(
+        client.gov_get_proposal(&proposal_id).status,
+        GovStatus::Vetoed
+    );
+
+    env.ledger().with_mut(|ledger| ledger.sequence_number += 10);
+    assert!(client.try_gov_execute(&proposal_id).is_err());
+    assert_eq!(client.get_fee_bps(), 100);
+}
+
+#[test]
+fn test_governance_lifecycle_insufficient_quorum_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _treasury) = setup_governance(&env, 60, 10, 10);
+
+    let proposer = Address::generate(&env);
+    let voter_for = Address::generate(&env);
+    let voter_against = Address::generate(&env);
+    let voter_against_two = Address::generate(&env);
+
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &400u64,
+        &None,
+        &no_metadata(&env),
+    );
+
+    client.gov_vote(&voter_for, &proposal_id, &true);
+    client.gov_vote(&voter_against, &proposal_id, &false);
+    client.gov_vote(&voter_against_two, &proposal_id, &false);
+
+    env.ledger().with_mut(|ledger| ledger.sequence_number += 20);
+    assert!(client.try_gov_execute(&proposal_id).is_err());
+
+    assert_eq!(
+        client.gov_get_proposal(&proposal_id).status,
+        GovStatus::Active
+    );
+    assert_eq!(client.get_fee_bps(), 100);
+}
+
+#[test]
+#[should_panic(expected = "already voted")]
+fn test_governance_lifecycle_double_vote_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _treasury) = setup_governance(&env, 60, 10, 10);
+
+    let proposer = Address::generate(&env);
+    let voter = Address::generate(&env);
+    let proposal_id = client.gov_propose(
+        &proposer,
+        &GovParameter::FeeBps,
+        &500u64,
+        &None,
+        &no_metadata(&env),
+    );
+
+    client.gov_vote(&voter, &proposal_id, &true);
+    client.gov_vote(&voter, &proposal_id, &true);
 }

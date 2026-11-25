@@ -137,6 +137,7 @@ export interface Database {
   incrementPostLikeCount(post_id: bigint): Promise<void>;
   addPostTipTotal(post_id: bigint, net_amount: bigint): Promise<void>;
   getPost(post_id: bigint): Promise<Post | null>;
+  getPostTipCount(post_id: bigint): Promise<number>;
 
   // Likes
   upsertLike(like: Like): Promise<boolean>; // returns true if newly inserted
@@ -260,6 +261,7 @@ export interface Database {
     cursor?: string;
     contract_id?: string;
     topic?: string;
+    type?: string;
   }): Promise<{ events: ChainEvent[]; nextCursor: string | null }>;
 
   getFeed?(filters: {

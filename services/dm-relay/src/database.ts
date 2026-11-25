@@ -24,6 +24,7 @@ export interface DbMessage {
   message_index: number;
   timestamp: number;
   created_at: Date;
+  ttl_seconds?: number;
 }
 
 // A `response_status` of 0 is a sentinel meaning "claimed but not yet
@@ -61,6 +62,7 @@ export type IdempotencyClaimResult =
 
 class Database {
   private pool: Pool;
+  private stopPoolMonitoring: () => void;
 
   constructor(connectionString: string) {
     // Tunable via env (issue #888); defaults match the pre-existing values.
@@ -73,11 +75,13 @@ class Database {
     // pool.on('error') is required: without it, an idle client that dies
     // (e.g. Postgres restarting underneath it) crashes the process instead
     // of being logged and discarded.
-    attachPoolMonitoring(this.pool, {
+    const monitoring = attachPoolMonitoring(this.pool, {
       logger,
       serviceName: "dm-relay",
-      statsIntervalMs: optionalInt("DB_POOL_STATS_INTERVAL_MS", 0),
+      statsIntervalMs: optionalInt("DB_POOL_STATS_INTERVAL_MS", 30_000),
+      maxConnections: optionalInt("DB_POOL_MAX", 20),
     });
+    this.stopPoolMonitoring = monitoring.stop;
   }
 
   /** Current pool utilisation (active, idle, waiting) — issue #888. */
@@ -153,16 +157,17 @@ class Database {
     recipient: string,
     ciphertextB64: string,
     messageIndex: number,
-    timestamp: number
+    timestamp: number,
+    ttlSeconds?: number
   ): Promise<string> {
     const query = `
       INSERT INTO dm_messages 
-        (conversation_id, sender, recipient, ciphertext_b64, message_index, timestamp)
-      VALUES ($1, $2, $3, $4, $5, $6)
+        (conversation_id, sender, recipient, ciphertext_b64, message_index, timestamp, ttl_seconds)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING id
     `;
 
-    const values = [conversationId, sender, recipient, ciphertextB64, messageIndex, timestamp];
+    const values = [conversationId, sender, recipient, ciphertextB64, messageIndex, timestamp, ttlSeconds];
 
     try {
       const result = await this.pool.query(query, values);
@@ -495,6 +500,7 @@ class Database {
   }
 
   async close(): Promise<void> {
+    this.stopPoolMonitoring();
     await this.pool.end();
   }
 }

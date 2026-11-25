@@ -17,6 +17,7 @@ export interface ReportDismissedEvent {
   reporter_address: string;
   moderator_address: string;
   moderator_notes?: string;
+  reason?: string;
 }
 
 export interface PostRemovedByModerationEvent {
@@ -54,9 +55,15 @@ export async function handlePostReported(
       updated_at: now,
     });
 
-    logger.info({ postId: post_id.toString(), reporterAddress: reporter_address, reason }, "Post reported");
+    logger.info(
+      { postId: post_id.toString(), reporterAddress: reporter_address, reason },
+      "Post reported"
+    );
   } catch (error) {
-    logger.error({ postId: post_id.toString(), reporterAddress: reporter_address, err: error }, "Error handling PostReportedEvent");
+    logger.error(
+      { postId: post_id.toString(), reporterAddress: reporter_address, err: error },
+      "Error handling PostReportedEvent"
+    );
     throw error;
   }
 }
@@ -71,7 +78,7 @@ export async function handleReportDismissed(
   event: ReportDismissedEvent,
   _context: ModerationEventContext
 ): Promise<void> {
-  const { post_id, reporter_address, moderator_address, moderator_notes } = event;
+  const { post_id, reporter_address, moderator_address, moderator_notes, reason } = event;
 
   try {
     await db.updateReportStatus(
@@ -83,11 +90,19 @@ export async function handleReportDismissed(
     );
 
     logger.info(
-      { postId: post_id.toString(), reporterAddress: reporter_address, moderatorAddress: moderator_address },
+      {
+        postId: post_id.toString(),
+        reporterAddress: reporter_address,
+        moderatorAddress: moderator_address,
+        reason,
+      },
       "Report dismissed"
     );
   } catch (error) {
-    logger.error({ postId: post_id.toString(), reporterAddress: reporter_address, err: error }, "Error handling ReportDismissedEvent");
+    logger.error(
+      { postId: post_id.toString(), reporterAddress: reporter_address, err: error },
+      "Error handling ReportDismissedEvent"
+    );
     throw error;
   }
 }
@@ -123,9 +138,15 @@ export async function handlePostRemovedByModeration(
       );
     }
 
-    logger.info({ postId: post_id.toString(), moderatorAddress: moderator_address, reason }, "Post removed by moderation");
+    logger.info(
+      { postId: post_id.toString(), moderatorAddress: moderator_address, reason },
+      "Post removed by moderation"
+    );
   } catch (error) {
-    logger.error({ postId: post_id.toString(), moderatorAddress: moderator_address, err: error }, "Error handling PostRemovedByModerationEvent");
+    logger.error(
+      { postId: post_id.toString(), moderatorAddress: moderator_address, err: error },
+      "Error handling PostRemovedByModerationEvent"
+    );
     throw error;
   }
 }

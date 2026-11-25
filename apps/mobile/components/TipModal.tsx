@@ -1,27 +1,22 @@
-import React, { useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { useTip, type TipToken } from "../hooks/useTip";
 import { useTheme } from "../theme/useTheme";
 import { useNetwork } from "../hooks/useNetwork";
+import { impact } from "../utils/haptics";
+import { useHapticSettings } from "../hooks/useHapticSettings";
+import { BottomSheet, SheetTextInput } from "./BottomSheet";
+
+const DEFAULT_TOKEN: TipToken = {
+  symbol: "XLM",
+  name: "Stellar Lumens",
+  address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5",
+  decimals: 7,
+};
 
 const SUPPORTED_TOKENS: TipToken[] = [
-  {
-    symbol: "XLM",
-    name: "Stellar Lumens",
-    address: "GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGZXG5CHCGZXG5CHCGZXG5",
-    decimals: 7,
-  },
+  DEFAULT_TOKEN,
   {
     symbol: "USDC",
     name: "USD Coin",
@@ -51,9 +46,17 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
   const { isOffline } = useNetwork();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [amount, setAmount] = useState("");
-  const [selectedToken, setSelectedToken] = useState<TipToken>(SUPPORTED_TOKENS[0]);
+  const [selectedToken, setSelectedToken] = useState<TipToken>(DEFAULT_TOKEN);
   const [validationError, setValidationError] = useState<string | null>(null);
   const { pending, status, error, result, estimateProtocolFee, tip, reset } = useTip();
+  const { hapticsEnabled } = useHapticSettings();
+
+  // ImpactFeedbackStyle.Rigid on contract / network error — gated by user setting.
+  useEffect(() => {
+    if (error && hapticsEnabled) {
+      void impact("heavy");
+    }
+  }, [error, hapticsEnabled]);
 
   const parsedAmount = parseAmount(amount);
   const protocolFee = estimateProtocolFee(parsedAmount);
@@ -64,155 +67,145 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
     reset();
     setAmount("");
     setValidationError(null);
-    setSelectedToken(SUPPORTED_TOKENS[0]);
+    setSelectedToken(DEFAULT_TOKEN);
     onClose();
   };
 
   const handleSubmit = async () => {
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
       setValidationError("Enter a positive, non-zero amount.");
+      // ImpactFeedbackStyle.Rigid on validation error — gated by user setting.
+      if (hapticsEnabled) void impact("heavy");
       return;
     }
 
     setValidationError(null);
+    // ImpactFeedbackStyle.Medium on tip confirmation — gated by user setting.
+    if (hapticsEnabled) void impact("medium");
     await tip({ postId, amount: parsedAmount, token: selectedToken });
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={handleClose}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.overlay}
-      >
-        <Pressable style={styles.scrim} onPress={handleClose} />
-        <View style={styles.sheet} accessibilityRole="summary" accessibilityLabel="Send tip modal">
-          <View style={styles.handle} />
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Send Tip</Text>
-              <Text style={styles.subtitle}>
-                Tipping @{authorName} on post #{postId}
-              </Text>
-            </View>
-            <Pressable accessibilityRole="button" onPress={handleClose} style={styles.closeButton}>
-              <Text style={styles.closeText}>Close</Text>
-            </Pressable>
-          </View>
-
-          <Text style={styles.fieldLabel}>Token</Text>
-          <View style={styles.tokenRow}>
-            {SUPPORTED_TOKENS.map((token) => {
-              const selected = token.symbol === selectedToken.symbol;
-              return (
-                <Pressable
-                  key={token.symbol}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  onPress={() => setSelectedToken(token)}
-                  style={[styles.tokenButton, selected && styles.tokenButtonSelected]}
-                >
-                  <Text style={[styles.tokenSymbol, selected && styles.tokenSymbolSelected]}>
-                    {token.symbol}
-                  </Text>
-                  <Text style={styles.tokenName}>{token.name}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <Text style={styles.fieldLabel}>Amount</Text>
-          <View style={styles.inputWrap}>
-            <TextInput
-              accessibilityLabel="Tip amount"
-              keyboardType="decimal-pad"
-              value={amount}
-              onChangeText={setAmount}
-              editable={!pending}
-              placeholder="0.00"
-              placeholderTextColor={theme.colors.text.disabled}
-              style={styles.input}
-            />
-            <Text style={styles.inputToken}>{selectedToken.symbol}</Text>
-          </View>
-
-          {validationError || error ? (
-            <Text style={styles.errorText}>{validationError ?? error}</Text>
-          ) : null}
-
-          <View style={styles.feeBox}>
-            <View style={styles.feeRow}>
-              <Text style={styles.feeLabel}>Estimated protocol fee</Text>
-              <Text style={styles.feeValue}>
-                {protocolFee.toFixed(4)} {selectedToken.symbol}
-              </Text>
-            </View>
-            <View style={styles.feeRow}>
-              <Text style={styles.feeLabel}>Creator receives</Text>
-              <Text style={styles.creatorValue}>
-                {creatorAmount.toFixed(4)} {selectedToken.symbol}
-              </Text>
-            </View>
-          </View>
-
-          {status === "success" && result ? (
-            <Text style={styles.successText}>
-              Tip sent: {result.amount} {result.token.symbol}
-            </Text>
-          ) : null}
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Confirm tip"
-            accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
-            disabled={!canSubmit}
-            onPress={handleSubmit}
-            style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
-          >
-            {pending ? (
-              <ActivityIndicator color={theme.colors.text.onBrand} />
-            ) : (
-              <Text style={styles.submitText}>Confirm Tip</Text>
-            )}
-          </Pressable>
-          {isOffline && <Text style={styles.offlineHint}>Unavailable while offline</Text>}
+    <BottomSheet
+      visible={visible}
+      onClose={handleClose}
+      accessibilityLabel="Send tip"
+      dismissible={!pending}
+      testID="tip-sheet"
+    >
+      <View style={styles.header}>
+        <View style={styles.headerText}>
+          <Text style={styles.title} accessibilityRole="header">
+            Send Tip
+          </Text>
+          <Text style={styles.subtitle}>
+            Tipping @{authorName} on post #{postId}
+          </Text>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close tip sheet"
+          onPress={handleClose}
+          disabled={pending}
+          style={styles.closeButton}
+        >
+          <Text style={styles.closeText}>Close</Text>
+        </Pressable>
+      </View>
+
+      <Text style={styles.fieldLabel}>Token</Text>
+      <View style={styles.tokenRow} accessibilityRole="radiogroup">
+        {SUPPORTED_TOKENS.map((token) => {
+          const selected = token.symbol === selectedToken.symbol;
+          return (
+            <Pressable
+              key={token.symbol}
+              accessibilityRole="radio"
+              accessibilityLabel={`Tip with ${token.name} (${token.symbol})`}
+              accessibilityState={{ checked: selected, selected }}
+              onPress={() => setSelectedToken(token)}
+              style={[styles.tokenButton, selected && styles.tokenButtonSelected]}
+            >
+              <Text style={[styles.tokenSymbol, selected && styles.tokenSymbolSelected]}>
+                {token.symbol}
+              </Text>
+              <Text style={styles.tokenName}>{token.name}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={styles.fieldLabel}>Amount</Text>
+      <View style={styles.inputWrap}>
+        <SheetTextInput
+          accessibilityLabel="Tip amount"
+          keyboardType="decimal-pad"
+          value={amount}
+          onChangeText={setAmount}
+          editable={!pending}
+          placeholder="0.00"
+          placeholderTextColor={theme.colors.text.disabled}
+          style={styles.input}
+        />
+        <Text style={styles.inputToken}>{selectedToken.symbol}</Text>
+      </View>
+
+      {validationError || error ? (
+        <Text style={styles.errorText}>{validationError ?? error}</Text>
+      ) : null}
+
+      <View style={styles.feeBox}>
+        <View style={styles.feeRow}>
+          <Text style={styles.feeLabel}>Estimated protocol fee</Text>
+          <Text style={styles.feeValue}>
+            {protocolFee.toFixed(4)} {selectedToken.symbol}
+          </Text>
+        </View>
+        <View style={styles.feeRow}>
+          <Text style={styles.feeLabel}>Creator receives</Text>
+          <Text style={styles.creatorValue}>
+            {creatorAmount.toFixed(4)} {selectedToken.symbol}
+          </Text>
+        </View>
+      </View>
+
+      {status === "success" && result ? (
+        <Text style={styles.successText}>
+          Tip sent: {result.amount} {result.token.symbol}
+        </Text>
+      ) : null}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Confirm tip"
+        accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
+        accessibilityState={{ disabled: !canSubmit, busy: pending }}
+        disabled={!canSubmit}
+        onPress={handleSubmit}
+        style={[styles.submitButton, !canSubmit && styles.submitButtonDisabled]}
+      >
+        {pending ? (
+          <ActivityIndicator color={theme.colors.text.onBrand} />
+        ) : (
+          <Text style={styles.submitText}>Confirm Tip</Text>
+        )}
+      </Pressable>
+      {isOffline && <Text style={styles.offlineHint}>Unavailable while offline</Text>}
+    </BottomSheet>
   );
 }
 
 function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
   return StyleSheet.create({
-    overlay: {
-      flex: 1,
-      justifyContent: "flex-end",
-    },
-    scrim: {
-      ...StyleSheet.absoluteFill,
-      backgroundColor: theme.colors.overlay.scrim,
-    },
-    sheet: {
-      backgroundColor: theme.colors.surface.surface1,
-      borderTopLeftRadius: 18,
-      borderTopRightRadius: 18,
-      borderWidth: 1,
-      borderColor: theme.colors.surface.border,
-      padding: 20,
-      paddingBottom: 28,
-    },
-    handle: {
-      width: 42,
-      height: 4,
-      borderRadius: 999,
-      alignSelf: "center",
-      backgroundColor: theme.colors.surface.borderStrong,
-      marginBottom: 16,
-    },
     header: {
       flexDirection: "row",
       justifyContent: "space-between",
       gap: 16,
       marginBottom: 20,
+    },
+    headerText: {
+      flex: 1,
     },
     title: {
       color: theme.colors.text.primary,

@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
+import { BottomSheet } from "../../components/BottomSheet";
 import { PoolDepositForm } from "../../components/PoolDepositForm";
 import { PoolWithdrawForm } from "../../components/PoolWithdrawForm";
 import { refreshPoolFromIndexer, setPoolBalance, usePoolRecord } from "../../utils/poolStore";
 import { poolAdminsRoute } from "../../utils/poolCatalog";
 
 type Tab = "deposit" | "withdraw" | "admins";
+type Sheet = "deposit" | "withdraw" | null;
 
 const POOL_EVENTS_URL = process.env.EXPO_PUBLIC_POOL_EVENTS_WS_URL;
 
@@ -17,6 +19,9 @@ export default function PoolsDetailScreen(): JSX.Element {
   const poolId = Array.isArray(id) ? id[0] : (id ?? "");
   const pool = usePoolRecord(poolId);
   const [activeTab, setActiveTab] = useState<Tab>("deposit");
+  // #1790 — deposit / withdraw forms open in a gesture-driven bottom sheet.
+  const [openSheet, setOpenSheet] = useState<Sheet>(null);
+  const closeSheet = useCallback(() => setOpenSheet(null), []);
   const [liveState, setLiveState] = useState<"connecting" | "live" | "offline">(
     POOL_EVENTS_URL ? "connecting" : "offline"
   );
@@ -112,6 +117,7 @@ export default function PoolsDetailScreen(): JSX.Element {
             onPress={() => setActiveTab(tab)}
             style={[styles.tab, activeTab === tab && styles.tabActive]}
             accessibilityRole="tab"
+            accessibilityLabel={tab.charAt(0).toUpperCase() + tab.slice(1)}
             accessibilityState={{ selected: activeTab === tab }}
           >
             <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
@@ -122,9 +128,37 @@ export default function PoolsDetailScreen(): JSX.Element {
       </View>
 
       {activeTab === "deposit" ? (
-        <PoolDepositForm poolId={pool.id} token={pool.token} />
+        <View style={styles.actionPanel}>
+          <Text style={styles.panelTitle}>Deposit</Text>
+          <Text style={styles.actionBody}>Add {pool.token} to this pool from your wallet.</Text>
+          <Pressable
+            onPress={() => setOpenSheet("deposit")}
+            style={styles.actionButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Deposit into ${pool.name}`}
+            testID="open-deposit-sheet"
+          >
+            <Text style={styles.actionButtonText}>Deposit</Text>
+          </Pressable>
+        </View>
       ) : activeTab === "withdraw" ? (
-        <PoolWithdrawForm poolId={pool.id} />
+        <View style={styles.actionPanel}>
+          <Text style={styles.panelTitle}>Withdraw</Text>
+          <Text style={styles.actionBody}>
+            {pool.threshold > 0
+              ? `Withdrawals need ${pool.threshold} admin signature${pool.threshold === 1 ? "" : "s"}.`
+              : "Withdrawals need admin approval."}
+          </Text>
+          <Pressable
+            onPress={() => setOpenSheet("withdraw")}
+            style={styles.actionButton}
+            accessibilityRole="button"
+            accessibilityLabel={`Withdraw from ${pool.name}`}
+            testID="open-withdraw-sheet"
+          >
+            <Text style={styles.actionButtonText}>Withdraw</Text>
+          </Pressable>
+        </View>
       ) : (
         <View style={styles.adminPanel}>
           <View style={styles.adminPanelHeader}>
@@ -155,6 +189,26 @@ export default function PoolsDetailScreen(): JSX.Element {
           ) : null}
         </View>
       )}
+
+      <BottomSheet
+        visible={openSheet === "deposit"}
+        onClose={closeSheet}
+        title="Deposit"
+        accessibilityLabel={`Deposit into ${pool.name}`}
+        testID="pool-deposit-sheet"
+      >
+        <PoolDepositForm poolId={pool.id} token={pool.token} onSuccess={closeSheet} />
+      </BottomSheet>
+
+      <BottomSheet
+        visible={openSheet === "withdraw"}
+        onClose={closeSheet}
+        title="Withdraw"
+        accessibilityLabel={`Withdraw from ${pool.name}`}
+        testID="pool-withdraw-sheet"
+      >
+        <PoolWithdrawForm poolId={pool.id} onSubmitted={closeSheet} />
+      </BottomSheet>
     </ScrollView>
   );
 }
@@ -270,6 +324,31 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: "#0D0D12",
+  },
+  actionPanel: {
+    backgroundColor: "#1A1A23",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2E2E3E",
+    padding: 16,
+    marginTop: 8,
+    gap: 10,
+  },
+  actionBody: {
+    color: "#8E8E93",
+    fontSize: 14,
+  },
+  actionButton: {
+    minHeight: 44,
+    borderRadius: 6,
+    backgroundColor: "#4ECDC4",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionButtonText: {
+    color: "#0D0D12",
+    fontSize: 15,
+    fontWeight: "800",
   },
   adminPanel: {
     backgroundColor: "#1A1A23",

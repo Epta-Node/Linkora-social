@@ -1,44 +1,73 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import {
+  applyThemePreference,
   getStoredThemePreference,
+  resolveTheme,
   storeThemePreference,
-  ThemePreference,
+  type ResolvedTheme,
+  type ThemePreference,
 } from "../components/ThemeBootstrap";
 
 interface ThemeContextType {
-  theme: ThemePreference;
+  /** Resolved theme currently painted on the page ("light" or "dark"). */
+  theme: ResolvedTheme;
+  /** What the user chose: "light", "dark", or "system". */
+  preference: ThemePreference;
   toggleTheme: () => void;
-  setTheme: (theme: ThemePreference) => void;
+  setTheme: (preference: ThemePreference) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-function getInitialTheme(): ThemePreference {
-  // Try to read from the DOM first (set by the inline script in layout.tsx)
-  if (typeof document !== "undefined") {
-    const domTheme = document.documentElement.dataset.theme;
-    if (domTheme === "light" || domTheme === "dark") return domTheme;
-  }
-  return getStoredThemePreference();
-}
-
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemePreference>(getInitialTheme);
+  const [preference, setPreference] = useState<ThemePreference>(getStoredThemePreference);
+  const [theme, setResolvedTheme] = useState<ResolvedTheme>(() =>
+    resolveTheme(getStoredThemePreference())
+  );
 
-  const setTheme = (newTheme: ThemePreference) => {
-    setThemeState(newTheme);
-    storeThemePreference(newTheme);
-  };
+  const setTheme = useCallback((nextPreference: ThemePreference) => {
+    setPreference(nextPreference);
+    setResolvedTheme(resolveTheme(nextPreference));
+    storeThemePreference(nextPreference);
+  }, []);
 
-  const toggleTheme = () => {
-    const nextTheme = theme === "dark" ? "light" : "dark";
-    setTheme(nextTheme);
-  };
+  const toggleTheme = useCallback(() => {
+    setTheme(theme === "dark" ? "light" : "dark");
+  }, [setTheme, theme]);
+
+  // Keep the page in sync if the inline bootstrap script did not run (or ran
+  // before a test reset the DOM).
+  useEffect(() => {
+    applyThemePreference(preference);
+    setResolvedTheme(resolveTheme(preference));
+  }, [preference]);
+
+  // In "system" mode, follow the OS preference live.
+  useEffect(() => {
+    if (preference !== "system" || typeof window.matchMedia !== "function") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => {
+      const nextTheme: ResolvedTheme = media.matches ? "dark" : "light";
+      setResolvedTheme(nextTheme);
+      document.documentElement.dataset.theme = nextTheme;
+      document.documentElement.style.colorScheme = nextTheme;
+    };
+
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", handleChange);
+      return () => media.removeEventListener("change", handleChange);
+    }
+
+    // Safari < 14
+    media.addListener(handleChange);
+    return () => media.removeListener(handleChange);
+  }, [preference]);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={{ theme, preference, toggleTheme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );

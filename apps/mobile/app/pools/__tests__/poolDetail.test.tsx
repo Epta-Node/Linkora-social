@@ -105,4 +105,19 @@ describe("Pool detail screen (#1592)", () => {
     expect(mockPush).toHaveBeenCalledTimes(1);
     expect(mockPush).toHaveBeenCalledWith("/pools/creator-fund/admins");
   });
+
+  it("opens the deposit and withdraw forms in a bottom sheet (#1790)", async () => {
+    mockFetch.mockResolvedValue(jsonResponse(indexerSnapshot()));
+
+    render(<PoolsDetailScreen />);
+
+    expect(screen.queryByTestId("pool-deposit-sheet")).toBeNull();
+    fireEvent.press(await screen.findByRole("button", { name: "Deposit into Creator Fund" }));
+    expect(screen.getByTestId("pool-deposit-sheet")).toBeTruthy();
+
+    fireEvent.press(screen.getByRole("tab", { name: "Withdraw" }));
+    fireEvent.press(screen.getByRole("button", { name: "Withdraw from Creator Fund" }));
+    expect(screen.getByTestId("pool-withdraw-sheet")).toBeTruthy();
+    expect(screen.queryByTestId("pool-deposit-sheet")).toBeNull();
+  });
 });

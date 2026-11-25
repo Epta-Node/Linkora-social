@@ -83,6 +83,66 @@ jobs:
       - name: Build Storybook (validates skeleton stories)
         run: pnpm --filter apps-web build-storybook
 
+  e2e:
+    name: Web E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter apps-web exec playwright install --with-deps chromium
+
+      - name: Build web app
+        run: pnpm --filter apps-web build
+
+      - name: Run Playwright tests
+        run: pnpm --filter apps-web test:e2e
+
+  codegen:
+    name: Contract bindings are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".node-version"
+          cache: pnpm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/contracts
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate bindings from the contract WASM and compare
+        run: pnpm codegen:check
+
   # gitleaks action now requires a paid license for organizations.
   # Disabled until a license is configured or replaced with an alternative.
   # secret-scan:
@@ -143,6 +203,11 @@ jobs:
         run: |
           cargo build --target wasm32v1-none --release -p linkora-contracts
           cp target/wasm32v1-none/release/linkora_contracts.wasm contracts/linkora-contracts/linkora_contracts.wasm
+
+      - name: Run vesting, multicall and governance-appeal tests
+        # Separate step so these report on their own; linkora-wasm-tests runs
+        # against the WASM built in the previous step.
+        run: cargo test -p linkora-vesting -p linkora-multicall -p linkora-wasm-tests
 
       - name: Run unit tests
         run: cargo test

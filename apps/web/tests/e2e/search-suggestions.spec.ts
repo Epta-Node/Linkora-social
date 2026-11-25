@@ -158,6 +158,32 @@ test.describe("Search Suggestions", () => {
     await expect(page).toHaveURL(/\/search/);
   });
 
+  test("arrow up and down cycle through suggestions and enter selects active item", async ({
+    page,
+  }) => {
+    const searchBox = page.getByRole("search").first().locator("input");
+
+    await searchBox.focus();
+    await searchBox.fill("ali");
+
+    const options = page.locator('#search-suggestions [role="option"]');
+    await expect(options).toHaveCount(2);
+
+    await searchBox.press("ArrowDown");
+    await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+
+    await searchBox.press("ArrowDown");
+    await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+
+    await searchBox.press("ArrowUp");
+    await expect(options.nth(0)).toHaveAttribute("aria-selected", "true");
+
+    await searchBox.press("ArrowDown");
+    await searchBox.press("Enter");
+
+    await expect(page).toHaveURL(/\/search\?q=Alice(%20|\+)Developer/);
+  });
+
   test("escape key closes suggestions dropdown", async ({ page }) => {
     const searchBox = page.getByRole("search").first().locator("input");
 

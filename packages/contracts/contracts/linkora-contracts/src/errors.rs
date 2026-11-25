@@ -59,6 +59,8 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum RentError {
+    /// A social-graph entry's TTL lapsed before the operation could bump it.
+    /// The caller must pay rent or re-create the edge before retrying.
     Expired = 1,
 }
 
@@ -66,64 +68,103 @@ pub enum RentError {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum ContractError {
+    /// `initialize` was called after the `INIT` instance flag was set.
     AlreadyInitialized = 100,
+    /// An admin-only operation ran before `initialize` set the contract state.
     NotInitialized = 101,
+    /// `set_profile` used a username already owned by another address.
     UsernameTaken = 102,
+    /// A username shorter than the three-character minimum was supplied.
     UsernameTooShort = 103,
+    /// A username longer than the 32-character maximum was supplied.
     UsernameTooLong = 104,
+    /// `create_post` or an edit supplied content longer than 280 characters.
     ContentTooLong = 105,
+    /// `create_post` or an edit supplied empty content.
     ContentEmpty = 106,
+    /// A follow, tip, like, or message was attempted across an existing block edge.
     Blocked = 107,
+    /// `unblock_user` was called when the blocker-to-target edge did not exist.
     NotBlocked = 108,
+    /// The caller lacks the generic permission required by the entry point.
     Unauthorized = 109,
+    /// A post lookup used an ID with no `Post` record in storage.
     PostNotFound = 110,
+    /// A profile lookup used an address with no `Profile` record in storage.
     ProfileNotFound = 111,
+    /// A pool operation used a symbol with no `Pool` record in storage.
     PoolNotFound = 112,
+    /// `create_pool` used a symbol that already has a `Pool` record.
     PoolExists = 113,
+    /// A pool threshold was zero or greater than the number of pool admins.
     InvalidThreshold = 114,
-    /// Fewer valid signers were supplied than the pool's M-of-N threshold
-    /// requires. Clients should surface this as a distinct "not enough
-    /// signers" message rather than a generic auth failure.
+    /// Fewer valid signers were supplied than the pool's M-of-N threshold requires.
+    /// Clients should surface this as a distinct "not enough signers" message
+    /// rather than a generic auth failure.
     InsufficientSigners = 115,
     /// A supplied signer address is not a member of the pool's admin set.
     /// Distinct from `InsufficientSigners` so clients can tell the user
     /// *which* signer was wrong rather than just *how many* are missing.
     UnauthorizedSigner = 116,
+    /// A pool withdrawal exceeded the pool's available token balance.
     LowBalance = 117,
+    /// A pool operation used a token address different from the pool's token.
     WrongToken = 118,
+    /// A pause call targeted a module that was already paused.
     AlreadyPaused = 119,
+    /// An unpause call targeted a module that was not paused.
     NotPaused = 120,
+    /// The entry point's module is currently paused, so the call was rejected.
     ContractPaused = 121,
+    /// A follow was attempted for an edge that already exists.
     AlreadyFollowing = 122,
+    /// An unfollow was attempted for an edge that does not exist.
     NotFollowing = 123,
+    /// A follow, tip, or like targeted the caller's own address or post.
     SelfInteractionNotAllowed = 124,
+    /// A tip amount was zero, negative, or above `MAX_PROTOCOL_AMOUNT`.
     InvalidAmount = 125,
     /// The per-tipper tip cooldown window is still active; the caller must
     /// wait before tipping the same post again. Replaces the previous
     /// opaque `TipCooldownNotExpired` name for clarity.
     TipCooldownActive = 126,
+    /// A governance or protocol cooldown was zero or outside its allowed range.
     InvalidCooldown = 127,
+    /// A graph entry expired before its TTL could be bumped during traversal.
     GraphEntryExpired = 128,
     /// Caller does not hold the role required for this entry-point
     /// (e.g. Admin, Moderator, Pauser, Upgrader). Replaces the previous
     /// generic `RoleRequired` name so SDK consumers can distinguish a
     /// missing-role failure from a generic `Unauthorized` (109).
     UnauthorizedRole = 129,
+    /// `remove_pool_admin` targeted an address absent from the pool's admin set.
     PoolAdminNotFound = 130,
+    /// `add_pool_admin` targeted an address already in the pool's admin set.
     PoolAdminExists = 131,
+    /// A governance call referenced a proposal ID with no stored proposal.
     ProposalNotFound = 132,
     /// The proposal's vote window has closed; it can no longer be voted
     /// on or executed. Previously named `ProposalNotPassed` (which was
     /// ambiguous — a proposal could also fail quorum after the window).
     ProposalExpired = 133,
+    /// `gov_execute` ran before the vote window plus time-lock elapsed.
     TimeLockNotExpired = 134,
+    /// `gov_execute` found an approval percentage below the effective quorum.
     QuorumNotMet = 135,
+    /// `gov_vote` was called by an address that already voted on the proposal.
     AlreadyVoted = 136,
+    /// A moderation action referenced a post/reporter pair with no report.
     ReportNotFound = 137,
+    /// `resolve_report` used a pending or otherwise unsupported verdict value.
     InvalidVerdict = 138,
+    /// A post-related call supplied ID `0` or an otherwise invalid post ID.
     InvalidPostId = 139,
+    /// A validation helper received the all-zero account or contract address.
     ZeroAddress = 140,
+    /// `revoke_role` would have removed the last remaining Admin.
     CannotRemoveLastAdmin = 141,
+    /// `revoke_role` would have removed the last remaining Upgrader.
     CannotRemoveLastUpgrader = 142,
+    /// An arithmetic operation overflowed an `i128`/`u32` protocol bound.
     MathOverflow = 143,
 }

@@ -147,6 +147,24 @@ function poolForDrop(opts: {
 }
 
 describe("dropOldPartitions", () => {
+  it("enforces the seven-day retention period for fully processed partitions", async () => {
+    const pool = poolForDrop({
+      partitions: [
+        { lo: 0n, hi: 1_000n, fullyProcessed: true },
+        { lo: 9_000n, hi: 10_000n, fullyProcessed: true },
+        { lo: 129_000n, hi: 130_000n, fullyProcessed: true },
+      ],
+    });
+    const retention = {
+      ...BASE_CFG,
+      retentionLedgers: 7 * 17_280,
+      partitionSize: 1_000,
+    };
+
+    const dropped = await dropOldPartitions(130_000n, retention, pool as never);
+    expect(dropped).toEqual(["raw_events_p0_1000"]);
+  });
+
   it("returns empty array when retention window has not been reached", async () => {
     const pool = new FakePool();
     // listPartitions — a partition exists but the whole span is inside the
@@ -394,9 +412,9 @@ describe("pruneNotificationsBatch", () => {
 
   it("throws when batchSize is 0", async () => {
     const pool = new FakePool();
-    await expect(
-      pruneNotificationsBatch(pool as never, new Date(), 0)
-    ).rejects.toThrow("batchSize must be > 0");
+    await expect(pruneNotificationsBatch(pool as never, new Date(), 0)).rejects.toThrow(
+      "batchSize must be > 0"
+    );
   });
 });
 

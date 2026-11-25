@@ -27,7 +27,9 @@ use soroban_sdk::{
     Address, BytesN, Env, String,
 };
 
-use linkora_contracts::{GovParameter, LinkoraContract, LinkoraContractClient, StorageKey};
+use linkora_contracts::{
+    GovParameter, LinkoraContract, LinkoraContractClient, ProposalMetadata, StorageKey,
+};
 
 fn setup_token(env: &Env, admin: &Address) -> Address {
     let token_id = env.register_stellar_asset_contract_v2(admin.clone());
@@ -44,6 +46,14 @@ fn setup_contract(env: &Env) -> (LinkoraContractClient<'_>, Address, Address) {
     (client, admin, treasury)
 }
 
+fn no_metadata(env: &Env) -> ProposalMetadata {
+    ProposalMetadata {
+        title: String::from_str(env, ""),
+        description: String::from_str(env, ""),
+        rationale: String::from_str(env, ""),
+    }
+}
+
 // ── Invariant 1: Social graph adjacency is logically consistent ────────────
 
 #[test]
@@ -54,10 +64,6 @@ fn invariant_social_graph_consistency() {
 
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
-    let token = setup_token(&env, &alice);
-
-    client.set_profile(&alice, &String::from_str(&env, "alice"), &token);
-    client.set_profile(&bob, &String::from_str(&env, "bob"), &token);
 
     client.follow(&alice, &bob);
 
@@ -84,20 +90,12 @@ fn invariant_index_position_valid() {
     let (client, _, _) = setup_contract(&env);
 
     let alice = Address::generate(&env);
-    let token = setup_token(&env, &alice);
-    client.set_profile(&alice, &String::from_str(&env, "alice"), &token);
 
     let user0 = Address::generate(&env);
-    let t0 = setup_token(&env, &user0);
-    client.set_profile(&user0, &String::from_str(&env, "user0"), &t0);
 
     let user1 = Address::generate(&env);
-    let t1 = setup_token(&env, &user1);
-    client.set_profile(&user1, &String::from_str(&env, "user1"), &t1);
 
     let user2 = Address::generate(&env);
-    let t2 = setup_token(&env, &user2);
-    client.set_profile(&user2, &String::from_str(&env, "user2"), &t2);
 
     client.follow(&alice, &user0);
     client.follow(&alice, &user1);
@@ -166,15 +164,27 @@ fn invariant_governance_snapshot() {
 
     client.gov_init_config(&admin, &80, &100, &50, &0, &10);
 
-    let proposal_id = client.gov_propose(&admin, &GovParameter::GovTimeLock, &200, &None);
+    let proposal_id = client.gov_propose(
+        &admin,
+        &GovParameter::GovTimeLock,
+        &200,
+        &None,
+        &no_metadata(&env),
+    );
     let proposal = client.gov_get_proposal(&proposal_id);
     assert_eq!(proposal.time_lock_ledgers, 100);
 
-    let _proposal_id2 = client.gov_propose(&admin, &GovParameter::GovTimeLock, &300, &None);
+    let _proposal_id2 = client.gov_propose(
+        &admin,
+        &GovParameter::GovTimeLock,
+        &300,
+        &None,
+        &no_metadata(&env),
+    );
 
     client.gov_vote(&admin, &proposal_id, &true);
     env.ledger().with_mut(|l| l.sequence_number += 150);
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 
     let config = client.gov_get_config();
     assert_eq!(config.time_lock_ledgers, 200);
@@ -225,11 +235,17 @@ fn invariant_quorum_floor_enforced() {
 
     client.gov_init_config(&admin, &80, &100, &50, &0, &40);
 
-    let proposal_id = client.gov_propose(&admin, &GovParameter::GovQuorum, &30, &None);
+    let proposal_id = client.gov_propose(
+        &admin,
+        &GovParameter::GovQuorum,
+        &30,
+        &None,
+        &no_metadata(&env),
+    );
     client.gov_vote(&admin, &proposal_id, &true);
     env.ledger().with_mut(|l| l.sequence_number += 150);
 
-    let result = client.try_gov_execute(&admin, &proposal_id);
+    let result = client.try_gov_execute(&proposal_id);
     assert!(result.is_err());
 
     let config = client.gov_get_config();
@@ -255,7 +271,7 @@ fn invariant_block_prevents_interaction() {
     let alice_post = client.create_post(&alice, &String::from_str(&env, "alice post"));
     let bob_post = client.create_post(&bob, &String::from_str(&env, "bob post"));
 
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     assert!(client.try_tip(&bob, &alice_post, &token, &100).is_err());
     assert!(client.try_follow(&bob, &alice).is_err());
@@ -289,7 +305,7 @@ fn invariant_block_cleans_social_graph() {
     client.like_post(&alice, &bob_post);
     client.like_post(&bob, &alice_post);
 
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
 
     assert_eq!(client.get_following(&alice, &0, &50).len(), 0);
     assert_eq!(client.get_following(&bob, &0, &50).len(), 0);
@@ -321,7 +337,7 @@ fn invariant_unblock_no_restore() {
     assert_eq!(client.get_following(&alice, &0, &50).len(), 1);
     assert_eq!(client.get_like_count(&bob_post), 1);
 
-    client.block_user(&alice, &bob);
+    client.block_user(&alice, &bob, &None);
     client.unblock_user(&alice, &bob);
 
     assert_eq!(client.get_following(&alice, &0, &50).len(), 0);
@@ -338,7 +354,13 @@ fn invariant_vote_window_enforced() {
 
     client.gov_init_config(&admin, &80, &30, &50, &0, &10);
 
-    let proposal_id = client.gov_propose(&admin, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &admin,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     // Vote within the window — should succeed
     let voter = Address::generate(&env);
@@ -363,15 +385,21 @@ fn invariant_execution_time_lock_enforced() {
 
     client.gov_init_config(&admin, &80, &30, &50, &0, &10);
 
-    let proposal_id = client.gov_propose(&admin, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &admin,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
     client.gov_vote(&admin, &proposal_id, &true);
 
     env.ledger().with_mut(|l| l.sequence_number += 79);
-    let result = client.try_gov_execute(&admin, &proposal_id);
+    let result = client.try_gov_execute(&proposal_id);
     assert!(result.is_err());
 
     env.ledger().with_mut(|l| l.sequence_number += 1);
-    client.gov_execute(&admin, &proposal_id);
+    client.gov_execute(&proposal_id);
 }
 
 // ── Invariant 12: Effective quorum decays monotonically ────────────────────
@@ -384,7 +412,13 @@ fn invariant_quorum_decay_monotonic() {
 
     client.gov_init_config(&admin, &80, &1000, &5000, &5000, &10);
 
-    let proposal_id = client.gov_propose(&admin, &GovParameter::FeeBps, &500, &None);
+    let proposal_id = client.gov_propose(
+        &admin,
+        &GovParameter::FeeBps,
+        &500,
+        &None,
+        &no_metadata(&env),
+    );
 
     let q0 = client.effective_quorum(&proposal_id);
     assert_eq!(q0, 80);

@@ -18,7 +18,8 @@
  *
  * Replay protection: `timestamp` must be within ±30 s of server time.
  * Connections that have not authenticated within `authDeadlineMs` (default
- * 30 s) are closed with code 1008.  A second `auth` frame is rejected.
+ * 10 s, configurable via `WS_AUTH_TIMEOUT_MS`) are closed with code 1008 and
+ * the reason is logged. A second `auth` frame is rejected.
  *
  * ## Outbound backpressure
  *
@@ -59,7 +60,21 @@ const CLOSE_MESSAGE_TOO_LARGE = 1009;
 export const WS_AUTH_TIMESTAMP_TOLERANCE_MS = 30_000;
 
 /** Default deadline (ms) before an unauthenticated connection is closed. */
-export const DEFAULT_AUTH_DEADLINE_MS = 30_000;
+export const DEFAULT_AUTH_DEADLINE_MS = 10_000;
+
+/** Alias used by `WS_AUTH_TIMEOUT_MS` configuration. */
+export const DEFAULT_AUTH_TIMEOUT_MS = DEFAULT_AUTH_DEADLINE_MS;
+
+/**
+ * Resolve the auth challenge timeout from `WS_AUTH_TIMEOUT_MS`.
+ * Invalid or non-positive values fall back to the 10 s default.
+ */
+export function authTimeoutMsFromEnv(): number {
+  const raw = process.env["WS_AUTH_TIMEOUT_MS"];
+  if (raw === undefined || raw.trim() === "") return DEFAULT_AUTH_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_AUTH_TIMEOUT_MS;
+}
 
 // ── Backpressure constants ────────────────────────────────────────────────────
 
@@ -73,6 +88,8 @@ export const DEFAULT_MAX_DROPS_BEFORE_DISCONNECT = 1024;
 
 const DEFAULT_HEARTBEAT_MS = 15_000;
 const DEFAULT_MAX_RATE_VIOLATIONS = 5;
+/** Maximum distinct event types accepted from one subscription frame. */
+export const MAX_SUBSCRIPTION_TOPICS = 10;
 
 // ── Public option types ───────────────────────────────────────────────────────
 
@@ -84,7 +101,7 @@ export interface WsAuthOptions {
   required?: boolean;
   /**
    * Milliseconds before an unauthenticated connection is forcibly closed.
-   * Default 30 000.
+   * Defaults to `WS_AUTH_TIMEOUT_MS` (10 000 when unset).
    */
   deadlineMs?: number;
 }
@@ -181,12 +198,7 @@ export function verifyWsAuth(address: string, timestamp: number, signature: stri
  * capacity and increments `droppedFrames`.  Returns `false` when the
  * connection should be terminated (too many cumulative drops).
  */
-function enqueue(
-  state: ClientState,
-  frame: string,
-  maxDepth: number,
-  maxDrops: number
-): boolean {
+function enqueue(state: ClientState, frame: string, maxDepth: number, maxDrops: number): boolean {
   if (state.sendQueue.length >= maxDepth) {
     state.sendQueue.shift(); // head-drop
     state.droppedFrames += 1;
@@ -244,9 +256,8 @@ export function attachWebSocketServer(
 
   const authRequired =
     opts.auth?.required ??
-    (process.env.WS_AUTH_REQUIRED === "true" ||
-      process.env.WS_AUTH_REQUIRED === "1");
-  const authDeadlineMs = opts.auth?.deadlineMs ?? DEFAULT_AUTH_DEADLINE_MS;
+    (process.env.WS_AUTH_REQUIRED === "true" || process.env.WS_AUTH_REQUIRED === "1");
+  const authDeadlineMs = opts.auth?.deadlineMs ?? authTimeoutMsFromEnv();
 
   const sendQueueDepth = opts.backpressure?.sendQueueDepth ?? DEFAULT_SEND_QUEUE_DEPTH;
   const maxDropsBeforeDisconnect =
@@ -275,9 +286,16 @@ export function attachWebSocketServer(
     if (authRequired) {
       state.authDeadlineTimer = setTimeout(() => {
         if (state.address === null && ws.readyState === WebSocket.OPEN) {
-          logger.debug("[ws] auth deadline exceeded, closing unauthenticated client");
-          sendError(ws, "authentication required");
-          ws.close(CLOSE_POLICY_VIOLATION, "authentication required");
+          logger.warn(
+            {
+              reason: "authentication_timeout",
+              authTimeoutMs: authDeadlineMs,
+              closeCode: CLOSE_POLICY_VIOLATION,
+            },
+            "[ws] disconnecting client: authentication challenge timed out"
+          );
+          sendError(ws, `authentication timeout after ${authDeadlineMs}ms`);
+          ws.close(CLOSE_POLICY_VIOLATION, "authentication timeout");
         }
       }, authDeadlineMs);
       if (typeof state.authDeadlineTimer.unref === "function") {
@@ -293,10 +311,10 @@ export function attachWebSocketServer(
       const rawLength = Buffer.isBuffer(raw)
         ? raw.length
         : Array.isArray(raw)
-        ? raw.reduce((acc: number, b: Buffer) => acc + b.length, 0)
-        : typeof raw === "string"
-        ? Buffer.byteLength(raw)
-        : (raw as ArrayBuffer).byteLength;
+          ? raw.reduce((acc: number, b: Buffer) => acc + b.length, 0)
+          : typeof raw === "string"
+            ? Buffer.byteLength(raw)
+            : (raw as ArrayBuffer).byteLength;
 
       if (rawLength > maxPayloadBytes) {
         ws.close(CLOSE_MESSAGE_TOO_LARGE, "message too large");
@@ -449,9 +467,11 @@ function handleAuthFrame(
   if (!authRequired) {
     const { address, timestamp, signature } = msg;
     if (
-      typeof address === "string" && address.trim() !== "" &&
+      typeof address === "string" &&
+      address.trim() !== "" &&
       typeof timestamp === "number" &&
-      typeof signature === "string" && signature.trim() !== ""
+      typeof signature === "string" &&
+      signature.trim() !== ""
     ) {
       validateAndStoreAuth(ws, state, address, timestamp, signature);
     }
@@ -468,9 +488,11 @@ function handleAuthFrame(
   const { address, timestamp, signature } = msg;
 
   if (
-    typeof address !== "string" || address.trim() === "" ||
+    typeof address !== "string" ||
+    address.trim() === "" ||
     typeof timestamp !== "number" ||
-    typeof signature !== "string" || signature.trim() === ""
+    typeof signature !== "string" ||
+    signature.trim() === ""
   ) {
     sendError(ws, "auth frame requires string address, number timestamp, string signature");
     return;
@@ -538,6 +560,11 @@ function handleSubscribeFrame(
   const { types } = msg;
   if (!Array.isArray(types) || !types.every((t) => typeof t === "string")) {
     sendError(ws, "subscribe requires a string[] 'types' field");
+    return;
+  }
+
+  if (types.length > MAX_SUBSCRIPTION_TOPICS && !types.includes(ALL_EVENTS)) {
+    sendError(ws, `subscribe accepts at most ${MAX_SUBSCRIPTION_TOPICS} event types`);
     return;
   }
 

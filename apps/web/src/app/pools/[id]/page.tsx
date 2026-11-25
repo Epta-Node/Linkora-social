@@ -10,6 +10,7 @@ import { ThresholdBadge } from "@/components/pools/ThresholdBadge";
 import { PoolDepositForm } from "@/components/PoolDepositForm";
 import { PoolWithdrawForm } from "@/components/PoolWithdrawForm";
 import { PoolEmptyState } from "@/components/pools/PoolEmptyState";
+import { PoolDetailSkeleton } from "@/components/skeletons/PoolDetailSkeleton";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 // TODO: import from apps/web/src/config.ts once env is wired
@@ -34,7 +35,10 @@ export default function PoolDetailPage() {
 
   // ── Loading ───────────────────────────────────────────────────────────────
 
-  if (state === "loading") {
+  // `usePool` starts in "idle" and only flips to "loading" inside an effect,
+  // so treat the pre-fetch render as loading too — otherwise the first paint is
+  // blank instead of the skeleton (#1852).
+  if (state === "loading" || (state === "idle" && poolId !== null)) {
     return (
       <main style={styles.main}>
         <PoolDetailSkeleton />
@@ -44,7 +48,7 @@ export default function PoolDetailPage() {
 
   // ── Error / Not found ─────────────────────────────────────────────────────
 
-  if (state === "error" || (state === "success" && !pool)) {
+  if (state === "error" || poolId === null || (state === "success" && !pool)) {
     return (
       <main style={styles.main}>
         <div style={styles.container}>
@@ -303,80 +307,6 @@ function StatusBadge({ isEmpty }: { isEmpty: boolean }) {
       />
       {isEmpty ? "Empty" : "Active"}
     </span>
-  );
-}
-
-// ── Skeleton ──────────────────────────────────────────────────────────────────
-
-function PoolDetailSkeleton() {
-  return (
-    <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "var(--space-8) var(--space-4)" }}>
-      <div
-        style={{
-          width: "120px",
-          height: "14px",
-          borderRadius: "9999px",
-          background: "var(--color-surface-2)",
-          marginBottom: "var(--space-6)",
-        }}
-      />
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-4)",
-          marginBottom: "var(--space-8)",
-          alignItems: "center",
-        }}
-      >
-        <div
-          style={{
-            width: "48px",
-            height: "48px",
-            borderRadius: "50%",
-            background: "var(--color-surface-2)",
-          }}
-        />
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-          <div
-            style={{
-              width: "160px",
-              height: "24px",
-              borderRadius: "9999px",
-              background: "var(--color-surface-2)",
-            }}
-          />
-          <div
-            style={{
-              width: "100px",
-              height: "16px",
-              borderRadius: "9999px",
-              background: "var(--color-surface-2)",
-            }}
-          />
-        </div>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "var(--space-6)" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              style={{
-                height: "80px",
-                borderRadius: "var(--radius-xl)",
-                background: "var(--color-surface-2)",
-              }}
-            />
-          ))}
-        </div>
-        <div
-          style={{
-            height: "400px",
-            borderRadius: "var(--radius-xl)",
-            background: "var(--color-surface-2)",
-          }}
-        />
-      </div>
-    </div>
   );
 }
 

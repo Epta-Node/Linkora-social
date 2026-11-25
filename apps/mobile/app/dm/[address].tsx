@@ -276,7 +276,11 @@ export default function DirectMessageScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.backButton}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Direct Message</Text>
@@ -324,6 +328,9 @@ export default function DirectMessageScreen() {
           ]}
           onPress={sendMessage}
           disabled={!newMessage.trim() || loading || !dmService}
+          accessibilityRole="button"
+          accessibilityLabel="Send message"
+          accessibilityState={{ disabled: !newMessage.trim() || loading || !dmService }}
         >
           <Text style={styles.sendButtonText}>Send</Text>
         </TouchableOpacity>

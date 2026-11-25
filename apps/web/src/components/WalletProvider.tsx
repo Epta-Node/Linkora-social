@@ -1,6 +1,10 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { retryWithBackoff, WALLET_RETRY_DELAYS_MS } from "@/lib/retryWithBackoff";
+
+/** Where users can install Freighter after connection retries run out. */
+export const FREIGHTER_INSTALL_URL = "https://freighter.app";
 
 const LS_KEY = "linkora_wallet_address";
 const LS_PUBLIC_KEY = "linkora_wallet_public_key";
@@ -35,6 +39,8 @@ export interface WalletContextValue {
   isConnected: boolean;
   /** True while the connect flow is in progress (use to disable the button). */
   isConnecting: boolean;
+  /** True while waiting to retry a connection the extension was not ready for. */
+  isRetrying: boolean;
   /** Human-readable description of the last connection failure, or null. */
   error: string | null;
   network: string | null;
@@ -49,6 +55,7 @@ export const WalletContext = createContext<WalletContextValue>({
   connected: false,
   isConnected: false,
   isConnecting: false,
+  isRetrying: false,
   error: null,
   network: null,
   connect: async () => {},
@@ -67,10 +74,18 @@ export function useWallet(): WalletContextValue {
 // Provider
 // ---------------------------------------------------------------------------
 
-export function WalletProvider({ children }: { children: React.ReactNode }) {
+export function WalletProvider({
+  children,
+  retryDelaysMs = WALLET_RETRY_DELAYS_MS,
+}: {
+  children: React.ReactNode;
+  /** Backoff before each connection retry (default 500ms, 1s, 2s). */
+  retryDelaysMs?: readonly number[];
+}) {
   const [address, setAddress] = useState<string | null>(null);
   const [network, setNetwork] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const persistWallet = useCallback((pub: string, net?: string | null) => {
@@ -124,59 +139,75 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
    *  - "declined" — requestAccess() rejected (user dismissed the prompt).
    *  - "no-address" — access was granted but no public key was returned.
    */
+  const attemptConnect = useCallback(async () => {
+    // 1. Try the browser-global API (tests + older Freighter builds).
+    const fallback = await getBrowserFreighterPublicKey();
+    if (fallback) {
+      persistWallet(fallback, "TESTNET");
+      return;
+    }
+
+    // 2. Try the npm package (modern Freighter).
+    let freighterModule: {
+      requestAccess: () => Promise<unknown>;
+      getPublicKey: () => Promise<unknown>;
+      getNetwork: () => Promise<string | null | undefined>;
+    } | null = null;
+
+    try {
+      const mod = await import("@stellar/freighter-api");
+      freighterModule = mod;
+    } catch {
+      // Dynamic import failed → extension not installed.
+      throw new ConnectError("not-installed", "Freighter extension is not installed");
+    }
+
+    try {
+      await freighterModule.requestAccess();
+    } catch {
+      // requestAccess() rejected → user declined the prompt.
+      throw new ConnectError("declined", "You declined the Freighter connection prompt");
+    }
+
+    const [pub, net] = await Promise.all([
+      freighterModule.getPublicKey(),
+      freighterModule.getNetwork(),
+    ]);
+
+    if (pub) {
+      persistWallet(readFreighterPublicKey(pub), net ?? null);
+      return;
+    }
+
+    // 3. Retry the browser global (some older injections arrive after the
+    //    import, e.g. in certain Freighter dev builds).
+    const retryFallback = await getBrowserFreighterPublicKey();
+    if (retryFallback) {
+      persistWallet(retryFallback, "TESTNET");
+      return;
+    }
+
+    throw new ConnectError("no-address", "Freighter did not return a public key");
+  }, [persistWallet]);
+
+  /**
+   * Connects, retrying up to 3 times with exponential backoff while the
+   * extension is not ready yet ("not-installed" / "no-address"). A declined
+   * prompt is never retried.
+   */
   const connect = useCallback(async () => {
     setIsConnecting(true);
+    setIsRetrying(false);
     setError(null);
 
     try {
-      // 1. Try the browser-global API (tests + older Freighter builds).
-      const fallback = await getBrowserFreighterPublicKey();
-      if (fallback) {
-        persistWallet(fallback, "TESTNET");
-        return;
-      }
-
-      // 2. Try the npm package (modern Freighter).
-      let freighterModule: {
-        requestAccess: () => Promise<unknown>;
-        getPublicKey: () => Promise<unknown>;
-        getNetwork: () => Promise<string | null | undefined>;
-      } | null = null;
-
-      try {
-        const mod = await import("@stellar/freighter-api");
-        freighterModule = mod;
-      } catch {
-        // Dynamic import failed → extension not installed.
-        throw new ConnectError("not-installed", "Freighter extension is not installed");
-      }
-
-      try {
-        await freighterModule.requestAccess();
-      } catch {
-        // requestAccess() rejected → user declined the prompt.
-        throw new ConnectError("declined", "You declined the Freighter connection prompt");
-      }
-
-      const [pub, net] = await Promise.all([
-        freighterModule.getPublicKey(),
-        freighterModule.getNetwork(),
-      ]);
-
-      if (pub) {
-        persistWallet(readFreighterPublicKey(pub), net ?? null);
-        return;
-      }
-
-      // 3. Retry the browser global (some older injections arrive after the
-      //    import, e.g. in certain Freighter dev builds).
-      const retryFallback = await getBrowserFreighterPublicKey();
-      if (retryFallback) {
-        persistWallet(retryFallback, "TESTNET");
-        return;
-      }
-
-      throw new ConnectError("no-address", "Freighter did not return a public key");
+      await retryWithBackoff(attemptConnect, {
+        delaysMs: retryDelaysMs,
+        shouldRetry: (err) =>
+          err instanceof ConnectError &&
+          (err.reason === "not-installed" || err.reason === "no-address"),
+        onRetry: () => setIsRetrying(true),
+      });
     } catch (err) {
       const message =
         err instanceof ConnectError
@@ -192,8 +223,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       throw new ConnectError("unknown", message);
     } finally {
       setIsConnecting(false);
+      setIsRetrying(false);
     }
-  }, [persistWallet]);
+  }, [attemptConnect, retryDelaysMs]);
 
   const disconnect = useCallback(() => {
     setAddress(null);
@@ -212,6 +244,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         connected: !!address,
         isConnected: !!address,
         isConnecting,
+        isRetrying,
         error,
         network,
         connect,

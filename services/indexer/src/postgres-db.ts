@@ -310,6 +310,14 @@ export class PostgresDatabase implements Database {
     };
   }
 
+  async getPostTipCount(post_id: bigint): Promise<number> {
+    const res = await this.pool.query(
+      `SELECT COUNT(*)::int AS count FROM tips WHERE post_id = $1`,
+      [post_id.toString()]
+    );
+    return Number(res.rows[0]?.count ?? 0);
+  }
+
   async listPosts(filters: {
     author?: string;
     limit: number;
@@ -1345,8 +1353,9 @@ export class PostgresDatabase implements Database {
     cursor?: string;
     contract_id?: string;
     topic?: string;
+    type?: string;
   }): Promise<{ events: import("./db").ChainEvent[]; nextCursor: string | null }> {
-    const { limit, cursor, contract_id, topic } = filters;
+    const { limit, cursor, contract_id, topic, type } = filters;
 
     const params: unknown[] = [];
     const conditions: string[] = [];
@@ -1377,8 +1386,9 @@ export class PostgresDatabase implements Database {
       conditions.push(`contract_id = $${params.length}`);
     }
 
-    if (topic !== undefined) {
-      params.push(topic);
+    const topicFilter = topic ?? type;
+    if (topicFilter !== undefined) {
+      params.push(topicFilter);
       conditions.push(`topic[1] = $${params.length}`);
     }
 

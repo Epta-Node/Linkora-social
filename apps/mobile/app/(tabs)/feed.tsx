@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
+  Pressable,
   RefreshControl,
   View,
   Text,
@@ -16,7 +17,8 @@ import { EmptyState } from "../../components/states/EmptyState";
 import { ErrorState } from "../../components/states/ErrorState";
 import { useFeed } from "../../hooks/useFeed";
 import { useTheme } from "../../theme/useTheme";
-import { evictStaleCache } from "../../utils/db";
+import { useNetwork } from "../../hooks/useNetwork";
+import { evictStaleCache, FEED_CACHE_LIMIT, FEED_STALE_THRESHOLD_MS } from "../../utils/db";
 import { trackPostViewed } from "../../utils/analytics";
 
 const SKELETON_COUNT = 4;
@@ -31,21 +33,48 @@ function SkeletonList() {
   );
 }
 
+/** "Last updated X minutes ago" once cached data passes the staleness threshold. */
+export function getStaleFeedText(
+  lastUpdatedAt: number | null,
+  now: number = Date.now()
+): string | null {
+  if (lastUpdatedAt === null) return null;
+  const ageMs = now - lastUpdatedAt;
+  if (ageMs < FEED_STALE_THRESHOLD_MS) return null;
+  const minutes = Math.max(1, Math.floor(ageMs / 60_000));
+  return `Last updated ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+}
+
 export default function FeedScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { posts, loading, error, loadMore, refresh } = useFeed();
+  const network = useNetwork();
+  const {
+    posts,
+    loading,
+    refreshing,
+    loadingMore,
+    error,
+    loadMoreError,
+    hasMore,
+    lastUpdatedAt,
+    loadMore,
+    refresh,
+  } = useFeed();
   const viewTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const viewed = useRef(new Set<string>());
   const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const visible = new Set(viewableItems.map((token) => String((token.item as Post).id)));
     visible.forEach((postId) => {
       if (viewed.current.has(postId) || viewTimers.current.has(postId)) return;
-      viewTimers.current.set(postId, setTimeout(() => {
-        viewed.current.add(postId);
-        viewTimers.current.delete(postId);
-        trackPostViewed({ postId, durationMs: 2000 });
-      }, 2000));
+      viewTimers.current.set(
+        postId,
+        setTimeout(() => {
+          viewed.current.add(postId);
+          viewTimers.current.delete(postId);
+          trackPostViewed({ postId, durationMs: 2000 });
+        }, 2000)
+      );
     });
     viewTimers.current.forEach((timer, postId) => {
       if (!visible.has(postId)) {
@@ -62,8 +91,10 @@ export default function FeedScreen() {
       if (nextAppState === "active") {
         // Sync new posts from the network.
         refresh();
-        // Evict posts older than 7 days or beyond the 100-row cap (TTL eviction).
-        evictStaleCache(86400 * 7, 100).catch((err) => console.warn("Cache eviction failed:", err));
+        // Enforce the 200-post offline cache limit when returning to the app.
+        evictStaleCache(86400 * 7, FEED_CACHE_LIMIT).catch((err) =>
+          console.warn("Cache eviction failed:", err)
+        );
       }
     });
     return () => {
@@ -71,67 +102,118 @@ export default function FeedScreen() {
     };
   }, [refresh]);
 
-  const isInitialLoad = loading && posts.length === 0;
+  // onEndReached can fire repeatedly while the list settles; useFeed ignores
+  // calls while a page is in flight or once the end of the feed is reached.
+  const handleEndReached = useCallback(() => {
+    if (!hasMore || loadingMore || refreshing || loadMoreError) return;
+    loadMore();
+  }, [hasMore, loadingMore, refreshing, loadMoreError, loadMore]);
 
-  if (isInitialLoad) {
-    return (
-      <View style={styles.container}>
-        <SkeletonList />
-      </View>
-    );
-  }
+  const renderFooter = useCallback(() => {
+    if (posts.length === 0) return null;
+    if (loadingMore) {
+      return (
+        <ActivityIndicator
+          style={styles.footer}
+          color={theme.colors.brand.primary}
+          size="small"
+          accessibilityLabel="Loading more posts"
+          testID="feed-loading-more"
+        />
+      );
+    }
+    if (loadMoreError) {
+      return (
+        <View style={styles.end}>
+          <Text style={styles.endText}>{loadMoreError}</Text>
+          <Pressable
+            onPress={loadMore}
+            style={styles.retryButton}
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading more posts"
+            testID="feed-load-more-retry"
+          >
+            <Text style={styles.retryText}>Try again</Text>
+          </Pressable>
+        </View>
+      );
+    }
+    if (!hasMore) {
+      return (
+        <View style={styles.end} testID="feed-end">
+          <Text style={styles.endText}>You are all caught up</Text>
+        </View>
+      );
+    }
+    return null;
+  }, [posts.length, loadingMore, loadMoreError, hasMore, loadMore, theme.colors.brand.primary]);
 
-  if (error && posts.length === 0) {
-    return <ErrorState message="Could not load posts" onRetry={refresh} />;
-  }
+  const staleText = posts.length > 0 ? getStaleFeedText(lastUpdatedAt) : null;
 
   return (
-    <FlatList<Post>
-      style={styles.container}
-      contentContainerStyle={posts.length === 0 ? styles.emptyContainer : styles.listContent}
-      data={posts}
-      keyExtractor={(item) => String(item.id)}
-      renderItem={({ item }) => <PostCard post={item} />}
-      ListEmptyComponent={
-        <EmptyState
-          icon="📭"
-          title="No posts yet"
-          subtitle="Be the first to post on Linkora."
-          actionLabel="Explore creators"
-          onAction={() => router.push("/(tabs)/explore" as Parameters<typeof router.push>[0])}
+    <View style={styles.container}>
+      {network.isOffline && (
+        <View style={styles.offlineBanner} testID="feed-offline-banner">
+          <Text style={styles.offlineText}>Offline — showing cached content</Text>
+          <Pressable style={styles.offlineButton} onPress={refresh}>
+            <Text style={styles.offlineButtonText}>Refresh</Text>
+          </Pressable>
+        </View>
+      )}
+      {staleText && (
+        <View style={styles.staleBanner} testID="feed-stale-banner">
+          <Text style={styles.staleText}>{staleText}</Text>
+        </View>
+      )}
+      {loading && posts.length === 0 ? (
+        <SkeletonList />
+      ) : error && posts.length === 0 ? (
+        <ErrorState message="Could not load posts" onRetry={refresh} />
+      ) : (
+        <FlatList<Post>
+          style={styles.feedList}
+          contentContainerStyle={posts.length === 0 ? styles.emptyContainer : styles.listContent}
+          data={posts}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => <PostCard post={item} />}
+          ListEmptyComponent={
+            <EmptyState
+              icon="📭"
+              title="No posts yet"
+              subtitle="Be the first to post on Linkora."
+              actionLabel="Explore creators"
+              onAction={() => router.push("/(tabs)/explore" as Parameters<typeof router.push>[0])}
+            />
+          }
+          ListFooterComponent={renderFooter}
+          onEndReached={handleEndReached}
+          onEndReachedThreshold={0.4}
+          windowSize={11}
+          maxToRenderPerBatch={5}
+          initialNumToRender={5}
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }}
+          onViewableItemsChanged={onViewableItemsChanged}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refresh}
+              tintColor={theme.colors.brand.primary}
+              colors={[theme.colors.brand.primary]}
+            />
+          }
         />
-      }
-      ListFooterComponent={
-        loading && posts.length > 0 ? (
-          <ActivityIndicator
-            style={styles.footer}
-            color={theme.colors.brand.primary}
-            size="small"
-          />
-        ) : !loading && posts.length > 0 ? <View style={styles.end}><Text style={styles.endText}>You are all caught up</Text></View> : null
-      }
-      onEndReached={loadMore}
-      onEndReachedThreshold={0.4}
-      windowSize={11}
-      maxToRenderPerBatch={5}
-      initialNumToRender={5}
-      maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-      viewabilityConfig={{ itemVisiblePercentThreshold: 60, minimumViewTime: 250 }}
-      onViewableItemsChanged={onViewableItemsChanged}
-      refreshControl={
-        <RefreshControl
-          refreshing={loading && posts.length > 0}
-          onRefresh={refresh}
-          tintColor={theme.colors.brand.primary}
-          colors={[theme.colors.brand.primary]}
-        />
-      }
-    />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+    backgroundColor: "#0f172a",
+  },
+  feedList: {
     flex: 1,
     backgroundColor: "#0f172a",
   },
@@ -151,6 +233,53 @@ const styles = StyleSheet.create({
   footer: {
     paddingVertical: 16,
   },
-  end: { padding: 20, alignItems: "center" },
+  end: { padding: 20, alignItems: "center", gap: 10 },
   endText: { color: "#94a3b8" },
+  retryButton: {
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#334155",
+    justifyContent: "center",
+  },
+  retryText: { color: "#e2e8f0", fontWeight: "600" },
+  offlineBanner: {
+    padding: 12,
+    backgroundColor: "#EF4444",
+    marginHorizontal: 16,
+    marginVertical: 8,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  offlineText: {
+    color: "white",
+    fontSize: 14,
+  },
+  staleBanner: {
+    padding: 10,
+    marginHorizontal: 16,
+    marginBottom: 4,
+    borderRadius: 8,
+    backgroundColor: "#1e293b",
+    alignItems: "center",
+  },
+  staleText: {
+    color: "#fbbf24",
+    fontSize: 13,
+  },
+  offlineButton: {
+    marginLeft: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: "white",
+    borderRadius: 20,
+  },
+  offlineButtonText: {
+    color: "#EF4444",
+    fontSize: 12,
+  },
 });

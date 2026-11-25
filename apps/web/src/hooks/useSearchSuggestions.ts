@@ -17,7 +17,7 @@ interface UseSearchSuggestionsOptions {
 const INDEXER_API_URL = process.env.NEXT_PUBLIC_INDEXER_API_URL ?? "";
 
 export function useSearchSuggestions({
-  debounceMs = 300,
+  debounceMs = 200,
   minQueryLength = 2,
   maxSuggestions = 5,
   leadingEdge = true,
@@ -86,27 +86,18 @@ export function useSearchSuggestions({
         }
 
         // Only update if this request matches the absolute latest query and controller
-        if (
-          abortControllerRef.current === controller &&
-          latestQueryRef.current === trimmed
-        ) {
+        if (abortControllerRef.current === controller && latestQueryRef.current === trimmed) {
           setSuggestions(newSuggestions);
         }
       } catch (error: unknown) {
         if (error instanceof Error && error.name !== "AbortError") {
           console.error("Failed to fetch suggestions:", error);
-          if (
-            abortControllerRef.current === controller &&
-            latestQueryRef.current === trimmed
-          ) {
+          if (abortControllerRef.current === controller && latestQueryRef.current === trimmed) {
             setSuggestions([]);
           }
         }
       } finally {
-        if (
-          abortControllerRef.current === controller &&
-          latestQueryRef.current === trimmed
-        ) {
+        if (abortControllerRef.current === controller && latestQueryRef.current === trimmed) {
           setLoading(false);
         }
       }
@@ -137,9 +128,7 @@ export function useSearchSuggestions({
 
       // Leading edge debounce: fire immediately on first keystroke, then throttle subsequent bursts
       const shouldFireLeading =
-        leadingEdge &&
-        !debounceTimerRef.current &&
-        lastExecutedQueryRef.current !== trimmed;
+        leadingEdge && !debounceTimerRef.current && lastExecutedQueryRef.current !== trimmed;
 
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);

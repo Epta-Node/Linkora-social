@@ -14,15 +14,23 @@ jest.mock("expo-sqlite", () => ({
 import {
   addOutboxDmMessage,
   addOptimisticPost,
+  clearFeedAction,
   evictStaleCache,
+  FEED_CACHE_LIMIT,
+  getCachedPostById,
   getCachedPostsByIds,
   getDmLastRead,
   getDmMessages,
   getDmSyncCursor,
+  getFeedAction,
+  getFeedLastSyncedAt,
+  getPendingFeedActions,
   markDmMessageFailed,
+  markFeedSyncedAt,
   mergeDmDeltas,
   Migration,
   MIGRATIONS,
+  queueFeedAction,
   reconcilePosts,
   runMigrations,
   setDmLastRead,
@@ -245,7 +253,7 @@ describe("schema migrations (#1560)", () => {
 
     // Simulate an "existing install": already bootstrapped at v1, with data
     // in place, but never having run any migration added after that.
-    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+    await runMigrations(fixtureDb, [MIGRATIONS[0]!]);
     await fixtureDb.runAsync(
       `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
        VALUES (?, ?, ?, ?, 0, ?, 0, 0, 'pending', ?)`,
@@ -262,7 +270,7 @@ describe("schema migrations (#1560)", () => {
       );
     };
 
-    await runMigrations(fixtureDb, [MIGRATIONS[0], addPinnedColumn]);
+    await runMigrations(fixtureDb, [MIGRATIONS[0]!, addPinnedColumn]);
 
     expect(fixtureDb.__state.userVersion).toBe(2);
     expect(fixtureDb.__state.cachedPosts.get("existing-post")).toMatchObject({
@@ -274,10 +282,10 @@ describe("schema migrations (#1560)", () => {
 
   it("is a no-op when the database is already at the current version", async () => {
     const fixtureDb = mockCreateFakeDb();
-    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+    await runMigrations(fixtureDb, [MIGRATIONS[0]!]);
 
     fixtureDb.execAsync.mockClear();
-    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+    await runMigrations(fixtureDb, [MIGRATIONS[0]!]);
 
     expect(fixtureDb.execAsync).not.toHaveBeenCalled();
   });
@@ -336,7 +344,7 @@ describe("timestamp unit repair migration (#1543)", () => {
 
     // An install that already ran the v0 -> v1 bootstrap and synced posts with
     // the raw ledger sequence in the timestamp column.
-    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+    await runMigrations(fixtureDb, [MIGRATIONS[0]!]);
     await fixtureDb.runAsync(
       `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
        VALUES (?, ?, ?, ?, 0, ?, 0, 0, 'synced', ?)`,
@@ -356,7 +364,7 @@ describe("timestamp unit repair migration (#1543)", () => {
 
   it("leaves a plausible timestamp untouched", async () => {
     const fixtureDb = mockCreateFakeDb();
-    await runMigrations(fixtureDb, [MIGRATIONS[0]]);
+    await runMigrations(fixtureDb, [MIGRATIONS[0]!]);
     await fixtureDb.runAsync(
       `INSERT INTO cached_posts (id, author, username, content, tip_total, timestamp, like_count, has_liked, sync_status, created_at)
        VALUES (?, ?, ?, ?, 0, ?, 0, 0, 'synced', ?)`,
@@ -368,5 +376,83 @@ describe("timestamp unit repair migration (#1543)", () => {
     expect(fixtureDb.__state.cachedPosts.get("healthy")).toMatchObject({
       timestamp: 1_700_000_000,
     });
+  });
+});
+
+describe("offline-first feed conflict resolution (#1779)", () => {
+  it("lets remote content win while an unresolved local like stays visible exactly once", async () => {
+    const postId = "conflict-like";
+    await reconcilePosts(
+      [makePost(postId, { content: "remote v1", like_count: 4, has_liked: false })],
+      false
+    );
+    const actionId = await queueFeedAction("like", "GACTOR", postId, true);
+
+    for (const content of ["remote v2", "remote v3"]) {
+      await reconcilePosts([makePost(postId, { content, like_count: 4, has_liked: false })], false);
+      expect(await getCachedPostById(postId)).toMatchObject({
+        content,
+        has_liked: true,
+        like_count: 5,
+      });
+    }
+
+    await clearFeedAction(actionId);
+    await reconcilePosts(
+      [makePost(postId, { content: "remote v4", like_count: 4, has_liked: false })],
+      false
+    );
+    expect(await getCachedPostById(postId)).toMatchObject({
+      content: "remote v4",
+      has_liked: false,
+      like_count: 4,
+    });
+  });
+
+  it("keeps pending follow writes when post content is reconciled", async () => {
+    const actionId = await queueFeedAction("follow", "GACTOR", "GTARGET", true);
+
+    await reconcilePosts([makePost("feed-post", { content: "remote body" })], false);
+
+    expect(await getFeedAction("follow", "GACTOR", "GTARGET")).toMatchObject({
+      id: actionId,
+      value: true,
+      status: "pending",
+    });
+    expect(await getPendingFeedActions("follow")).toHaveLength(1);
+  });
+
+  it("de-duplicates posts by id when a refresh returns overlapping rows", async () => {
+    const post = makePost("duplicate-id", { content: "remote body" });
+    await reconcilePosts([post, { ...post, like_count: 3 }], false);
+
+    const cached = await getCachedPostsByIds(["duplicate-id"]);
+    expect(cached.size).toBe(1);
+    expect(cached.get("duplicate-id")).toMatchObject({ content: "remote body" });
+  });
+
+  it("retains only the newest FEED_CACHE_LIMIT posts after a successful fetch", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ids = Array.from({ length: FEED_CACHE_LIMIT + 5 }, (_, i) => `cap-${i}`);
+    await reconcilePosts(
+      ids.map((id, i) => makePost(id, { timestamp: now + i })),
+      false
+    );
+
+    await evictStaleCache();
+
+    const cached = await getCachedPostsByIds(ids);
+    expect(cached.size).toBe(FEED_CACHE_LIMIT);
+    expect(cached.has(`cap-${FEED_CACHE_LIMIT + 4}`)).toBe(true);
+    expect(cached.has("cap-0")).toBe(false);
+  });
+
+  it("stores a monotonic last-successful-sync watermark", async () => {
+    expect(await getFeedLastSyncedAt()).toBeNull();
+
+    await markFeedSyncedAt(1_700_000_000);
+    await markFeedSyncedAt(1_600_000_000);
+
+    expect(await getFeedLastSyncedAt()).toBe(1_700_000_000);
   });
 });

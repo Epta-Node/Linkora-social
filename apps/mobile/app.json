@@ -6,11 +6,35 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "bundleIdentifier": "social.linkora.app",
-      "associatedDomains": ["applinks:linkora.social"]
+      "associatedDomains": ["applinks:linkora.social", "applinks:www.linkora.social"]
     },
     "android": {
-      "package": "social.linkora.app"
+      "package": "social.linkora.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            { "scheme": "linkora" },
+            { "scheme": "https", "host": "linkora.social", "pathPrefix": "/post" },
+            { "scheme": "https", "host": "linkora.social", "pathPrefix": "/profile" },
+            { "scheme": "https", "host": "linkora.social", "pathPrefix": "/pool" },
+            { "scheme": "https", "host": "linkora.social", "pathPrefix": "/dm" },
+            { "scheme": "https", "host": "www.linkora.social", "pathPrefix": "/post" },
+            { "scheme": "https", "host": "www.linkora.social", "pathPrefix": "/profile" },
+            { "scheme": "https", "host": "www.linkora.social", "pathPrefix": "/pool" },
+            { "scheme": "https", "host": "www.linkora.social", "pathPrefix": "/dm" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
-    "plugins": ["expo-router", ["expo-camera", { "cameraPermission": "Linkora uses your camera to scan WalletConnect QR codes." }]]
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        { "cameraPermission": "Linkora uses your camera to scan WalletConnect QR codes." }
+      ]
+    ]
   }
 }

@@ -71,10 +71,7 @@ export default function PoolAdminsScreen(): JSX.Element {
    * entrypoint on the contract; the real ones are `add_pool_admin`,
    * `remove_pool_admin` and `update_pool_threshold`.
    */
-  const descriptorForAction = (
-    action: PendingAction,
-    signers: string
-  ): string => {
+  const descriptorForAction = (action: PendingAction, signers: string): string => {
     const approvals = signers
       .split(",")
       .map((entry) => `${entry.trim()}=pending`)
@@ -104,9 +101,7 @@ export default function PoolAdminsScreen(): JSX.Element {
     setMessage(null);
 
     try {
-      const signature = await submitTx(
-        descriptorForAction(pendingAction, connectedAddress)
-      );
+      const signature = await submitTx(descriptorForAction(pendingAction, connectedAddress));
 
       setPendingAction((current) =>
         current
@@ -238,10 +233,20 @@ export default function PoolAdminsScreen(): JSX.Element {
           accessibilityLabel="Admin address"
         />
         <View style={styles.buttonRow}>
-          <Pressable style={styles.secondaryButton} onPress={queueAddAdmin}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={queueAddAdmin}
+            accessibilityRole="button"
+            accessibilityLabel="Queue add admin"
+          >
             <Text style={styles.secondaryButtonText}>Queue add</Text>
           </Pressable>
-          <Pressable style={styles.secondaryButton} onPress={queueRemoveAdmin}>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={queueRemoveAdmin}
+            accessibilityRole="button"
+            accessibilityLabel="Queue remove admin"
+          >
             <Text style={styles.secondaryButtonText}>Queue remove</Text>
           </Pressable>
         </View>
@@ -258,7 +263,12 @@ export default function PoolAdminsScreen(): JSX.Element {
           style={styles.input}
           accessibilityLabel="Signature threshold"
         />
-        <Pressable style={styles.secondaryButton} onPress={queueThresholdUpdate}>
+        <Pressable
+          style={styles.secondaryButton}
+          onPress={queueThresholdUpdate}
+          accessibilityRole="button"
+          accessibilityLabel="Queue threshold update"
+        >
           <Text style={styles.secondaryButtonText}>Queue threshold update</Text>
         </Pressable>
       </View>
@@ -314,6 +324,9 @@ export default function PoolAdminsScreen(): JSX.Element {
                 ]}
                 onPress={signPendingAction}
                 disabled={!connectedIsAdmin || busy}
+                accessibilityRole="button"
+                accessibilityLabel="Sign pending action with connected admin"
+                accessibilityState={{ disabled: !connectedIsAdmin || busy, busy }}
               >
                 <Text style={styles.primaryButtonText}>
                   {connectedIsAdmin
@@ -327,6 +340,9 @@ export default function PoolAdminsScreen(): JSX.Element {
                 style={[styles.primaryButton, !canExecute || busy ? styles.buttonDisabled : null]}
                 onPress={executePendingAction}
                 disabled={!canExecute || busy}
+                accessibilityRole="button"
+                accessibilityLabel="Apply pending admin change"
+                accessibilityState={{ disabled: !canExecute || busy, busy }}
               >
                 <Text style={styles.primaryButtonText}>Apply change</Text>
               </Pressable>

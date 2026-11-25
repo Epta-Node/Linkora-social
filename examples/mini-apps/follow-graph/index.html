@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Follow Graph — Linkora Mini App</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
+      .card { max-width: 720px; margin: 0 auto; background: #1e293b; border-radius: 12px; padding: 20px; }
+      button { background: #6366f1; color: white; border: 0; padding: 10px 14px; border-radius: 8px; cursor: pointer; }
+      pre { background: #020617; padding: 12px; border-radius: 8px; overflow: auto; }
+      .error { color: #fca5a5; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Follow Graph</h1>
+      <p>Reads followers and following via the Linkora bridge.</p>
+      <button id="load">Load follow graph</button>
+      <p id="status"></p>
+      <h2>Followers</h2>
+      <pre id="followers">[]</pre>
+      <h2>Following</h2>
+      <pre id="following">[]</pre>
+    </div>
+    <script>
+      const sdk = window.LinkoraSDK || {
+        call: async (method, payload) => {
+          if (method === "wallet.getAddress") return "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN";
+          if (method === "social.getFollowers") return [];
+          if (method === "social.getFollowing") return [];
+          throw new Error(`Unsupported method: ${method}`);
+        },
+      };
+
+      async function load() {
+        const status = document.getElementById("status");
+        status.textContent = "Loading...";
+        status.className = "";
+        try {
+          const address = await sdk.call("wallet.getAddress");
+          const [followers, following] = await Promise.all([
+            sdk.call("social.getFollowers", { address }),
+            sdk.call("social.getFollowing", { address }),
+          ]);
+          document.getElementById("followers").textContent = JSON.stringify(followers, null, 2);
+          document.getElementById("following").textContent = JSON.stringify(following, null, 2);
+          status.textContent = `Loaded for ${address}`;
+        } catch (err) {
+          status.textContent = err instanceof Error ? err.message : String(err);
+          status.className = "error";
+        }
+      }
+
+      document.getElementById("load").addEventListener("click", load);
+      load();
+    </script>
+  </body>
+</html>

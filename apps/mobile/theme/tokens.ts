@@ -36,6 +36,8 @@ export type ThemeTokens = {
       disabled: string;
       inverse: string;
       onBrand: string;
+      /** Label colour for filled `semantic.*` surfaces (e.g. danger buttons). */
+      onSemantic: string;
     };
     overlay: {
       scrim: string;
@@ -69,14 +71,29 @@ const brand = {
   accentHover: "#D97706",
 };
 
-const semantic = {
-  success: "#10B981",
+// Semantic colours are used as text (error messages, success amounts) on the
+// theme's surfaces, so each theme gets shades that reach WCAG AA 4.5:1 against
+// its own background and surface1 (#1789). Enforced by
+// theme/__tests__/contrast.test.ts.
+const lightSemantic = {
+  success: "#047857",
   successLight: "#D1FAE5",
-  warning: "#F59E0B",
+  warning: "#B45309",
   warningLight: "#FEF3C7",
-  error: "#EF4444",
+  error: "#B91C1C",
   errorLight: "#FEE2E2",
-  info: "#3B82F6",
+  info: "#1D4ED8",
+  infoLight: "#DBEAFE",
+};
+
+const darkSemantic = {
+  success: "#34D399",
+  successLight: "#D1FAE5",
+  warning: "#FBBF24",
+  warningLight: "#FEF3C7",
+  error: "#F87171",
+  errorLight: "#FEE2E2",
+  info: "#60A5FA",
   infoLight: "#DBEAFE",
 };
 
@@ -99,7 +116,7 @@ const radius = {
 
 const lightColors = {
   brand,
-  semantic,
+  semantic: lightSemantic,
   surface: {
     background: "#FFFFFF",
     surface1: "#F9FAFB",
@@ -109,10 +126,11 @@ const lightColors = {
   },
   text: {
     primary: "#111827",
-    secondary: "#6B7280",
+    secondary: "#4B5563",
     disabled: "#9CA3AF",
     inverse: "#FFFFFF",
     onBrand: "#FFFFFF",
+    onSemantic: "#FFFFFF",
   },
   overlay: {
     scrim: "rgba(17, 24, 39, 0.28)",
@@ -121,7 +139,7 @@ const lightColors = {
 
 const darkColors = {
   brand,
-  semantic,
+  semantic: darkSemantic,
   surface: {
     background: "#0F172A",
     surface1: "#1E293B",
@@ -131,10 +149,11 @@ const darkColors = {
   },
   text: {
     primary: "#F9FAFB",
-    secondary: "#9CA3AF",
+    secondary: "#B4BCC8",
     disabled: "#4B5563",
     inverse: "#111827",
     onBrand: "#FFFFFF",
+    onSemantic: "#111827",
   },
   overlay: {
     scrim: "rgba(15, 23, 42, 0.72)",
@@ -157,10 +176,12 @@ export const themes: Record<ColorScheme, ThemeTokens> = {
 };
 import { DynamicColorIOS, PlatformColor } from "react-native";
 
-
 /** Platform semantic colors are available to native surfaces that need to follow
  * the OS appearance while the token sets provide deterministic app styling. */
 export const platformColors = {
-  background: DynamicColorIOS({ light: lightColors.surface.background, dark: darkColors.surface.background }),
+  background: DynamicColorIOS({
+    light: lightColors.surface.background,
+    dark: darkColors.surface.background,
+  }),
   label: PlatformColor("label"),
 };

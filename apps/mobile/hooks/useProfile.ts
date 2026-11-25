@@ -28,6 +28,8 @@ export function useProfile(address: string) {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState<boolean>(!!address);
+  /** True during a pull-to-refresh; the profile stays on screen meanwhile. */
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const followers = useFollowers(address ?? "");
@@ -43,21 +45,24 @@ export function useProfile(address: string) {
     return myFollowing.users.some((u) => u.address === address);
   }, [me, myFollowing.users, address]);
 
-  const fetchProfile = useCallback(async () => {
-    if (!address) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const p = await fetchMockProfile(address);
-      setProfile(p);
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn("Failed to load profile", e);
-      setError("Failed to load profile.");
-    } finally {
-      setLoading(false);
-    }
-  }, [address]);
+  const fetchProfile = useCallback(
+    async (silent = false) => {
+      if (!address) return;
+      if (!silent) setLoading(true);
+      setError(null);
+      try {
+        const p = await fetchMockProfile(address);
+        setProfile(p);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to load profile", e);
+        setError("Failed to load profile.");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [address]
+  );
 
   useEffect(() => {
     fetchProfile();
@@ -85,17 +90,26 @@ export function useProfile(address: string) {
     }
   }, [address, me, isFollowing, submitTx, showError, followers, following, myFollowing]);
 
-  const refresh = useCallback(() => {
-    fetchProfile();
-    // trigger followers/following refresh by calling their refresh methods if available
+  /**
+   * Re-fetches the profile and follow counts without replacing the screen with
+   * the initial loading state. Resolves when the profile has reloaded.
+   */
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
     followers.refresh();
     following.refresh();
     myFollowing.refresh();
+    try {
+      await fetchProfile(true);
+    } finally {
+      setRefreshing(false);
+    }
   }, [fetchProfile, followers, following, myFollowing]);
 
   return {
     profile,
     loading,
+    refreshing,
     error,
     followerCount,
     followingCount,

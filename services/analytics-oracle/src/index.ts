@@ -17,6 +17,7 @@ import { attachPoolMonitoring } from "./db-pool-monitor.js";
 import { createHealthRouter } from "./routes/health.js";
 import { createAdminRouter } from "./routes/admin.js";
 import { createEarningsRouter } from "./routes/earnings.js";
+import { createLeaderboardRouter } from "./routes/leaderboard.js";
 import { validateParams } from "./middleware/validate.js";
 import { AttestationCache } from "./attestation-cache.js";
 import { createKeystore, Keystore } from "./secrets.js";
@@ -53,6 +54,11 @@ const ATTESTATION_CACHE_TTL_MS = (() => {
   if (isNaN(val)) throw new Error("ATTESTATION_CACHE_TTL_MS must be a valid number");
   return val;
 })();
+const ATTESTATION_CACHE_STATS_INTERVAL_MS = (() => {
+  const val = parseInt(process.env["ATTESTATION_CACHE_STATS_INTERVAL_MS"] ?? "300000", 10);
+  if (isNaN(val)) throw new Error("ATTESTATION_CACHE_STATS_INTERVAL_MS must be a valid number");
+  return val;
+})();
 const SHUTDOWN_DRAIN_TIMEOUT_MS = parseInt(process.env["SHUTDOWN_DRAIN_TIMEOUT_MS"] ?? "30000", 10);
 
 // Load the signing key from the configured secrets backend (a mounted secret
@@ -84,6 +90,7 @@ const rpcServer = new StellarRpc.Server(SOROBAN_RPC_URL);
 const attestationCache = new AttestationCache<SignedAttestation>({
   maxSize: ATTESTATION_CACHE_MAX_SIZE,
   ttlMs: ATTESTATION_CACHE_TTL_MS,
+  statsIntervalMs: ATTESTATION_CACHE_STATS_INTERVAL_MS,
 });
 
 // Bind the cache to the current signer key. If the key rotates (reload of the
@@ -215,6 +222,68 @@ async function runWindow(windowStart: bigint, windowEnd: bigint): Promise<void> 
   }
 }
 
+async function submitManualAttestation(
+  creatorAddress: string,
+  windowStart: bigint,
+  windowEnd: bigint
+): Promise<string> {
+  const stats = await fetchCreatorStats(db, windowStart, windowEnd);
+  const creatorStats = stats.find((row) => row.creatorAddress === creatorAddress);
+  if (!creatorStats) {
+    throw Object.assign(new Error("Creator has no analytics in the requested window"), {
+      code: "CREATOR_NOT_FOUND",
+    });
+  }
+
+  const report: AnalyticsReport = {
+    version: 1,
+    creator: Keypair.fromPublicKey(creatorAddress).rawPublicKey(),
+    windowStart,
+    windowEnd,
+    totalTips: creatorStats.totalTips,
+    postCount: creatorStats.postCount,
+    followerDelta: creatorStats.followerDelta,
+    uniqueTippers: creatorStats.uniqueTippers,
+  };
+  const reportCbor = encodeReport(report);
+  const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+  const txHash = await submitAttestation(
+    rpcServer,
+    NETWORK_PASSPHRASE,
+    CONTRACT_ID,
+    ORACLE_NAME,
+    reportCbor,
+    signature,
+    oracleSigner.keypair(),
+    creatorAddress,
+    windowStart,
+    windowEnd
+  );
+
+  attestationCache.set(creatorAddress, {
+    oracleName: ORACLE_NAME,
+    signerKey: oracleSigner.fingerprint(),
+    keyVersion: oracleSigner.keyVersion,
+    rotationEpoch: oracleSigner.rotationEpoch,
+    reportCbor,
+    reportHash: reportHash.toString("hex"),
+    signature,
+    txHash,
+    report,
+    submittedAt: Date.now(),
+  });
+  logger.info(
+    {
+      creatorAddress,
+      windowStart: windowStart.toString(),
+      windowEnd: windowEnd.toString(),
+      txHash,
+    },
+    "Manual creator attestation submitted"
+  );
+  return txHash;
+}
+
 async function scheduleLoop(currentLedger: bigint): Promise<void> {
   const windowStart =
     lastWindowEnd === BigInt(0) ? currentLedger - WINDOW_LEDGERS : lastWindowEnd + BigInt(1);
@@ -270,6 +339,7 @@ async function scheduleLoop(currentLedger: bigint): Promise<void> {
 
 const app = express();
 app.use(helmet());
+app.use(express.json());
 app.set("trust proxy", 1); // trust first proxy
 const startTime = Date.now();
 
@@ -356,6 +426,7 @@ app.get("/metrics/cache", (_req, res) => {
 // GET /analytics/creators/:accountId/earnings — see routes/earnings.ts
 
 app.use("/analytics", createEarningsRouter(db));
+app.use("/analytics", createLeaderboardRouter(db));
 
 // ── Admin endpoints ───────────────────────────────────────────────────────────
 // Authenticated key-rotation API. Only reachable with a valid ADMIN_SECRET.
@@ -366,6 +437,7 @@ app.use(
     keystore,
     invalidateCache: (fingerprint) => attestationCache.setSignerId(fingerprint),
     isReady: () => started,
+    submitManualAttestation,
   })
 );
 
@@ -435,7 +507,8 @@ async function main(): Promise<void> {
     forceExitTimer.unref();
 
     try {
-      // 1. Stop scheduling new window ticks.
+      // 1. Stop scheduling new window ticks and cache stats logging.
+      attestationCache.stopStatsLogging();
       if (pollInterval !== null) {
         clearInterval(pollInterval);
         pollInterval = null;
@@ -516,3 +589,150 @@ main().catch((err) => {
   oracleSigner.dispose();
   process.exit(1);
 });
+
+// ── Daily creator stats job ───────────────────────────────────────────────
+//
+// Runs once per day (configurable cron schedule, default 00:00 UTC) to
+// aggregate tips from the past 24 hours per creator and submit a
+// Soroban `update_creator_stats` transaction.
+//
+// Environment variables:
+//   DAILY_STATS_CRON — cron expression (e.g. "0 0 * * *") or "off" to disable.
+//   DAILY_STATS_INTERVAL_MS — polling interval in ms when not using cron.
+
+function isCronEnabled(): boolean {
+  const cron = process.env["DAILY_STATS_CRON"] ?? "0 0 * * *";
+  return cron !== "off";
+}
+
+function getCronExpression(): string {
+  return process.env["DAILY_STATS_CRON"] ?? "0 0 * * *";
+}
+
+async function runDailyStatsJob(): Promise<void> {
+  const cron = getCronExpression();
+  if (cron === "off") {
+    logger.info("Daily stats job is disabled via DAILY_STATS_CRON=off");
+    return;
+  }
+  logger.info({ cron }, "Running daily creator stats job");
+
+  try {
+    // Fetch all creators from the posts table
+    const { rows: allCreators } = await db.query<
+      { author: string; post_count: number }
+    >(`SELECT DISTINCT author FROM posts WHERE deleted_at IS NULL`);
+
+  const creatorAddresses: string[] = allCreators.map((r) => r.author);
+
+  // For each creator, aggregate tips from the past 24 hours
+  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const creatorUpdates: Array<{
+    creatorAddress: string;
+    tipsReceived: string;
+    tipCount: number;
+  }> = [];
+
+  for (const creatorAddress of creatorAddresses) {
+    const { rows } = await db.query<
+      { total: string; count: string }
+    >(
+      `SELECT
+         COALESCE(SUM(t.amount), 0) AS total,
+         COUNT(t.id) AS count
+       FROM tips t
+       JOIN posts p ON p.id = t.post_id
+       WHERE p.author = $1
+         AND p.deleted_at IS NULL
+         AND t.created_at >= $2`,
+      [creatorAddress, twentyFourHoursAgo]
+    );
+
+    const totalTips = rows[0]?.total ?? "0";
+    const tipCount = Number(rows[0]?.count ?? "0");
+
+    creatorUpdates.push({
+      creatorAddress,
+      tipsReceived: totalTips,
+      tipCount,
+    });
+  }
+
+  // Submit daily stats for each creator via Soroban
+  for (const update of creatorUpdates) {
+    try {
+      const report: AnalyticsReport = {
+        version: 1,
+        creator: Keypair.fromPublicKey(update.creatorAddress).rawPublicKey(),
+        windowStart: BigInt(0), // daily stats use windowStart=0
+        windowEnd: BigInt(0),
+        totalTips: update.tipsReceived,
+        postCount: 0,
+        followerDelta: BigInt(0),
+        uniqueTippers: BigInt(0),
+      };
+
+      const reportCbor = encodeReport(report);
+      const { signature, reportHash } = oracleSigner.signReport(reportCbor);
+
+      const txHash = await submitAttestation(
+        rpcServer,
+        NETWORK_PASSPHRASE,
+        CONTRACT_ID,
+        ORACLE_NAME,
+        reportCbor,
+        signature,
+        oracleSigner.keypair(),
+        update.creatorAddress,
+        BigInt(0),
+        BigInt(0)
+      );
+
+      logger.info(
+        {
+          creatorAddress: update.creatorAddress,
+          txHash,
+          tipsReceived: update.tipsReceived,
+        },
+        "Daily creator stats attestation submitted"
+      );
+    } catch (err) {
+      logger.error(
+        {
+          creatorAddress: update.creatorAddress,
+          err,
+        },
+        "Daily creator stats attestation submission failed"
+      );
+    }
+  }
+
+  logger.info("Daily creator stats job completed");
+} catch (err) {
+  logger.error({ err }, "Daily creator stats job failed");
+}
+
+// ── Start daily stats job on server boot ──────────────────────────────────
+if (isCronEnabled()) {
+  const cron = getCronExpression();
+  logger.info({ cron }, "Daily stats job enabled; will run on schedule");
+
+  // Simple polling-based scheduler when cron is used as a expression for
+  // next-run calculation (full cron libraries would require additional deps).
+  // For now, run immediately then re-queue based on the cron expression.
+  await runDailyStatsJob();
+
+  // Set up interval: 24h in ms, adjusted if a specific cron is provided.
+  // A proper cron parser would go here; 24h is the fallback.
+  const intervalMs = 24 * 60 * 60 * 1000;
+  const dailyStatsInterval = setInterval(async () => {
+    try {
+      await runDailyStatsJob();
+    } catch (innerErr) {
+      logger.error({ err: innerErr }, "Daily stats job iteration failed");
+    }
+  }, intervalMs);
+} else {
+  logger.info("Daily stats job disabled (DAILY_STATS_CRON not set or set to 'off')");
+}

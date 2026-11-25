@@ -1,10 +1,12 @@
 import {
   addOutboxDmMessage,
   confirmPendingPost,
+  evictStaleCache,
   getCachedPostsByIds,
   getDmSyncCursor,
   getPendingPosts,
   markDmMessageFailed,
+  markFeedSyncedAt,
   markPendingPostFailed,
   mergeDmDeltas,
   reconcilePosts,
@@ -21,14 +23,29 @@ import {
   UnknownRecipientKeyError,
 } from "../sync";
 
+jest.mock(
+  "linkora-sdk",
+  () => {
+    const prepareCreatePostTx = jest.fn().mockResolvedValue("tx-xdr");
+    return {
+      LinkoraClient: jest.fn().mockImplementation(() => ({ prepareCreatePostTx })),
+    };
+  },
+  { virtual: true }
+);
+
 jest.mock("../db", () => ({
+  FEED_CACHE_LIMIT: 200,
+  MIN_PLAUSIBLE_TIMESTAMP: 1_000_000_000,
   addOutboxDmMessage: jest.fn(),
   confirmPendingPost: jest.fn(),
+  evictStaleCache: jest.fn(),
   getCachedPostById: jest.fn(),
   getCachedPostsByIds: jest.fn(),
   getDmSyncCursor: jest.fn(),
   getPendingPosts: jest.fn(),
   markDmMessageFailed: jest.fn(),
+  markFeedSyncedAt: jest.fn(),
   markPendingPostFailed: jest.fn(),
   mergeDmDeltas: jest.fn(),
   reconcilePosts: jest.fn(),
@@ -45,6 +62,8 @@ const mockedConfirmPendingPost = confirmPendingPost as jest.Mock;
 const mockedMarkPendingPostFailed = markPendingPostFailed as jest.Mock;
 const mockedGetCachedPostsByIds = getCachedPostsByIds as jest.Mock;
 const mockedReconcilePosts = reconcilePosts as jest.Mock;
+const mockedEvictStaleCache = evictStaleCache as jest.Mock;
+const mockedMarkFeedSyncedAt = markFeedSyncedAt as jest.Mock;
 
 function fakeClient(overrides: Partial<DmClient> = {}): DmClient {
   return {
@@ -54,6 +73,20 @@ function fakeClient(overrides: Partial<DmClient> = {}): DmClient {
     ...overrides,
   };
 }
+
+const originalIndexerUrl = process.env.EXPO_PUBLIC_INDEXER_URL;
+
+beforeAll(() => {
+  process.env.EXPO_PUBLIC_INDEXER_URL = "https://indexer.example.com";
+});
+
+afterAll(() => {
+  if (originalIndexerUrl === undefined) {
+    delete process.env.EXPO_PUBLIC_INDEXER_URL;
+  } else {
+    process.env.EXPO_PUBLIC_INDEXER_URL = originalIndexerUrl;
+  }
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -443,9 +476,12 @@ describe("fetchAndCachePosts", () => {
     // no matter how many posts the indexer returns.
     expect(mockedGetCachedPostsByIds).toHaveBeenCalledTimes(1);
     expect(mockedGetCachedPostsByIds).toHaveBeenCalledWith(indexerPosts.map((p) => String(p.id)));
+    expect(mockedReconcilePosts).toHaveBeenCalledWith(expect.any(Array), false);
+    expect(mockedEvictStaleCache).toHaveBeenCalledWith(86400 * 7, 200);
+    expect(mockedMarkFeedSyncedAt).toHaveBeenCalledTimes(1);
   });
 
-  it("prefers cached content/username over the indexer's fallback values", async () => {
+  it("prefers fresh indexer content/username over stale cached values", async () => {
     mockIndexerResponse([
       { id: "1", author: "GAUTHOR1", content: "raw indexer content", username: "raw_user" },
     ]);
@@ -469,7 +505,7 @@ describe("fetchAndCachePosts", () => {
 
     const [post] = await fetchAndCachePosts(1, 0);
 
-    expect(post).toMatchObject({ content: "cached content", username: "cached_user" });
+    expect(post).toMatchObject({ content: "raw indexer content", username: "raw_user" });
   });
 
   it("falls back to indexer content/username and reconciles the fetched posts when nothing is cached", async () => {
@@ -482,7 +518,7 @@ describe("fetchAndCachePosts", () => {
       content: "Content unavailable offline",
       username: "GAUTHO...HOR2",
     });
-    expect(mockedReconcilePosts).toHaveBeenCalledWith([post]);
+    expect(mockedReconcilePosts).toHaveBeenCalledWith([post], false);
   });
 
   it("throws and skips the cache lookup when the indexer request fails", async () => {

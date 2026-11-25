@@ -1,5 +1,13 @@
-import React, { useMemo } from "react";
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 
 import { useTheme } from "../../theme/useTheme";
@@ -26,6 +34,7 @@ export default function ProfileDetailScreen() {
   const {
     profile,
     loading,
+    refreshing: profileRefreshing,
     error,
     followerCount,
     followingCount,
@@ -38,11 +47,22 @@ export default function ProfileDetailScreen() {
   // whole feed and filtering it client-side.
   const {
     posts: userPosts,
-    loading: postsLoading,
     error: postsError,
     refresh: refreshPosts,
     loadMore,
   } = useAuthorPosts(address);
+
+  // Pull-to-refresh reloads the profile, follow counts and posts together.
+  const [pulling, setPulling] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setPulling(true);
+    try {
+      await Promise.all([refresh(), Promise.resolve(refreshPosts())]);
+    } finally {
+      setPulling(false);
+    }
+  }, [refresh, refreshPosts]);
+  const refreshing = pulling || profileRefreshing;
 
   if (loading) {
     return (
@@ -56,7 +76,12 @@ export default function ProfileDetailScreen() {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>{error}</Text>
-        <Pressable onPress={refresh} style={styles.retryButton} accessibilityRole="button">
+        <Pressable
+          onPress={refresh}
+          style={styles.retryButton}
+          accessibilityRole="button"
+          accessibilityLabel="Retry loading profile"
+        >
           <Text style={styles.retryText}>Retry</Text>
         </Pressable>
       </View>
@@ -65,40 +90,45 @@ export default function ProfileDetailScreen() {
 
   return (
     <View style={styles.container}>
-      {profile && (
-        <>
-          <ProfileHeader
-            profile={profile}
-            followerCount={followerCount}
-            followingCount={followingCount}
-            isFollowing={isFollowing}
-            isOwnProfile={me === address}
-            onFollowersPress={() =>
-              router.push(
-                `/profile/followers?address=${address}` as Parameters<typeof router.push>[0]
-              )
-            }
-            onFollowingPress={() =>
-              router.push(
-                `/profile/following?address=${address}` as Parameters<typeof router.push>[0]
-              )
-            }
-            onEditPress={() => router.push("/settings" as Parameters<typeof router.push>[0])}
-            onToggleFollow={toggleFollow}
-          />
-          <AnalyticsCard creatorAddress={address ?? ""} />
-        </>
-      )}
-
       <FlatList
         data={userPosts}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => <PostCard post={item} />}
-        onRefresh={() => {
-          refreshPosts();
-          refresh();
-        }}
-        refreshing={postsLoading}
+        ListHeaderComponent={
+          profile ? (
+            <>
+              <ProfileHeader
+                profile={profile}
+                followerCount={followerCount}
+                followingCount={followingCount}
+                isFollowing={isFollowing}
+                isOwnProfile={me === address}
+                onFollowersPress={() =>
+                  router.push(
+                    `/profile/followers?address=${address}` as Parameters<typeof router.push>[0]
+                  )
+                }
+                onFollowingPress={() =>
+                  router.push(
+                    `/profile/following?address=${address}` as Parameters<typeof router.push>[0]
+                  )
+                }
+                onEditPress={() => router.push("/settings" as Parameters<typeof router.push>[0])}
+                onToggleFollow={toggleFollow}
+              />
+              <AnalyticsCard creatorAddress={address ?? ""} />
+            </>
+          ) : null
+        }
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.brand.primary}
+            colors={[theme.colors.brand.primary]}
+            accessibilityLabel={refreshing ? "Refreshing profile" : "Pull to refresh profile"}
+          />
+        }
         onEndReached={loadMore}
         onEndReachedThreshold={0.5}
         contentContainerStyle={styles.list}

@@ -10,6 +10,7 @@ import {
 import { useFollow } from "../hooks/useFollow";
 import { useNetwork } from "../hooks/useNetwork";
 import { impact } from "../utils/haptics";
+import { useHapticSettings } from "../hooks/useHapticSettings";
 
 interface FollowButtonProps {
   targetAddress: string;
@@ -22,30 +23,41 @@ interface FollowButtonProps {
 export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => {
   const { isFollowing, isLoading, toggleFollow, error } = useFollow(targetAddress);
   const { isOffline } = useNetwork();
+  const { hapticsEnabled } = useHapticSettings();
 
   useEffect(() => {
     if (error) {
-      const isBlocked = error.message.toLowerCase().includes('blocked');
+      // ImpactFeedbackStyle.Rigid on error — gated by user setting.
+      if (hapticsEnabled) void impact("heavy");
+      const isBlocked = error.message.toLowerCase().includes("blocked");
       Alert.alert(
         "Action Failed",
-        isBlocked 
-          ? "You cannot follow this user because you have been blocked." 
+        isBlocked
+          ? "You cannot follow this user because you have been blocked."
           : "Something went wrong. Please try again later."
       );
     }
-  }, [error]);
+  }, [error, hapticsEnabled]);
 
   return (
     <View>
       <TouchableOpacity
         style={[styles.button, isFollowing ? styles.followingButton : styles.followButton]}
         onPress={() => {
-          void impact("light");
+          // ImpactFeedbackStyle.Light on follow/unfollow tap — gated by user setting.
+          if (hapticsEnabled) void impact("light");
           void toggleFollow();
         }}
         disabled={isLoading || isOffline}
-        accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
+        accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
+        accessibilityState={{
+          disabled: isLoading || isOffline,
+          busy: isLoading,
+          selected: isFollowing,
+        }}
       >
         {isLoading ? (
           <ActivityIndicator color={isFollowing ? "#7C3AED" : "#FFFFFF"} size="small" />
@@ -70,7 +82,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   followButton: {
-    backgroundColor: "#7C3AED",
+    backgroundColor: "#7C3AED", // Primary design token
   },
   followingButton: {
     backgroundColor: "transparent",

@@ -16,6 +16,8 @@ export function createFakeDb() {
   const dmMessages = new Map<string, Row>();
   const dmSyncState = new Map<string, { sync_cursor: number; last_read: number }>();
   const cachedPosts = new Map<string, Row>();
+  const feedSyncState = new Map<string, number>();
+  const feedActions = new Map<string, Row>();
   let userVersion = 0;
 
   return {
@@ -23,6 +25,8 @@ export function createFakeDb() {
       dmMessages,
       dmSyncState,
       cachedPosts,
+      feedSyncState,
+      feedActions,
       get userVersion() {
         return userVersion;
       },
@@ -42,7 +46,9 @@ export function createFakeDb() {
         /ALTER TABLE cached_posts ADD COLUMN (\w+) \w+(?: NOT NULL)? DEFAULT ([^;\s]+)/
       );
       if (addColumnMatch) {
-        const [, column, rawDefault] = addColumnMatch;
+        const column = addColumnMatch[1];
+        const rawDefault = addColumnMatch[2];
+        if (!column || rawDefault === undefined) return;
         const defaultValue = /^-?\d+$/.test(rawDefault) ? Number(rawDefault) : rawDefault;
         for (const row of cachedPosts.values()) {
           row[column] = defaultValue;
@@ -345,6 +351,46 @@ export function createFakeDb() {
         return;
       }
 
+      if (sql.includes("INSERT INTO feed_sync_state")) {
+        const [key, value] = p as [string, number];
+        feedSyncState.set(key, Math.max(feedSyncState.get(key) ?? 0, value));
+        return;
+      }
+
+      if (sql.includes("INSERT INTO feed_actions") && sql.includes("ON CONFLICT(id) DO UPDATE")) {
+        const [id, kind, actor, target_id, value, created_at] = p as [
+          string,
+          string,
+          string,
+          string,
+          number,
+          number,
+        ];
+        feedActions.set(id, {
+          id,
+          kind,
+          actor,
+          target_id,
+          value,
+          status: "pending",
+          created_at,
+        });
+        return;
+      }
+
+      if (sql.includes("UPDATE feed_actions SET status = 'failed'")) {
+        const [id] = p as [string];
+        const action = feedActions.get(id);
+        if (action) action.status = "failed";
+        return;
+      }
+
+      if (sql.includes("DELETE FROM feed_actions WHERE id = ?")) {
+        const [id] = p as [string];
+        feedActions.delete(id);
+        return;
+      }
+
       throw new Error(`sqliteFake: unhandled runAsync statement: ${sql}`);
     }),
 
@@ -372,6 +418,12 @@ export function createFakeDb() {
           .filter((row) => row.conversation_id === conversation_id)
           .sort((a, b) => (a.timestamp as number) - (b.timestamp as number));
       }
+      if (sql.includes("FROM feed_actions WHERE kind = ? AND status = 'pending'")) {
+        const [kind] = params as [string];
+        return Array.from(feedActions.values()).filter(
+          (row) => row.kind === kind && row.status === "pending"
+        );
+      }
       throw new Error(`sqliteFake: unhandled getAllAsync statement: ${sql}`);
     }),
 
@@ -388,6 +440,19 @@ export function createFakeDb() {
           .filter((row) => row.sync_status === "synced")
           .map((row) => Number(row.timestamp));
         return { max_ts: timestamps.length > 0 ? Math.max(...timestamps) : null };
+      }
+      if (sql.includes("FROM feed_sync_state WHERE key = ?")) {
+        const [key] = params as [string];
+        const value = feedSyncState.get(key);
+        return value === undefined ? null : { value };
+      }
+      if (sql.includes("FROM feed_actions WHERE kind = ? AND actor = ?")) {
+        const [kind, actor, targetId] = params as [string, string, string];
+        return (
+          Array.from(feedActions.values()).find(
+            (row) => row.kind === kind && row.actor === actor && row.target_id === targetId
+          ) ?? null
+        );
       }
       const [conversation_id] = params as [string];
       const state = dmSyncState.get(conversation_id);

@@ -17,9 +17,9 @@
  * Partition naming convention (set by migration 017):
  *   raw_events_p<lo>_<hi>   e.g.  raw_events_p0_1000000
  *
- * Configuration (IndexerConfig.retention):
- *   RAW_EVENTS_RETENTION_LEDGERS  — number of ledgers to keep (default 4 000 000,
- *                                   ≈ 231 days at mainnet cadence).
+ * Configuration (IndexerConfig.rawEventsRetention):
+ *   RAW_EVENTS_RETENTION_DAYS     — number of days to keep (default 7); config
+ *                                   converts days to ledgers at 17,280/day.
  *   RAW_EVENTS_PARTITION_SIZE     — ledger range per partition (default 1 000 000).
  *
  * The job fires every hour via node-cron.  A no-op when raw_events is not yet
@@ -320,14 +320,10 @@ export class RawEventsRetentionManager {
     await ensureNextPartition(currentLedger, this.cfg, this.pool);
     const dropped = await dropOldPartitions(currentLedger, this.cfg, this.pool);
 
-    if (dropped.length > 0) {
-      logger.info(
-        { dropped, retentionLedgers: this.cfg.retentionLedgers },
-        "raw_events: retention cycle complete"
-      );
-    } else {
-      logger.debug("raw_events: retention cycle — nothing to drop");
-    }
+    logger.info(
+      { droppedCount: dropped.length, dropped, retentionLedgers: this.cfg.retentionLedgers },
+      "raw_events: retention cycle complete"
+    );
   }
 
   /**
@@ -468,7 +464,7 @@ export async function pruneStaleNotifications(
   const cutoff = new Date(now.getTime() - cfg.retentionDays * 24 * 60 * 60 * 1000);
   let totalPruned = 0;
 
-  while (true) {
+  for (;;) {
     const deleted = await pruneNotificationsBatch(pool, cutoff, cfg.batchSize);
     if (deleted === 0) break;
 

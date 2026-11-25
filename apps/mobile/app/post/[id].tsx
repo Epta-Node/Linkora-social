@@ -1,6 +1,14 @@
 // Post detail screen — shows full content, like count, tip total, author info.
 import React, { useMemo, useState, useEffect } from "react";
-import { Alert, Pressable, StyleSheet, Text, View, ActivityIndicator } from "react-native";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  ActivityIndicator,
+} from "react-native";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as Clipboard from "expo-clipboard";
 
@@ -24,6 +32,20 @@ type PostParams = {
  * failure look like a dead link (#1544).
  */
 type LoadFailure = "missing" | "error";
+
+/**
+ * Screen transition and iOS swipe-to-go-back configuration for PostDetailScreen.
+ * Uses edge-swipe (`fullScreenGestureEnabled: false`) with horizontal direction
+ * so vertical and nested horizontal scroll views never conflict with back-swipe.
+ */
+export const POST_DETAIL_SCREEN_OPTIONS = {
+  gestureEnabled: true,
+  gestureDirection: "horizontal" as const,
+  fullScreenGestureEnabled: false,
+  animation: "slide_from_right" as const,
+  animationDuration: 250,
+  headerBackVisible: true,
+};
 
 export default function PostDetailScreen() {
   const { theme } = useTheme();
@@ -118,54 +140,61 @@ export default function PostDetailScreen() {
 
   if (loading) {
     return (
-      <View
-        style={[
-          styles.container,
-          styles.content,
-          { justifyContent: "center", alignItems: "center" },
-        ]}
-      >
-        <ActivityIndicator
-          size="large"
-          color={theme.colors.brand.primary}
-          testID="post-detail-loading"
-        />
-      </View>
+      <>
+        <Stack.Screen options={POST_DETAIL_SCREEN_OPTIONS} />
+        <View
+          style={[
+            styles.container,
+            styles.content,
+            { justifyContent: "center", alignItems: "center" },
+          ]}
+        >
+          <ActivityIndicator
+            size="large"
+            color={theme.colors.brand.primary}
+            testID="post-detail-loading"
+          />
+        </View>
+      </>
     );
   }
 
   if (!post) {
     const isError = failure === "error";
     return (
-      <View style={[styles.container, styles.content]}>
-        <Text style={styles.label}>Post</Text>
-        <Text style={styles.id}>#{id}</Text>
-        <Text style={styles.placeholder} testID="post-detail-status">
-          {isError
-            ? "Couldn't reach the network."
-            : "Post not found. It may have been deleted, or the link may be wrong."}
-        </Text>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Retry loading post"
-          onPress={() => void handleRetry()}
-          style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
-        >
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </Pressable>
-      </View>
+      <>
+        <Stack.Screen options={POST_DETAIL_SCREEN_OPTIONS} />
+        <View style={[styles.container, styles.content]}>
+          <Text style={styles.label}>Post</Text>
+          <Text style={styles.id}>#{id}</Text>
+          <Text style={styles.placeholder} testID="post-detail-status">
+            {isError
+              ? "Couldn't reach the network."
+              : "Post not found. It may have been deleted, or the link may be wrong."}
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Retry loading post"
+            onPress={() => void handleRetry()}
+            style={({ pressed }) => [styles.retryButton, pressed && styles.retryButtonPressed]}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </Pressable>
+        </View>
+      </>
     );
   }
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          gestureEnabled: true,
-          headerBackVisible: true,
-        }}
-      />
-      <View style={[styles.container, styles.content]}>
+      <Stack.Screen options={POST_DETAIL_SCREEN_OPTIONS} />
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        directionalLockEnabled
+        nestedScrollEnabled
+        keyboardShouldPersistTaps="handled"
+      >
         <Text style={styles.label}>Post</Text>
         <Text style={styles.id}>#{post.id}</Text>
         <View style={styles.card}>
@@ -202,7 +231,7 @@ export default function PostDetailScreen() {
             <Text style={styles.deleteButtonText}>{deleting ? "Deleting..." : "Delete post"}</Text>
           </Pressable>
         ) : null}
-      </View>
+      </ScrollView>
     </>
   );
 }
@@ -281,7 +310,7 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       opacity: 0.56,
     },
     deleteButtonText: {
-      color: theme.colors.text.onBrand,
+      color: theme.colors.text.onSemantic,
       fontSize: 14,
       fontWeight: "800",
     },

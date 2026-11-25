@@ -20,6 +20,7 @@ pub struct ModelUser {
     pub blocked: HashSet<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ModelPost {
     pub id: u64,
@@ -29,6 +30,7 @@ pub struct ModelPost {
     pub liked_by: HashSet<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ModelPool {
     pub id: String,
@@ -36,6 +38,7 @@ pub struct ModelPool {
     pub token: String,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ModelProposal {
     pub id: u64,
@@ -49,6 +52,7 @@ pub struct ModelProposal {
     pub quorum_decay_rate_bps: u32,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum ProposalStatus {
     Active,
@@ -185,12 +189,45 @@ impl ContractModel {
         Ok(())
     }
 
-    fn is_blocked(&self, user_a: &str, user_b: &str) -> bool {
+    pub fn unblock(&mut self, blocker: String, blockee: String) -> Result<(), String> {
+        if blocker == blockee {
+            return Err("cannot unblock self".to_string());
+        }
+
+        if let Some(user) = self.users.get_mut(&blocker) {
+            user.blocked.remove(&blockee);
+        }
+
+        Ok(())
+    }
+
+    pub fn is_blocked(&self, user_a: &str, user_b: &str) -> bool {
         if let Some(user) = self.users.get(user_a) {
             user.blocked.contains(user_b)
         } else {
             false
         }
+    }
+
+    pub fn is_following(&self, follower: &str, followee: &str) -> bool {
+        self.users
+            .get(follower)
+            .map(|user| user.following.contains(followee))
+            .unwrap_or(false)
+    }
+
+    pub fn followers(&self, user: &str) -> HashSet<String> {
+        self.users
+            .get(user)
+            .map(|user| user.followers.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn following(&self, user: &str) -> HashSet<String> {
+        self.users
+            .get(user)
+            .map(|user| user.following.clone())
+            .unwrap_or_default()
     }
 
     // ── Post Operations ──
@@ -262,6 +299,9 @@ impl ContractModel {
         }
 
         let post = self.posts.get_mut(&post_id).ok_or("post not found")?;
+        if post.liked_by.contains(&liker) {
+            return Ok(());
+        }
         post.likes += 1;
         post.liked_by.insert(liker);
         Ok(())
@@ -364,6 +404,20 @@ impl ContractModel {
 
     pub fn get_tip_total(&self, post_id: u64) -> Option<i128> {
         self.posts.get(&post_id).map(|p| p.tip_total)
+    }
+
+    pub fn get_like_count(&self, post_id: u64) -> u64 {
+        self.posts
+            .get(&post_id)
+            .map(|p| p.likes)
+            .unwrap_or_default()
+    }
+
+    pub fn has_liked(&self, user: &str, post_id: u64) -> bool {
+        self.posts
+            .get(&post_id)
+            .map(|p| p.liked_by.contains(user))
+            .unwrap_or(false)
     }
 
     pub fn get_pool_balance(&self, pool_id: &str) -> Option<i128> {
@@ -586,7 +640,9 @@ mod tests {
         assert!(!model.users.get("alice").unwrap().following.contains("bob"));
 
         // Unblock does NOT restore the follow
-        model.users.get_mut("alice").unwrap().blocked.remove("bob");
+        model
+            .unblock("alice".to_string(), "bob".to_string())
+            .unwrap();
         assert!(!model.users.get("alice").unwrap().following.contains("bob"));
     }
 
@@ -604,7 +660,9 @@ mod tests {
         assert_eq!(model.posts.get(&1).unwrap().likes, 0);
 
         // Unblock does NOT restore the like
-        model.users.get_mut("alice").unwrap().blocked.remove("bob");
+        model
+            .unblock("alice".to_string(), "bob".to_string())
+            .unwrap();
         assert_eq!(model.posts.get(&1).unwrap().likes, 0);
     }
 
