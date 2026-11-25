@@ -1,3 +1,5 @@
+import { IncomingMessage } from "http";
+import { Duplex } from "stream";
 /**
  * WebSocket fanout handler.
  *
@@ -86,7 +88,7 @@ export const DEFAULT_MAX_DROPS_BEFORE_DISCONNECT = 1024;
 
 // ── Misc defaults ─────────────────────────────────────────────────────────────
 
-const DEFAULT_HEARTBEAT_MS = 15_000;
+const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_MAX_RATE_VIOLATIONS = 5;
 /** Maximum distinct event types accepted from one subscription frame. */
 export const MAX_SUBSCRIPTION_TOPICS = 10;
@@ -231,6 +233,7 @@ function drainQueue(ws: WebSocket, state: ClientState): void {
       return;
     }
     ws.send(frame, (err) => {
+      if (err) console.log("[DEBUG ws.send ERROR]:", err);
       if (err) {
         state.draining = false;
         state.sendQueue.length = 0;
@@ -250,7 +253,6 @@ export function attachWebSocketServer(
   bus: EventBus,
   opts: WsServerOptions = {}
 ): WsHandle {
-  const path = opts.path ?? "/ws";
   const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   const maxPayloadBytes = opts.maxPayloadBytes ?? wsMaxMessageBytesFromEnv();
 
@@ -266,10 +268,34 @@ export function attachWebSocketServer(
   const createBucket = opts.rateLimit?.createBucket ?? wsRateLimiterFromEnv;
   const maxRateViolations = opts.rateLimit?.maxViolations ?? DEFAULT_MAX_RATE_VIOLATIONS;
 
-  const wss = new WebSocketServer({ server: httpServer, path, maxPayload: maxPayloadBytes });
+  const acceptedPaths = new Set(
+    opts.paths ??
+      (opts.path
+        ? [opts.path, "/events/stream", "/api/events/stream"]
+        : ["/ws", "/events/stream", "/api/events/stream"])
+  );
+  const wss = new WebSocketServer({ noServer: true, maxPayload: maxPayloadBytes });
   const clients = new Map<WebSocket, ClientState>();
 
-  wss.on("connection", (ws: WebSocket) => {
+  const upgradeListener = (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    try {
+      const parsedUrl = new URL(req.url ?? "", `http://${req.headers?.host || "localhost"}`);
+      if (acceptedPaths.has(parsedUrl.pathname)) {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit("connection", ws, req);
+        });
+      }
+    } catch {
+      socket.destroy();
+    }
+  };
+
+  httpServer.on("upgrade", upgradeListener);
+
+  const replayBuffer: BusEvent[] = [];
+  const MAX_REPLAY_BUFFER = 1000;
+
+  wss.on("connection", (ws: WebSocket, req?: IncomingMessage) => {
     const state: ClientState = {
       isAlive: true,
       types: null,
@@ -282,6 +308,40 @@ export function attachWebSocketServer(
       draining: false,
     };
     clients.set(ws, state);
+
+    if (req?.url) {
+      try {
+        const parsedUrl = new URL(req.url, `http://${req.headers?.host || "localhost"}`);
+        const afterParam = parsedUrl.searchParams.get("after");
+        const afterSeq = afterParam !== null && afterParam !== "" ? Number(afterParam) : null;
+        if (afterSeq !== null && Number.isFinite(afterSeq)) {
+          if (opts.replayMissedEvents) {
+            Promise.resolve(opts.replayMissedEvents(afterSeq))
+              .then((missedEvents) => {
+                if (!missedEvents || ws.readyState !== WebSocket.OPEN) return;
+                for (const ev of missedEvents) {
+                  const frame = JSON.stringify({ type: ev.type, payload: ev });
+                  enqueue(state, frame, sendQueueDepth, maxDropsBeforeDisconnect);
+                }
+                setTimeout(() => drainQueue(ws, state), 50);
+              })
+              .catch((err) => {
+                logger.warn({ err }, "[ws] error replaying missed events");
+              });
+          } else {
+            const missed = replayBuffer.filter((e) => e.ledgerSequence > afterSeq);
+
+            for (const ev of missed) {
+              const frame = JSON.stringify({ type: ev.type, payload: ev });
+              enqueue(state, frame, sendQueueDepth, maxDropsBeforeDisconnect);
+            }
+            setTimeout(() => drainQueue(ws, state), 50);
+          }
+        }
+      } catch {
+        // ignore url parsing error
+      }
+    }
 
     if (authRequired) {
       state.authDeadlineTimer = setTimeout(() => {
@@ -348,6 +408,10 @@ export function attachWebSocketServer(
 
   // ── Bus → clients fanout ────────────────────────────────────────────────────
   const unsubscribe = bus.on(ALL_EVENTS, (event: BusEvent) => {
+    replayBuffer.push(event);
+    if (replayBuffer.length > MAX_REPLAY_BUFFER) {
+      replayBuffer.shift();
+    }
     const frame = JSON.stringify({ type: event.type, payload: event });
     for (const [ws, state] of clients) {
       if (ws.readyState !== WebSocket.OPEN) continue;
@@ -389,6 +453,7 @@ export function attachWebSocketServer(
       new Promise<void>((resolve) => {
         clearInterval(heartbeat);
         unsubscribe();
+        httpServer.removeListener("upgrade", upgradeListener);
 
         for (const [ws, state] of clients) {
           cleanup(state);

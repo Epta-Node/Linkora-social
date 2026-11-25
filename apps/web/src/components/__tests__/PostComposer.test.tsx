@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { PostComposer } from "../post/PostComposer";
+import { PostComposer, renderMarkdownToSafeHtml } from "../post/PostComposer";
 import { CharacterCounter } from "../post/CharacterCounter";
 
 /* ------------------------------------------------------------------ */
@@ -64,7 +64,7 @@ const baseProps = {
 function renderComposer(overrides: any = {}) {
   let onChangeContentMock: jest.Mock;
   const Wrapper: React.FC<{ children: (props: any) => React.ReactNode }> = ({ children }) => {
-    const [content, setContent] = useState("");
+    const [content, setContent] = useState(overrides.initialContent ?? "");
     onChangeContentMock = jest.fn((v: string) => setContent(v));
     const props = { ...baseProps, content, onChangeContent: onChangeContentMock, ...overrides };
     return <>{children(props)}</>;
@@ -96,9 +96,7 @@ describe("PostComposer", () => {
     const onLimitExceeded = jest.fn();
     const { textarea } = renderComposer({ characterLimit: 280, onLimitExceeded });
 
-    // Drive the component through its controlled prop so the effect sees the new value.
     fireEvent.input(textarea, { target: { value: "hello" } });
-
     expect(onLimitExceeded).toHaveBeenCalledWith(false);
   });
 
@@ -107,7 +105,6 @@ describe("PostComposer", () => {
     const { textarea } = renderComposer({ characterLimit: 10, onLimitExceeded });
 
     fireEvent.input(textarea, { target: { value: "abcdefghijk" } });
-
     expect(onLimitExceeded).toHaveBeenCalledWith(true);
   });
 
@@ -115,9 +112,7 @@ describe("PostComposer", () => {
     const onLimitExceeded = jest.fn();
     const { textarea } = renderComposer({ characterLimit: 4, onLimitExceeded });
 
-    // "😀" is 4 UTF-8 bytes.
     fireEvent.input(textarea, { target: { value: "😀" } });
-
     expect(onLimitExceeded).toHaveBeenCalledWith(false);
   });
 
@@ -125,9 +120,7 @@ describe("PostComposer", () => {
     const onLimitExceeded = jest.fn();
     const { textarea } = renderComposer({ characterLimit: 4, onLimitExceeded });
 
-    // "😀😀" is 8 UTF-8 bytes.
     fireEvent.input(textarea, { target: { value: "😀😀" } });
-
     expect(onLimitExceeded).toHaveBeenCalledWith(true);
   });
 
@@ -135,8 +128,57 @@ describe("PostComposer", () => {
     const { textarea } = renderComposer({ characterLimit: 280 });
 
     fireEvent.input(textarea, { target: { value: "Hello 😀" } });
-
-    // "Hello " = 6, "😀" = 4 => total 10 bytes.
     expect(screen.getByTestId("character-counter").textContent).toContain("10 / 280");
+  });
+
+  it("switches to Markdown preview tab and displays sanitized rendered HTML", () => {
+    renderComposer({ initialContent: "Hello **world** and *italic* and `code`" });
+
+    const previewTab = screen.getByRole("tab", { name: /preview/i });
+    fireEvent.click(previewTab);
+
+    expect(previewTab).toHaveAttribute("aria-selected", "true");
+    const previewPanel = screen.getByRole("tabpanel", { name: /preview/i });
+    expect(previewPanel.innerHTML).toContain("<strong>world</strong>");
+    expect(previewPanel.innerHTML).toContain("<em>italic</em>");
+    expect(previewPanel.innerHTML).toContain("code");
+  });
+
+  it("escapes malicious scripts in Markdown preview", () => {
+    const safeHtml = renderMarkdownToSafeHtml("<script>alert('xss')</script>");
+    expect(safeHtml).not.toContain("<script>");
+    expect(safeHtml).toContain("&lt;script&gt;");
+  });
+
+  it("applies bold markdown formatting when Bold toolbar button is clicked", () => {
+    const { onChangeContent } = renderComposer({ initialContent: "Hello" });
+    const boldBtn = screen.getByRole("button", { name: /bold/i });
+    fireEvent.click(boldBtn);
+
+    expect(onChangeContent).toHaveBeenCalled();
+  });
+
+  it("handles keyboard shortcuts Ctrl+B, Ctrl+I, Ctrl+K", () => {
+    const { onChangeContent, textarea } = renderComposer({ initialContent: "Text" });
+
+    // Ctrl+B
+    fireEvent.keyDown(textarea, { key: "b", ctrlKey: true });
+    expect(onChangeContent).toHaveBeenCalled();
+
+    // Ctrl+I
+    fireEvent.keyDown(textarea, { key: "i", ctrlKey: true });
+    expect(onChangeContent).toHaveBeenCalled();
+
+    // Ctrl+K
+    fireEvent.keyDown(textarea, { key: "k", ctrlKey: true });
+    expect(onChangeContent).toHaveBeenCalled();
+  });
+
+  it("invokes onClose when Escape key is pressed", () => {
+    const onClose = jest.fn();
+    const { textarea } = renderComposer({ onClose });
+
+    fireEvent.keyDown(textarea, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
