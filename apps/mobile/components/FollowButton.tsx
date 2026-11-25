@@ -1,6 +1,14 @@
 import React, { useEffect } from "react";
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import {
+  TouchableOpacity,
+  Text,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+  View,
+} from "react-native";
 import { useFollow } from "../hooks/useFollow";
+import { useNetwork } from "../hooks/useNetwork";
 import { impact } from "../utils/haptics";
 import { useHapticSettings } from "../hooks/useHapticSettings";
 
@@ -14,6 +22,7 @@ interface FollowButtonProps {
  */
 export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => {
   const { isFollowing, isLoading, toggleFollow, error } = useFollow(targetAddress);
+  const { isOffline } = useNetwork();
   const { hapticsEnabled } = useHapticSettings();
 
   useEffect(() => {
@@ -31,27 +40,35 @@ export const FollowButton: React.FC<FollowButtonProps> = ({ targetAddress }) => 
   }, [error, hapticsEnabled]);
 
   return (
-    <TouchableOpacity
-      style={[styles.button, isFollowing ? styles.followingButton : styles.followButton]}
-      onPress={() => {
-        // ImpactFeedbackStyle.Light on follow/unfollow tap — gated by user setting.
-        if (hapticsEnabled) void impact("light");
-        void toggleFollow();
-      }}
-      disabled={isLoading}
-      activeOpacity={0.7}
-      accessibilityRole="button"
-      accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
-      accessibilityState={{ disabled: isLoading, busy: isLoading, selected: isFollowing }}
-    >
-      {isLoading ? (
-        <ActivityIndicator color={isFollowing ? "#7C3AED" : "#FFFFFF"} size="small" />
-      ) : (
-        <Text style={[styles.text, isFollowing && styles.followingText]}>
-          {isFollowing ? "Following" : "Follow"}
-        </Text>
-      )}
-    </TouchableOpacity>
+    <View>
+      <TouchableOpacity
+        style={[styles.button, isFollowing ? styles.followingButton : styles.followButton]}
+        onPress={() => {
+          // ImpactFeedbackStyle.Light on follow/unfollow tap — gated by user setting.
+          if (hapticsEnabled) void impact("light");
+          void toggleFollow();
+        }}
+        disabled={isLoading || isOffline}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={isFollowing ? "Unfollow" : "Follow"}
+        accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
+        accessibilityState={{
+          disabled: isLoading || isOffline,
+          busy: isLoading,
+          selected: isFollowing,
+        }}
+      >
+        {isLoading ? (
+          <ActivityIndicator color={isFollowing ? "#7C3AED" : "#FFFFFF"} size="small" />
+        ) : (
+          <Text style={[styles.text, isFollowing && styles.followingText]}>
+            {isFollowing ? "Following" : "Follow"}
+          </Text>
+        )}
+      </TouchableOpacity>
+      {isOffline && <Text style={styles.offlineHint}>Unavailable while offline</Text>}
+    </View>
   );
 };
 
@@ -79,5 +96,11 @@ const styles = StyleSheet.create({
   },
   followingText: {
     color: "#7C3AED",
+  },
+  offlineHint: {
+    color: "#b91c1c",
+    fontSize: 11,
+    marginTop: 4,
+    textAlign: "center",
   },
 });

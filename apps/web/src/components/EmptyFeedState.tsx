@@ -5,12 +5,75 @@ import Link from "next/link";
 import { useOnboarding } from "@/contexts/OnboardingContext";
 
 interface EmptyFeedStateProps {
-  variant?: "following" | "explore";
+  variant?: "following" | "explore" | "no-results" | "search-error";
+  onClearFilters?: () => void;
+  onRetry?: () => void;
 }
 
-export function EmptyFeedState({ variant = "explore" }: EmptyFeedStateProps) {
+export function EmptyFeedState({
+  variant = "explore",
+  onClearFilters,
+  onRetry,
+}: EmptyFeedStateProps) {
   const { shouldShowOnboarding } = useOnboarding();
   const isFollowingEmpty = variant === "following";
+
+  if (variant === "no-results" || variant === "search-error") {
+    const failed = variant === "search-error";
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 240 160"
+          className="mb-6 h-40 w-60 text-violet-500"
+          fill="none"
+        >
+          <circle cx="112" cy="76" r="52" fill="currentColor" opacity=".1" />
+          <circle cx="112" cy="76" r="34" stroke="currentColor" strokeWidth="8" opacity=".75" />
+          <path d="m137 101 27 27" stroke="currentColor" strokeWidth="9" strokeLinecap="round" />
+          <path
+            d="M92 76h40M112 56v40"
+            stroke="currentColor"
+            strokeWidth="5"
+            strokeLinecap="round"
+            opacity=".45"
+          />
+          <path
+            d="M33 35h34M50 18v34M179 47h22M190 36v22"
+            stroke="currentColor"
+            strokeWidth="4"
+            strokeLinecap="round"
+            opacity=".35"
+          />
+        </svg>
+        <h2 className="text-2xl font-bold mb-3">
+          {failed ? "Search couldn't load" : "No posts found"}
+        </h2>
+        <p className="text-[var(--text-muted)] max-w-md mb-6">
+          {failed
+            ? "Check your connection and try the search again."
+            : "Try a different search or clear your filters to explore all posts."}
+        </p>
+        {failed ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="px-6 py-3 bg-violet-600 text-white font-semibold rounded-lg hover:bg-violet-700 transition-colors"
+          >
+            Retry
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onClearFilters}
+            className="px-6 py-3 bg-violet-600 text-white font-semibold rounded-lg hover:bg-violet-700 transition-colors"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (isFollowingEmpty) {
     return (

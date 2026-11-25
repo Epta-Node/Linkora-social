@@ -7,6 +7,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { useNetInfo } from "@react-native-community/netinfo";
 
 import {
   deleteNetworkSettings,
@@ -60,6 +61,7 @@ export interface NetworkContextType {
   rpcUrl: string;
   isMainnet: boolean;
   warning: string | null;
+  isOffline: boolean;
   ready: boolean;
   setSelectedNetwork: (network: StellarNetworkId) => Promise<void>;
   setRpcUrl: (rpcUrl: string) => Promise<void>;
@@ -107,6 +109,7 @@ function insecureRpcError(rpcUrl: string): string | null {
 }
 
 export function NetworkProvider({ children }: { children: ReactNode }): JSX.Element {
+  const netInfo = useNetInfo();
   const [settings, setSettingsState] = useState<NetworkSettings>(DEFAULT_SETTINGS);
   const [ready, setReady] = useState(false);
 
@@ -196,13 +199,24 @@ export function NetworkProvider({ children }: { children: ReactNode }): JSX.Elem
       rpcUrl: settings.rpcUrl,
       isMainnet: network.id === "MAINNET",
       warning,
+      isOffline: netInfo.isConnected === false,
       ready,
       setSelectedNetwork,
       setRpcUrl,
       resetRpcUrl,
       resetSettings,
     }),
-    [network, ready, resetRpcUrl, resetSettings, setRpcUrl, setSelectedNetwork, settings, warning]
+    [
+      network,
+      netInfo.isConnected,
+      ready,
+      resetRpcUrl,
+      resetSettings,
+      setRpcUrl,
+      setSelectedNetwork,
+      settings,
+      warning,
+    ]
   );
 
   return <NetworkContext.Provider value={value}>{children}</NetworkContext.Provider>;

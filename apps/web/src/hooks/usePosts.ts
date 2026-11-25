@@ -23,6 +23,7 @@ import { Post } from "@/components/PostCard";
 import { queryKeys } from "@/lib/queryKeys";
 import { toast } from "@/lib/toast";
 import { classifyError } from "./usePoolContract";
+import { getErrorMessage } from "@/lib/errorClassifier";
 import { useDeletePostMutation } from "./useDeletePostMutation";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -38,6 +39,7 @@ export interface OptimisticPost extends Post {
   error?: string;
   images?: string[];
   linkUrl?: string;
+  transactionHash?: string;
 }
 
 export interface AddPostInput {
@@ -153,6 +155,11 @@ export function usePosts() {
             : post
         )
       );
+      toast.success({
+        title: "Post published",
+        txHash: confirmedPost.transactionHash,
+        duration: 5000,
+      });
     },
 
     onError: (error, _postData, context) => {
@@ -160,11 +167,12 @@ export function usePosts() {
         queryClient.setQueryData<OptimisticPost[]>(queryKeys.posts, context.previous);
       }
 
-      const message = classifyError(error);
+      const message = getErrorMessage(error);
       setPostError(message);
       toast.error({
         title: "Post wasn't published",
         description: `${message}. Your draft is still in the composer.`,
+        duration: 5000,
       });
     },
 

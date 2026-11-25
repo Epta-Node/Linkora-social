@@ -3,6 +3,7 @@
 import { useState } from "react";
 import SearchBar from "../../components/SearchBar";
 import { ExploreGridSkeleton } from "@/components/skeletons";
+import { EmptyFeedState } from "@/components/EmptyFeedState";
 
 interface Post {
   id: string;
@@ -22,8 +23,11 @@ export default function ExplorePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [searchKey, setSearchKey] = useState(0);
 
   const handleSearch = async (query: string) => {
+    setQuery(query);
     setLoading(true);
     setError(null);
 
@@ -62,7 +66,7 @@ export default function ExplorePage() {
       <h1 className="text-3xl font-bold mb-8">Explore Posts</h1>
 
       <div className="mb-8">
-        <SearchBar onSearch={handleSearch} />
+        <SearchBar key={searchKey} onSearch={handleSearch} />
       </div>
 
       {loading && <ExploreGridSkeleton count={4} />}
@@ -71,6 +75,10 @@ export default function ExplorePage() {
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4" role="alert">
           {error}
         </div>
+      )}
+
+      {error && !loading && (
+        <EmptyFeedState variant="search-error" onRetry={() => void handleSearch(query)} />
       )}
 
       {posts.length > 0 && (
@@ -94,7 +102,14 @@ export default function ExplorePage() {
       )}
 
       {!loading && !error && posts.length === 0 && (
-        <div className="text-center py-8 text-gray-600">Enter a search query to find posts</div>
+        <EmptyFeedState
+          variant={query ? "no-results" : "explore"}
+          onClearFilters={() => {
+            setQuery("");
+            setPosts([]);
+            setSearchKey((key) => key + 1);
+          }}
+        />
       )}
     </div>
   );

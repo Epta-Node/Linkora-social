@@ -13,6 +13,7 @@ import { useRouter } from "expo-router";
 
 import { useLike } from "../hooks/useLike";
 import { useTheme } from "../theme/useTheme";
+import { useNetwork } from "../hooks/useNetwork";
 import { useToast } from "../context/ToastContext";
 import { useSubmitTx } from "../hooks/useSubmitTx";
 import { useWallet } from "../hooks/useWallet";
@@ -98,6 +99,7 @@ const QUICK_TIPS = [0.1, 1, 5];
 export function PostCard(props: PostCardProps) {
   const { theme } = useTheme();
   const router = useRouter();
+  const { isOffline } = useNetwork();
   const { post, timeLabel } = normalizePost(props);
   const [reduceMotion, setReduceMotion] = useState(false);
   useEffect(() => {
@@ -297,13 +299,14 @@ export function PostCard(props: PostCardProps) {
                   ? `Post already liked, ${likeCount} ${likeCount === 1 ? "like" : "likes"}`
                   : `Like post, currently ${likeCount} ${likeCount === 1 ? "like" : "likes"}`
               }
-              accessibilityState={{ disabled: liked || pending, selected: liked }}
-              disabled={liked || pending}
+              accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
+              accessibilityState={{ disabled: liked || pending || isOffline, selected: liked }}
+              disabled={liked || pending || isOffline}
               onPress={handleLikePress}
               style={({ pressed }) => [
                 styles.likeButton,
                 liked && styles.likeButtonLiked,
-                pressed && !liked && !pending && styles.likeButtonPressed,
+                pressed && !liked && !pending && !isOffline && styles.likeButtonPressed,
               ]}
             >
               <View style={styles.likeInner}>
@@ -325,6 +328,7 @@ export function PostCard(props: PostCardProps) {
             </Pressable>
             <Text style={styles.stat}>💰 {post.tip_total.toFixed(2)}</Text>
           </View>
+          {isOffline && <Text style={styles.offlineHint}>Unavailable while offline</Text>}
         </Animated.View>
 
         {isSwiped && (
@@ -503,6 +507,10 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
     },
     statLiked: {
       color: theme.colors.brand.primary,
+    },
+    offlineHint: {
+      color: theme.colors.semantic?.error ?? "#EF4444",
+      fontSize: 10,
     },
     skeletonBlock: {
       backgroundColor: theme.colors.surface.surface2,

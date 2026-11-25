@@ -4,10 +4,12 @@ import { useToast } from "../context/ToastContext";
 import { useWallet } from "./useWallet";
 import { useSubmitTx } from "./useSubmitTx";
 import { impact } from "../utils/haptics";
+import { useNetwork } from "./useNetwork";
 import { clearFeedAction, getFeedAction, queueFeedAction } from "../utils/db";
 
 export const useFollow = (targetAddress: string) => {
   const { address, connected } = useWallet();
+  const { isOffline } = useNetwork();
   const { showError } = useToast();
   const submitTx = useSubmitTx();
 
@@ -31,6 +33,13 @@ export const useFollow = (targetAddress: string) => {
   }, [address, targetAddress]);
 
   const toggleFollow = useCallback(async () => {
+    if (isOffline) {
+      const message = "You are offline. Follow actions are unavailable until your connection is restored.";
+      showError(message);
+      setError(new Error(message));
+      return;
+    }
+
     if (!connected || !address) {
       const message = "Connect your wallet to follow users.";
       showError(message);
@@ -65,7 +74,7 @@ export const useFollow = (targetAddress: string) => {
       }
       setIsLoading(false);
     }
-  }, [address, connected, isFollowing, targetAddress, submitTx, showError]);
+  }, [address, connected, isFollowing, isOffline, targetAddress, submitTx, showError]);
 
   return { isFollowing, isLoading, toggleFollow, error };
 };

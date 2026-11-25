@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-nati
 
 import { useTip, type TipToken } from "../hooks/useTip";
 import { useTheme } from "../theme/useTheme";
+import { useNetwork } from "../hooks/useNetwork";
 import { impact } from "../utils/haptics";
 import { useHapticSettings } from "../hooks/useHapticSettings";
 import { BottomSheet, SheetTextInput } from "./BottomSheet";
@@ -42,6 +43,7 @@ function parseAmount(value: string): number {
 
 export function TipModal({ visible, postId, authorName, onClose }: TipModalProps) {
   const { theme } = useTheme();
+  const { isOffline } = useNetwork();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const [amount, setAmount] = useState("");
   const [selectedToken, setSelectedToken] = useState<TipToken>(DEFAULT_TOKEN);
@@ -59,7 +61,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
   const parsedAmount = parseAmount(amount);
   const protocolFee = estimateProtocolFee(parsedAmount);
   const creatorAmount = Math.max(0, parsedAmount - protocolFee);
-  const canSubmit = !pending && Number.isFinite(parsedAmount) && parsedAmount > 0;
+  const canSubmit = !pending && !isOffline && Number.isFinite(parsedAmount) && parsedAmount > 0;
 
   const handleClose = () => {
     reset();
@@ -99,6 +101,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
           <Text style={styles.subtitle}>
             Tipping @{authorName} on post #{postId}
           </Text>
+        </View>
         </View>
         <Pressable
           accessibilityRole="button"
@@ -176,6 +179,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Confirm tip"
+        accessibilityHint={isOffline ? "Unavailable while offline" : undefined}
         accessibilityState={{ disabled: !canSubmit, busy: pending }}
         disabled={!canSubmit}
         onPress={handleSubmit}
@@ -187,6 +191,7 @@ export function TipModal({ visible, postId, authorName, onClose }: TipModalProps
           <Text style={styles.submitText}>Confirm Tip</Text>
         )}
       </Pressable>
+      {isOffline && <Text style={styles.offlineHint}>Unavailable while offline</Text>}
     </BottomSheet>
   );
 }
@@ -333,6 +338,12 @@ function createStyles(theme: ReturnType<typeof useTheme>["theme"]) {
       color: theme.colors.text.onBrand,
       fontSize: 15,
       fontWeight: "800",
+    },
+    offlineHint: {
+      color: theme.colors.semantic.error,
+      fontSize: 12,
+      marginTop: 8,
+      textAlign: "center",
     },
   });
 }

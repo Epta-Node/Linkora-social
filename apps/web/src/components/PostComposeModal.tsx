@@ -15,6 +15,8 @@ import {
 import { signTransaction } from "@stellar/freighter-api";
 import { RichTextComposer } from "./RichTextComposer";
 import { useDraft } from "@/hooks/useDraft";
+import { toast } from "@/lib/toast";
+import { getErrorMessage } from "@/lib/errorClassifier";
 
 const MAX_CONTENT_LENGTH = 280;
 const AMBER_THRESHOLD = 50;
@@ -169,19 +171,25 @@ export function PostComposeModal({ isOpen, onClose, publicKey }: PostComposeModa
           postId: newPostId,
           txHash: sendResponse.hash,
         });
+        toast.success({
+          title: "Post published",
+          txHash: sendResponse.hash,
+          duration: 5000,
+        });
 
         setTimeout(() => {
           onClose();
           router.push(`/posts/${newPostId}`);
         }, 1500);
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Failed to publish post";
+        const message = getErrorMessage(err);
         setPublishState({
           status: "error",
           errorMsg: message,
           postId: null,
           txHash: null,
         });
+        toast.error({ title: "Post wasn't published", description: message, duration: 5000 });
       }
     },
     [publicKey, onClose, router]
