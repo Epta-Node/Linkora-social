@@ -190,6 +190,9 @@ export interface IndexerConfig {
   // Graceful shutdown drain timeout (ms)
   shutdownTimeoutMs: number;
 
+  // CORS allowed origins
+  corsAllowedOrigins: string[];
+
   // Media uploads
   mediaUpload: MediaUploadConfig;
 }
@@ -325,6 +328,14 @@ export function loadConfig(): IndexerConfig {
     },
 
     shutdownTimeoutMs: optionalInt("SHUTDOWN_TIMEOUT_MS", 30_000),
+
+    corsAllowedOrigins: (() => {
+      const parsed = (process.env.CORS_ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGINS ?? "*")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      return parsed.length > 0 ? parsed : ["*"];
+    })(),
 
     mediaUpload: {
       maxUploadBytes: optionalInt("MEDIA_UPLOAD_MAX_MB", 20) * 1024 * 1024,

@@ -27,6 +27,7 @@ use validation::{
 #[contracttype]
 #[derive(Clone)]
 pub enum StorageKey {
+    AuthorLastPost(Address),
     Post(u64),                          // persistent: post_id -> Post
     Profile(Address),                   // persistent: user -> Profile
     Following(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
@@ -110,6 +111,8 @@ const TREASURY: Symbol = symbol_short!("TREASURY");
 const FEE_BPS: Symbol = symbol_short!("FEE_BPS");
 const INITIALIZED: Symbol = symbol_short!("INIT");
 const TIP_COOLDOWN_WINDOW: Symbol = symbol_short!("TIP_CD_W");
+pub const DEFAULT_MIN_POST_INTERVAL_SECONDS: u64 = 10;
+const MIN_POST_INTERVAL_KEY: Symbol = symbol_short!("POST_INT");
 const REGISTERED_USERS: Symbol = symbol_short!("R_USERS");
 const RENT_RATE_BPS_KEY: Symbol = symbol_short!("RENT_BPS");
 const MODERATION_SLASH_BPS: Symbol = symbol_short!("MOD_SL_B");
@@ -193,6 +196,7 @@ pub struct Post {
     pub tip_total: i128,
     pub timestamp: u64,
     pub like_count: u64,
+    pub removed: bool,
 }
 
 #[contracttype]
@@ -775,6 +779,15 @@ pub struct PostDeleted {
     pub post_id: u64,
     #[topic]
     pub author: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PostRemoved {
+    #[topic]
+    pub post_id: u64,
+    #[topic]
+    pub removed_by: Address,
 }
 
 #[contractevent]
@@ -2418,6 +2431,28 @@ impl LinkoraContract {
         validate_content(&env, &content);
         Self::require_not_paused(&env, PauseModule::Posts);
 
+        let min_interval = env
+            .storage()
+            .instance()
+            .get(&MIN_POST_INTERVAL_KEY)
+            .unwrap_or(DEFAULT_MIN_POST_INTERVAL_SECONDS);
+
+        let last_key = StorageKey::AuthorLastPost(author.clone());
+        let last_ts = env
+            .storage()
+            .persistent()
+            .get::<_, u64>(&last_key)
+            .unwrap_or(0);
+        let now = env.ledger().timestamp();
+        if min_interval > 0 && last_ts > 0 && now > 0 && now.saturating_sub(last_ts) < min_interval
+        {
+            panic!("rate limited");
+        }
+        if now > 0 {
+            env.storage().persistent().set(&last_key, &now);
+            Self::bump(&env, &last_key);
+        }
+
         Self::insert_post(&env, author, content)
     }
 
@@ -2456,6 +2491,7 @@ impl LinkoraContract {
                 tip_total: 0,
                 timestamp: env.ledger().timestamp(),
                 like_count: 0,
+                removed: false,
             },
         );
         Self::bump(env, &key);
@@ -2717,6 +2753,64 @@ impl LinkoraContract {
         }
 
         PostDeleted { post_id, author }.publish(&env);
+    }
+
+    pub fn remove_post(env: Env, caller: Address, post_id: u64) {
+        Self::bump_instance(&env);
+        caller.require_auth();
+        validate_non_default_address(&env, "caller", &caller);
+        require_with_error!(&env, post_id > 0, "post id must be positive");
+        Self::require_not_paused(&env, PauseModule::Posts);
+
+        let post_key = StorageKey::Post(post_id);
+        let mut post: Post = env
+            .storage()
+            .persistent()
+            .get(&post_key)
+            .unwrap_or_else(|| {
+                panic!("post does not exist: {}", post_id);
+            });
+
+        let is_author = post.author == caller;
+        let is_moderator = Self::has_role_internal(&env, &caller, Role::Moderator)
+            || Self::has_role_internal(&env, &caller, Role::Admin);
+
+        require_with_error!(
+            &env,
+            is_author || is_moderator,
+            "only author or moderator can remove post"
+        );
+
+        post.removed = true;
+        env.storage().persistent().set(&post_key, &post);
+        Self::bump(&env, &post_key);
+
+        PostRemoved {
+            post_id,
+            removed_by: caller,
+        }
+        .publish(&env);
+    }
+
+    pub fn set_min_post_interval_seconds(env: Env, admin: Address, interval: u64) {
+        Self::bump_instance(&env);
+        admin.require_auth();
+        validate_non_default_address(&env, "admin", &admin);
+        Self::require_role(&env, &admin, Role::Admin);
+        env.storage()
+            .instance()
+            .set(&MIN_POST_INTERVAL_KEY, &interval);
+    }
+
+    pub fn set_config(env: Env, admin: Address, interval: u64) {
+        Self::set_min_post_interval_seconds(env, admin, interval);
+    }
+
+    pub fn get_min_post_interval_seconds(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&MIN_POST_INTERVAL_KEY)
+            .unwrap_or(DEFAULT_MIN_POST_INTERVAL_SECONDS)
     }
 
     pub fn batch_cleanup_post(env: Env, post_id: u64, max_entries: u32) {

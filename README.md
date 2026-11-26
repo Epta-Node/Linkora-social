@@ -115,6 +115,7 @@ The complete, organized documentation index lives at [`docs/INDEX.md`](./docs/IN
 | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
 | [🚀 Getting Started Guide](./docs/GETTING_STARTED.md)              | **Start here** — zero to first PR walkthrough                         |
 | [Documentation Index](./docs/INDEX.md)                             | Master table of contents for all developer docs                       |
+| [Monorepo Developer Guide](./docs/MONOREPO_GUIDE.md)               | pnpm workspace structure, dependency management, and filter commands  |
 | [Contract API Reference](./docs/CONTRACT_API.md)                   | Full function reference, storage layout, and event schema             |
 | [SDK Reference](./docs/SDK_REFERENCE.md)                           | Typed TypeScript client, transaction queue, and event API             |
 | [SDK Quickstart](./docs/sdk/QUICKSTART.md)                         | Initialize the client and call profile, post, follow, and tip methods |
