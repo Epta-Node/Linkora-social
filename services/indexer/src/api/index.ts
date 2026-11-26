@@ -37,32 +37,20 @@ import { metricsText } from "../metrics";
 import { attachPoolMonitoring } from "../db-pool-monitor";
 import { CacheService, NoopCacheService } from "../cache";
 
-let warnedMissingAllowedOrigins = false;
-
-function corsMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const configuredOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+export function getCorsAllowedOrigins(): string[] {
+  const envVal = process.env.CORS_ALLOWED_ORIGINS ?? process.env.ALLOWED_ORIGINS ?? "*";
+  const origins = envVal
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  return origins.length > 0 ? origins : ["*"];
+}
 
-  const isProduction = process.env.NODE_ENV === "production";
-  let allowedOrigins = configuredOrigins;
-  if (allowedOrigins.length === 0) {
-    if (isProduction) {
-      if (!warnedMissingAllowedOrigins) {
-        logger.warn(
-          "No ALLOWED_ORIGINS set in production — CORS will reject all cross-origin requests"
-        );
-        warnedMissingAllowedOrigins = true;
-      }
-    } else {
-      // Permissive default for local development only.
-      allowedOrigins = ["*"];
-    }
-  }
-
+export function corsMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const allowedOrigins = getCorsAllowedOrigins();
   const allowAll = allowedOrigins.includes("*");
   const origin = req.headers.origin;
+
   if (origin && (allowAll || allowedOrigins.includes(origin))) {
     // Never echo the caller's Origin under a wildcard policy — that would
     // grant every site credentialed access. Only a specifically allow-listed

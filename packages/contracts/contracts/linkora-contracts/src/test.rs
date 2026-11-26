@@ -9894,3 +9894,99 @@ fn get_recent_posts_rejects_limit_over_max_page() {
 
     client.get_recent_posts(&0, &51);
 }
+
+#[test]
+fn test_create_post_rate_limited() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+    let (client, _, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+
+    client.create_post(&author, &String::from_str(&env, "hello world 1"));
+
+    // Advance time by 5 seconds (less than 10 seconds default cooldown)
+    env.ledger().set_timestamp(105);
+
+    // Should fail with RateLimitExceeded (or panic)
+    client.create_post(&author, &String::from_str(&env, "hello world 2"));
+}
+
+#[test]
+fn test_create_post_cooldown_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(100);
+    let (client, _, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+
+    let id1 = client.create_post(&author, &String::from_str(&env, "hello world 1"));
+    assert_eq!(id1, 1);
+
+    // Advance time by 10 seconds (cooldown elapsed)
+    env.ledger().set_timestamp(110);
+
+    let id2 = client.create_post(&author, &String::from_str(&env, "hello world 2"));
+    assert_eq!(id2, 2);
+}
+
+#[test]
+fn test_create_post_configurable_rate_limit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    client.set_min_post_interval_seconds(&admin, &30);
+    assert_eq!(client.get_min_post_interval_seconds(), 30);
+
+    // Also test alias set_config
+    client.set_config(&admin, &25);
+    assert_eq!(client.get_min_post_interval_seconds(), 25);
+}
+
+#[test]
+fn test_remove_post_by_author() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "post to remove"));
+    let post_before = client.get_post(&post_id);
+    assert_eq!(post_before.unwrap().removed, false);
+
+    client.remove_post(&author, &post_id);
+
+    let post_after = client.get_post(&post_id);
+    assert_eq!(post_after.unwrap().removed, true);
+}
+
+#[test]
+fn test_remove_post_by_moderator() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+    let moderator = Address::generate(&env);
+
+    client.grant_role(&admin, &moderator, &Role::Moderator);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "moderated post"));
+    client.remove_post(&moderator, &post_id);
+
+    let post_after = client.get_post(&post_id);
+    assert_eq!(post_after.unwrap().removed, true);
+}
+
+#[test]
+#[should_panic]
+fn test_remove_post_by_unrelated_address_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _, _) = setup_contract(&env);
+    let author = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    let post_id = client.create_post(&author, &String::from_str(&env, "post to fail"));
+    client.remove_post(&stranger, &post_id);
+}
