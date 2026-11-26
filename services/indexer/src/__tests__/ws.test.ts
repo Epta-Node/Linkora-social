@@ -78,6 +78,14 @@ async function stopHarness(h: Harness): Promise<void> {
   await new Promise<void>((resolve) => h.server.close(() => resolve()));
 }
 
+function connectPath(port: number, path: string): Promise<WebSocket> {
+  const ws = new WebSocket(`ws://localhost:${port}${path}`);
+  return new Promise((resolve, reject) => {
+    ws.on("open", () => resolve(ws));
+    ws.on("error", reject);
+  });
+}
+
 function connect(port: number): Promise<WebSocket> {
   const ws = new WebSocket(`ws://localhost:${port}/ws`);
   return new Promise((resolve, reject) => {
@@ -673,5 +681,83 @@ describe("WebSocket auth challenge timeout (issue #1884)", () => {
   it("falls back to 10s for an invalid WS_AUTH_TIMEOUT_MS", () => {
     process.env.WS_AUTH_TIMEOUT_MS = "not-a-number";
     expect(authTimeoutMsFromEnv()).toBe(DEFAULT_AUTH_TIMEOUT_MS);
+  });
+});
+
+// ── Real-time events stream with replay (issue #1960) ─────────────────────────
+
+describe("WebSocket real-time events stream with replay (issue #1960)", () => {
+  let h: Harness;
+
+  beforeEach(async () => {
+    h = await startHarness({ heartbeatMs: 30_000 });
+  });
+
+  afterEach(async () => {
+    if (h) await stopHarness(h);
+  });
+
+  it("upgrades connection to WebSocket on /events/stream", async () => {
+    const ws = await connectPath(h.port, "/events/stream");
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    ws.close();
+  });
+
+  it("pushes new events within 1s latency", async () => {
+    const ws = await connectPath(h.port, "/events/stream");
+    const received: BusEvent[] = [];
+    const startTime = Date.now();
+    let deliveryTime = 0;
+
+    ws.on("message", (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === "PostCreated") {
+        deliveryTime = Date.now() - startTime;
+        received.push(msg.payload);
+      }
+    });
+
+    h.bus.publish(busEvent("PostCreated", 100));
+    await waitFor(() => received.length === 1);
+    expect(deliveryTime).toBeLessThan(1000);
+    expect(received[0].ledgerSequence).toBe(100);
+    ws.close();
+  });
+
+  it("replays missed events when client connects with after=<last_seq>", async () => {
+    h.bus.publish(busEvent("PostCreated", 101));
+    h.bus.publish(busEvent("PostCreated", 102));
+    h.bus.publish(busEvent("PostCreated", 103));
+
+    const ws = await connectPath(h.port, "/events/stream?after=101");
+    const received: BusEvent[] = [];
+    ws.on("message", (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === "PostCreated") {
+        received.push(msg.payload);
+      }
+    });
+
+    await waitFor(() => received.length === 2);
+    expect(received.map((e) => e.ledgerSequence)).toEqual([102, 103]);
+    ws.close();
+  });
+
+  it("closes stale connection that misses heartbeat ACKs", async () => {
+    const fastH = await startHarness({ heartbeatMs: 50 });
+    const ws = await connectPath(fastH.port, "/events/stream");
+
+    // Suppress pong response so client appears stale/unresponsive
+    // @ts-expect-error accessing internals to suppress auto-pong
+    ws.pong = () => {};
+
+    let closed = false;
+    ws.on("close", () => {
+      closed = true;
+    });
+
+    await waitFor(() => closed, 2000);
+    expect(closed).toBe(true);
+    await stopHarness(fastH);
   });
 });
