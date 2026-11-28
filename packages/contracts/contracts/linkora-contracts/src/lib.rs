@@ -32,6 +32,9 @@ pub enum StorageKey {
     Following(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
     Followers(Address), // persistent: user -> Vec<Address> (LEGACY — kept for migration)
     Pool(Symbol),       // persistent: pool_id -> Pool
+    PoolMember(Symbol, Address), // persistent: (pool_id, member) -> bool
+    PoolGateToken(Symbol), // persistent: pool_id -> Address
+    PoolGateMinBalance(Symbol), // persistent: pool_id -> i128
     Like(u64, Address), // persistent: (post_id, user) -> bool
     AuthorPosts(Address), // persistent: author -> Vec<u64> of post IDs
     Blocks(Address),    // persistent: blocker -> Map<Address, ()>
@@ -713,6 +716,17 @@ pub struct PoolCreatedEvent {
     pub token: Address,
     pub admins: Vec<Address>,
     pub threshold: u32,
+}
+
+#[contractevent]
+#[derive(Clone)]
+pub struct PoolJoinedEvent {
+    #[topic]
+    pub version: u32,
+    #[topic]
+    pub pool_id: Symbol,
+    #[topic]
+    pub member: Address,
 }
 
 #[contractevent]
@@ -3068,6 +3082,19 @@ impl LinkoraContract {
         initial_admins: Vec<Address>,
         threshold: u32,
     ) {
+        Self::create_pool_with_gate(env, admin, pool_id, token, initial_admins, threshold, None, 0);
+    }
+
+    pub fn create_pool_with_gate(
+        env: Env,
+        admin: Address,
+        pool_id: Symbol,
+        token: Address,
+        initial_admins: Vec<Address>,
+        threshold: u32,
+        gate_token: Option<Address>,
+        min_balance: i128,
+    ) {
         Self::bump_instance(&env);
         Self::require_not_paused(&env, PauseModule::Pools);
         admin.require_auth();
@@ -3082,6 +3109,17 @@ impl LinkoraContract {
             threshold > 0 && threshold <= initial_admins.len(),
             "threshold cannot exceed admin count"
         );
+
+        if let Some(ref gt) = gate_token {
+            validate_non_default_address(&env, "gate_token", gt);
+            assert!(min_balance > 0, "min balance must be positive");
+            let gate_token_key = StorageKey::PoolGateToken(pool_id.clone());
+            let gate_min_key = StorageKey::PoolGateMinBalance(pool_id.clone());
+            env.storage().persistent().set(&gate_token_key, gt);
+            env.storage().persistent().set(&gate_min_key, &min_balance);
+            Self::bump(&env, &gate_token_key);
+            Self::bump(&env, &gate_min_key);
+        }
 
         // Clone admins for event payload before moving into storage
         let admins_for_event = initial_admins.clone();
@@ -3105,6 +3143,48 @@ impl LinkoraContract {
             threshold,
         }
         .publish(&env);
+    }
+
+    pub fn join_pool(env: Env, caller: Address, pool_id: Symbol) {
+        Self::bump_instance(&env);
+        Self::require_not_paused(&env, PauseModule::Pools);
+        caller.require_auth();
+        validate_non_default_address(&env, "caller", &caller);
+
+        let key = StorageKey::Pool(pool_id.clone());
+        let _pool: Pool = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .expect("pool not found");
+
+        let gate_token_key = StorageKey::PoolGateToken(pool_id.clone());
+        if let Some(gate_token) = env.storage().persistent().get::<_, Address>(&gate_token_key) {
+            let gate_min_key = StorageKey::PoolGateMinBalance(pool_id.clone());
+            let min_balance: i128 = env.storage().persistent().get(&gate_min_key).unwrap_or(0);
+            let token_client = token::Client::new(&env, &gate_token);
+            let balance: i128 = token_client.balance(&caller);
+            if balance < min_balance {
+                panic!("insufficient balance for pool entry");
+            }
+        }
+
+        let member_key = StorageKey::PoolMember(pool_id.clone(), caller.clone());
+        assert!(!env.storage().persistent().has(&member_key), "already a member");
+        env.storage().persistent().set(&member_key, &true);
+        Self::bump(&env, &member_key);
+
+        PoolJoinedEvent {
+            version: EVENT_VERSION,
+            pool_id,
+            member: caller,
+        }
+        .publish(&env);
+    }
+
+    pub fn is_pool_member(env: Env, pool_id: Symbol, member: Address) -> bool {
+        let member_key = StorageKey::PoolMember(pool_id, member);
+        env.storage().persistent().get(&member_key).unwrap_or(false)
     }
 
     pub fn pool_deposit(

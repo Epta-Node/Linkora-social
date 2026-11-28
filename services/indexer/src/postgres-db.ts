@@ -501,11 +501,19 @@ export class PostgresDatabase implements Database {
     author?: string;
     limit: number;
     cursor?: string;
+    q?: string;
   }): Promise<{ posts: Post[]; nextCursor: string | null }> {
-    const { author, limit, cursor } = filters;
+    const { author, limit, cursor, q } = filters;
 
     const params: unknown[] = [author ?? null];
     let whereExtra = "";
+    let qParamIndex: number | undefined;
+
+    if (q && q.trim().length > 0) {
+      params.push(q.trim());
+      qParamIndex = params.length;
+      whereExtra += ` AND (search_vector @@ plainto_tsquery('english', $${qParamIndex}) OR content ILIKE '%' || $${qParamIndex} || '%')`;
+    }
 
     if (cursor !== undefined) {
       let decoded: string;
@@ -548,7 +556,7 @@ export class PostgresDatabase implements Database {
       FROM posts
       WHERE ($1::text IS NULL OR author = $1)
       ${whereExtra}
-      ORDER BY created_at DESC, id DESC
+      ${qParamIndex ? `ORDER BY ts_rank(search_vector, plainto_tsquery('english', $${qParamIndex})) DESC, created_at DESC, id DESC` : `ORDER BY created_at DESC, id DESC`}
       LIMIT ${limitParam}
       `,
       params

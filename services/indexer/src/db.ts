@@ -224,6 +224,7 @@ export interface Database {
     author?: string;
     limit: number;
     cursor?: string;
+    q?: string;
   }): Promise<{ posts: Post[]; nextCursor: string | null }>;
 
   /**

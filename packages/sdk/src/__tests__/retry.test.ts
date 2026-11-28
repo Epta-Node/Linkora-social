@@ -1,3 +1,5 @@
+import { LinkoraClient } from "../client.js";
+import { NotFoundError, TryAgainLaterError } from "../errors.js";
 import {
   backoffWithJitter,
   parseRetryAfter,
@@ -279,5 +281,88 @@ describe("Size Estimation & Soroban Limits (Issues #1353, #1347)", () => {
       expect(overBudgetReport.withinLimits).toBe(false);
       expect(overBudgetReport.warnings.length).toBe(2);
     });
+  });
+});
+
+
+describe("LinkoraClient automatic transaction retry (#1957)", () => {
+  const contractId = "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM";
+  const rpcUrl = "https://soroban-testnet.stellar.org";
+
+  it("retries on retryable errors and succeeds when operation eventually resolves", async () => {
+    const client = new LinkoraClient({
+      contractId,
+      rpcUrl,
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 10, maxDelayMs: 50 },
+    });
+
+    const retryingEvents: Array<{ attempt: number; delayMs: number }> = [];
+    client.on("retrying", (ev) => {
+      retryingEvents.push(ev);
+    });
+
+    let calls = 0;
+    const result = await client.executeWithRetry(async () => {
+      calls++;
+      if (calls < 3) {
+        throw new TryAgainLaterError("Server busy, try again later");
+      }
+      return "success";
+    });
+
+    expect(result).toBe("success");
+    expect(calls).toBe(3);
+    expect(retryingEvents).toHaveLength(2);
+    expect(retryingEvents[0]).toEqual({ attempt: 1, delayMs: 10 });
+    expect(retryingEvents[1]).toEqual({ attempt: 2, delayMs: 20 });
+  });
+
+  it("re-throws original error when maxAttempts are exhausted", async () => {
+    const client = new LinkoraClient({
+      contractId,
+      rpcUrl,
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 5, maxDelayMs: 20 },
+    });
+
+    const retryingEvents: Array<{ attempt: number; delayMs: number }> = [];
+    client.on("retrying", (ev) => {
+      retryingEvents.push(ev);
+    });
+
+    let calls = 0;
+    const retryableErr = { status: 503, message: "Service Unavailable" };
+    await expect(
+      client.executeWithRetry(async () => {
+        calls++;
+        throw retryableErr;
+      })
+    ).rejects.toEqual(retryableErr);
+
+    expect(calls).toBe(3);
+    expect(retryingEvents).toHaveLength(2);
+    expect(retryingEvents[0]).toEqual({ attempt: 1, delayMs: 5 });
+    expect(retryingEvents[1]).toEqual({ attempt: 2, delayMs: 10 });
+  });
+
+  it("immediately re-throws non-retryable errors without retrying", async () => {
+    const client = new LinkoraClient({
+      contractId,
+      rpcUrl,
+      retryPolicy: { maxAttempts: 3, baseDelayMs: 5, maxDelayMs: 20 },
+    });
+
+    const retryingEvents: any[] = [];
+    client.on("retrying", (ev) => retryingEvents.push(ev));
+
+    let calls = 0;
+    await expect(
+      client.executeWithRetry(async () => {
+        calls++;
+        throw new NotFoundError("Not found");
+      })
+    ).rejects.toThrow(NotFoundError);
+
+    expect(calls).toBe(1);
+    expect(retryingEvents).toHaveLength(0);
   });
 });

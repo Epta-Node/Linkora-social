@@ -33,6 +33,25 @@ export const DEFAULT_RETRY_CONFIG: Readonly<RetryConfig> = {
   circuitBreakerThreshold: 5,
 };
 
+/**
+ * Tunables for automatic transaction retry with exponential back-off.
+ */
+export interface RetryPolicy {
+  /** Maximum number of attempts before giving up. */
+  maxAttempts: number;
+  /** Base delay in ms for the exponential backoff calculation. */
+  baseDelayMs: number;
+  /** Maximum delay cap in ms. */
+  maxDelayMs: number;
+}
+
+export const DEFAULT_RETRY_POLICY: Readonly<RetryPolicy> = {
+  maxAttempts: 3,
+  baseDelayMs: 500,
+  maxDelayMs: 10_000,
+};
+
+
 type EnvLike = Record<string, string | undefined>;
 
 function readInt(env: EnvLike, key: string, fallback: number): number {

@@ -146,4 +146,34 @@ describe("GET /posts — cursor pagination", () => {
       cursor: page1Cursor,
     });
   });
+
+  it("forwards search query q to the database", async () => {
+    const listPostsCursor = jest.fn().mockResolvedValue({ posts: [], nextCursor: null });
+    const db = makeDb({ listPostsCursor });
+    const app = buildApp(db);
+
+    const res = await request(app).get("/posts?q=stellar");
+    expect(res.status).toBe(200);
+    expect(listPostsCursor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        q: "stellar",
+      })
+    );
+  });
+
+  it("forwards q, author, limit, and cursor together", async () => {
+    const cursor = encodeCursor("2026-01-01T00:00:00.000Z", "10");
+    const listPostsCursor = jest.fn().mockResolvedValue({ posts: [], nextCursor: null });
+    const db = makeDb({ listPostsCursor });
+    const app = buildApp(db);
+
+    const res = await request(app).get(`/posts?q=web3&author=GAA&limit=5&cursor=${cursor}`);
+    expect(res.status).toBe(200);
+    expect(listPostsCursor).toHaveBeenCalledWith({
+      author: "GAA",
+      limit: 5,
+      cursor,
+      q: "web3",
+    });
+  });
 });
