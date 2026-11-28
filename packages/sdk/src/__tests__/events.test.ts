@@ -1,3 +1,11 @@
+import {
+  parsePostCreatedEvent,
+  parseTipSentEvent,
+  parseFollowedEvent,
+  parsePoolJoinedEvent,
+  parsePostRemovedEvent,
+  ParseError,
+} from "../events.js";
 /**
  * events.test.ts
  *
@@ -1157,6 +1165,159 @@ describe("CursorStore backends", () => {
     it("allows cleanup without active event loop", async () => {
       const sub = makeSub();
       await expect(sub.destroy()).resolves.not.toThrow();
+    });
+  });
+});
+
+
+describe("Typed Soroban Event Parsers (#1958)", () => {
+  describe("parsePostCreatedEvent", () => {
+    it("parses valid PostCreatedEvent", () => {
+      const raw = {
+        topics: [toBase64({ __native: "post_created" }), toBase64({ __native: 1 })],
+        data: toBase64({
+          __native: {
+            id: 42n,
+            author: "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+          },
+        }),
+      };
+      const result = parsePostCreatedEvent(raw as any);
+      expect(result).toEqual({
+        id: 42n,
+        author: "GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H",
+        version: 1,
+      });
+    });
+
+    it("throws ParseError on malformed or missing fields", () => {
+      expect(() => parsePostCreatedEvent({} as any)).toThrow(ParseError);
+      expect(() =>
+        parsePostCreatedEvent({
+          topics: [toBase64({ __native: "post_created" })],
+          data: toBase64({ __native: { id: 42n } }), // missing author
+        } as any)
+      ).toThrow(ParseError);
+    });
+  });
+
+  describe("parseTipSentEvent", () => {
+    it("parses valid TipSentEvent", () => {
+      const raw = {
+        topics: [toBase64({ __native: "tip" }), toBase64({ __native: 1 })],
+        data: toBase64({
+          __native: {
+            tipper: "GA111",
+            postId: 10n,
+            amount: 500n,
+            fee: 5n,
+          },
+        }),
+      };
+      const result = parseTipSentEvent(raw as any);
+      expect(result).toEqual({
+        tipper: "GA111",
+        postId: 10n,
+        amount: 500n,
+        fee: 5n,
+        version: 1,
+      });
+    });
+
+    it("throws ParseError on malformed or missing fields", () => {
+      expect(() =>
+        parseTipSentEvent({
+          topics: [toBase64({ __native: "tip" })],
+          data: toBase64({ __native: { tipper: "GA111" } }), // missing postId and amount
+        } as any)
+      ).toThrow(ParseError);
+    });
+  });
+
+  describe("parseFollowedEvent", () => {
+    it("parses valid FollowedEvent", () => {
+      const raw = {
+        topics: [toBase64({ __native: "follow" }), toBase64({ __native: 1 })],
+        data: toBase64({
+          __native: {
+            follower: "GA111",
+            followee: "GB222",
+          },
+        }),
+      };
+      const result = parseFollowedEvent(raw as any);
+      expect(result).toEqual({
+        follower: "GA111",
+        followee: "GB222",
+        version: 1,
+      });
+    });
+
+    it("throws ParseError on missing followee", () => {
+      expect(() =>
+        parseFollowedEvent({
+          topics: [toBase64({ __native: "follow" })],
+          data: toBase64({ __native: { follower: "GA111" } }),
+        } as any)
+      ).toThrow(ParseError);
+    });
+  });
+
+  describe("parsePoolJoinedEvent", () => {
+    it("parses valid PoolJoinedEvent", () => {
+      const raw = {
+        topics: [toBase64({ __native: "pool_joined" }), toBase64({ __native: 1 })],
+        data: toBase64({
+          __native: {
+            poolId: "community_pool",
+            member: "GA111",
+          },
+        }),
+      };
+      const result = parsePoolJoinedEvent(raw as any);
+      expect(result).toEqual({
+        poolId: "community_pool",
+        member: "GA111",
+        version: 1,
+      });
+    });
+
+    it("throws ParseError on missing member", () => {
+      expect(() =>
+        parsePoolJoinedEvent({
+          topics: [toBase64({ __native: "pool_joined" })],
+          data: toBase64({ __native: { poolId: "pool" } }),
+        } as any)
+      ).toThrow(ParseError);
+    });
+  });
+
+  describe("parsePostRemovedEvent", () => {
+    it("parses valid PostRemovedEvent", () => {
+      const raw = {
+        topics: [toBase64({ __native: "post_removed" }), toBase64({ __native: 1 })],
+        data: toBase64({
+          __native: {
+            postId: 99n,
+            reporter: "GMOD111",
+          },
+        }),
+      };
+      const result = parsePostRemovedEvent(raw as any);
+      expect(result).toEqual({
+        postId: 99n,
+        reporter: "GMOD111",
+        version: 1,
+      });
+    });
+
+    it("throws ParseError on missing postId", () => {
+      expect(() =>
+        parsePostRemovedEvent({
+          topics: [toBase64({ __native: "post_removed" })],
+          data: toBase64({ __native: { reporter: "GMOD111" } }),
+        } as any)
+      ).toThrow(ParseError);
     });
   });
 });

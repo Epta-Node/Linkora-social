@@ -13,6 +13,7 @@ import { Database } from "../../db";
 
 const listPostsQuerySchema = cursorPaginationSchema.extend({
   author: z.string().optional(),
+  q: z.string().optional(),
 });
 
 const postIdParamsSchema = z.object({
@@ -281,7 +282,7 @@ export function createPostsRouter(
     "/",
     validateQuery(listPostsQuerySchema),
     async (req: Request, res: Response): Promise<void> => {
-      const { author, limit, cursor } = req.query as unknown as z.infer<
+      const { author, limit, cursor, q } = req.query as unknown as z.infer<
         typeof listPostsQuerySchema
       >;
 
@@ -289,6 +290,7 @@ export function createPostsRouter(
         author: author || undefined,
         limit,
         cursor: cursor || undefined,
+        q: q || undefined,
       });
       res.json({
         posts,

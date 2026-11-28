@@ -9894,3 +9894,119 @@ fn get_recent_posts_rejects_limit_over_max_page() {
 
     client.get_recent_posts(&0, &51);
 }
+
+#[test]
+fn test_join_pool_with_token_gate_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let pool_token = setup_token(&env, &pool_admin);
+
+    let gate_admin = Address::generate(&env);
+    let gate_token = setup_token(&env, &gate_admin);
+
+    let member = Address::generate(&env);
+    StellarAssetClient::new(&env, &gate_token).mint(&member, &500);
+
+    let non_member = Address::generate(&env);
+
+    let pool_id = symbol_short!("gated");
+    client.create_pool_with_gate(
+        &admin,
+        &pool_id,
+        &pool_token,
+        &vec![&env, pool_admin],
+        &1,
+        &Some(gate_token), &500i128,
+    );
+
+    assert!(!client.is_pool_member(&pool_id, &member));
+    client.join_pool(&member, &pool_id);
+    assert!(client.is_pool_member(&pool_id, &member));
+    assert!(!client.is_pool_member(&pool_id, &non_member));
+}
+
+#[test]
+#[should_panic(expected = "insufficient balance for pool entry")]
+fn test_join_pool_insufficient_balance_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let pool_token = setup_token(&env, &pool_admin);
+
+    let gate_admin = Address::generate(&env);
+    let gate_token = setup_token(&env, &gate_admin);
+
+    let underfunded = Address::generate(&env);
+    StellarAssetClient::new(&env, &gate_token).mint(&underfunded, &499);
+
+    let pool_id = symbol_short!("gated2");
+    client.create_pool_with_gate(
+        &admin,
+        &pool_id,
+        &pool_token,
+        &vec![&env, pool_admin],
+        &1,
+        &Some(gate_token), &500i128,
+    );
+
+    client.join_pool(&underfunded, &pool_id);
+}
+
+#[test]
+#[should_panic(expected = "already a member")]
+fn test_join_pool_already_member_panics() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let pool_token = setup_token(&env, &pool_admin);
+
+    let gate_admin = Address::generate(&env);
+    let gate_token = setup_token(&env, &gate_admin);
+
+    let member = Address::generate(&env);
+    StellarAssetClient::new(&env, &gate_token).mint(&member, &1000);
+
+    let pool_id = symbol_short!("gated3");
+    client.create_pool_with_gate(
+        &admin,
+        &pool_id,
+        &pool_token,
+        &vec![&env, pool_admin],
+        &1,
+        &Some(gate_token), &500i128,
+    );
+
+    client.join_pool(&member, &pool_id);
+    client.join_pool(&member, &pool_id);
+}
+
+#[test]
+fn test_join_pool_without_token_gate_success() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, _) = setup_contract(&env);
+
+    let pool_admin = Address::generate(&env);
+    let pool_token = setup_token(&env, &pool_admin);
+
+    let member = Address::generate(&env);
+    let pool_id = symbol_short!("ungated");
+    client.create_pool(
+        &admin,
+        &pool_id,
+        &pool_token,
+        &vec![&env, pool_admin],
+        &1,
+    );
+
+    assert!(!client.is_pool_member(&pool_id, &member));
+    client.join_pool(&member, &pool_id);
+    assert!(client.is_pool_member(&pool_id, &member));
+}

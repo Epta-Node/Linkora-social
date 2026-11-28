@@ -215,7 +215,8 @@ CREATE TABLE public.posts (
     created_at timestamp without time zone NOT NULL,
     deleted_at timestamp without time zone,
     content_tsv tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, COALESCE(content, ''::text))) STORED,
-    tags text[] DEFAULT '{}'::text[]
+    tags text[] DEFAULT '{}'::text[],
+    search_vector tsvector GENERATED ALWAYS AS (to_tsvector('english'::regconfig, COALESCE(content, ''::text))) STORED
 );
 CREATE MATERIALIZED VIEW public.post_scores AS
  SELECT id,
@@ -551,6 +552,8 @@ CREATE INDEX idx_post_scores_tags ON public.post_scores USING gin (tags);
 CREATE INDEX idx_posts_active ON public.posts USING btree (created_at DESC) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_posts_author ON public.posts USING btree (author);
 CREATE INDEX idx_posts_content_fts ON public.posts USING gin (content_tsv);
+CREATE INDEX idx_posts_search_vector ON public.posts USING gin (search_vector);
+CREATE INDEX idx_posts_content_trgm ON public.posts USING gin (content public.gin_trgm_ops);
 CREATE INDEX idx_posts_created_at ON public.posts USING btree (created_at DESC);
 CREATE INDEX idx_posts_deleted_at ON public.posts USING btree (deleted_at);
 CREATE INDEX idx_posts_tags ON public.posts USING gin (tags);

@@ -33,6 +33,7 @@ import {
   LinkoraError,
   VersionMismatchError,
   ReadResult,
+  TryAgainLaterError,
 } from "./errors.js";
 import { ClassicAccountClient, ClassicBalance } from "./classic.js";
 import { ContractState } from "./state.js";
@@ -44,6 +45,7 @@ import {
   ConnectionStatusCallback,
   type RpcHealthResult,
 } from "./health.js";
+import { RetryPolicy, DEFAULT_RETRY_POLICY } from "./config.js";
 import { fetchWithTimeout } from "./utils/fetch.js";
 import {
   createRpcClientAdapter,
@@ -224,6 +226,8 @@ export interface ClientConfig {
   allowHttp?: boolean;
   /** Horizon URL for account sequence fetching. If not provided, defaults based on networkPassphrase. */
   horizonUrl?: string;
+  /** Retry policy for transient RPC and submission failures. */
+  retryPolicy?: Partial<RetryPolicy>;
 }
 
 export interface DeployCreatorTokenParams {
@@ -270,8 +274,14 @@ export class LinkoraClient extends GeneratedLinkoraClient {
   private readonly _allowHttp: boolean;
   private readonly _horizonUrl?: string;
   private readonly _rpcServer: rpc.Server;
+  private readonly _retryPolicy: RetryPolicy;
+  private readonly _listeners: Map<string, Set<Function>> = new Map();
 
   constructor(config: ClientConfig) {
+    this._retryPolicy = {
+      ...DEFAULT_RETRY_POLICY,
+      ...(config.retryPolicy ?? {}),
+    };
     super({
       contractId: config.contractId,
       rpcUrl: config.rpcUrl,
